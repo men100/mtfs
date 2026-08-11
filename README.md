@@ -37,7 +37,7 @@ mtk3_bsp2/            microT-Kernel 3.0（submodule）
 
 FatFs は外部 submodule として扱わず、microT-FS の中核として `src/fatfs/` で管理します。上流のライセンス、元バージョン、取得元、配布 ZIP の SHA-256、および独自変更は同ディレクトリの文書で追跡します。
 
-`mtk3_bsp2/` は TRON Forum の `mtkernel_3` を submodule として参照します。既存の clone では `git submodule update --init --recursive` を実行してください。
+`mtk3_bsp2/` は TRON Forum の `mtk3_bsp2` を submodule として参照します。既存の clone では `git submodule update --init --recursive` を実行してください。
 
 `tron2026_work` は成果や知見の参照元としてのみ利用し、コードや IDE プロジェクトをそのままコピーせず、microT-FS の設計に合わせて再構築します。
 
