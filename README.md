@@ -14,7 +14,7 @@ microT-FS は、microT-Kernel 3.0 向けに FatFs を最適化・拡張するス
 
 本番利用に必要なコードは、FatFs の microT-FS 管理版と RA/ST 固有コードを含めて、すべて `src/` 配下に置きます。利用者は原則として `src/` を組み込みプロジェクトへコピーし、`mtfs_config.h` と対象ポートのビルド設定を調整します。
 
-現在は初期リポジトリ構成のみであり、FatFs 本体や microT-FS の C 実装はまだ含みません。
+FatFs 本体は、R0.16 に公式 patch-1 と patch-2 を適用したベースラインを `src/fatfs/` に収録しています。microT-FS 固有の C 実装はまだ含みません。
 
 ## ディレクトリ構成
 
@@ -43,4 +43,4 @@ FatFs は外部 submodule として扱わず、microT-FS の中核として `src
 
 ## ライセンス
 
-リポジトリ全体のライセンスは [LICENSE](LICENSE) を参照してください。将来取り込む FatFs には上流ライセンスが適用されるため、詳細は `src/fatfs/` の来歴文書で明示します。
+リポジトリ全体のライセンスは [LICENSE](LICENSE) を参照してください。取り込んだ FatFs には上流ライセンスが適用されます。詳細は `src/fatfs/UPSTREAM.md` と `src/fatfs/LICENSE.txt` を参照してください。

@@ -1,11 +1,11 @@
 # FatFs in microT-FS
 
-ここには elm-chan 配布 ZIP を基にした FatFs と、microT-FS 向けの改良を配置します。FatFs は submodule や `external/` の依存物ではなく、`src/` とともに配布する中核コードです。
+このディレクトリには、FatFs R0.16 に公式 patch-1、公式 patch-2 の順で適用したベースラインを収録しています。現在の最終状態は `R0.16 w/patch 2` です。
 
-初期構成の時点では FatFs 本体をまだ取り込んでいません。取り込み時は次を同じコミットで記録します。
+FatFs は submodule や `external/` の外部依存物ではなく、microT-FS が管理・改良する中核コードとして `src/fatfs/` に含めます。
 
-- `UPSTREAM.md`: 元バージョン、取得元 URL、取得日、ZIP ファイル名、SHA-256、上流ライセンス
-- `CHANGES.mtfs.md`: 上流からの独自変更と、その理由・影響
-- 上流配布物に含まれるライセンス文書またはライセンス表示
+- 上流バージョン、取得元、ハッシュ、取り込み手順は `UPSTREAM.md` で管理します。
+- microT-FS 独自変更とその理由・影響は `CHANGES.mtfs.md` で管理します。
+- 上流ライセンスは `LICENSE.txt` を参照してください。
 
-上流ファイルを更新するときも、再現可能な来歴と差分を維持します。
+上流の `source/diskio.c` はサンプル／雛形のため収録していません。ディスクI/O実装は後続作業でmicroT-FS共通の `mtfs_diskio.c` として提供します。
