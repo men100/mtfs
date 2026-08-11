@@ -14,7 +14,7 @@ microT-FS は、microT-Kernel 3.0 向けに FatFs を最適化・拡張するス
 
 本番利用に必要なコードは、FatFs の microT-FS 管理版と RA/ST 固有コードを含めて、すべて `src/` 配下に置きます。利用者は原則として `src/` を組み込みプロジェクトへコピーし、`mtfs_config.h` と対象ポートのビルド設定を調整します。
 
-FatFs 本体は、R0.16 に公式 patch-1 と patch-2 を適用したベースラインを `src/fatfs/` に収録しています。microT-FS 固有の C 実装はまだ含みません。
+FatFs 本体は、R0.16 に公式 patch-1 と patch-2 を適用したベースラインを `src/fatfs/` に収録しています。FatFsとプラットフォーム固有ドライバの間は、`src/block/` の共通Block Device APIと固定長レジストリ、`src/fatfs/mtfs_diskio.c` のDisk I/Oブリッジで接続します。
 
 ## ディレクトリ構成
 

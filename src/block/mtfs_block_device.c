@@ -1,0 +1,168 @@
+#include "mtfs_block_device.h"
+
+#include <stddef.h>
+
+static mtfs_error_t mtfs_block_check_range(
+    mtfs_block_device_t *device,
+    mtfs_lba_t lba,
+    mtfs_lba_t count)
+{
+    mtfs_block_geometry_t geometry;
+    mtfs_error_t result;
+
+    if (count == 0U) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+
+    result = mtfs_block_get_geometry(device, &geometry);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    if ((lba >= geometry.sector_count) || (count > (geometry.sector_count - lba))) {
+        return MTFS_ERROR_OUT_OF_RANGE;
+    }
+
+    return MTFS_OK;
+}
+
+int mtfs_block_device_is_valid(const mtfs_block_device_t *device)
+{
+    const mtfs_block_device_ops_t *ops;
+
+    if ((device == NULL) || (device->ops == NULL)) {
+        return 0;
+    }
+    if ((device->capabilities &
+        ~(MTFS_BLOCK_CAPABILITY_READ_ONLY | MTFS_BLOCK_CAPABILITY_TRIM)) != 0U) {
+        return 0;
+    }
+    ops = device->ops;
+    if ((ops->initialize == NULL) || (ops->status == NULL) ||
+        (ops->read == NULL) || (ops->sync == NULL) ||
+        (ops->get_geometry == NULL)) {
+        return 0;
+    }
+    if (((device->capabilities & MTFS_BLOCK_CAPABILITY_READ_ONLY) == 0U) &&
+        (ops->write == NULL)) {
+        return 0;
+    }
+    if (((device->capabilities & MTFS_BLOCK_CAPABILITY_TRIM) != 0U) &&
+        (ops->trim == NULL)) {
+        return 0;
+    }
+    return 1;
+}
+
+mtfs_error_t mtfs_block_initialize(mtfs_block_device_t *device)
+{
+    if (!mtfs_block_device_is_valid(device)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    return device->ops->initialize(device->context);
+}
+
+mtfs_error_t mtfs_block_status(mtfs_block_device_t *device, mtfs_block_status_t *status)
+{
+    mtfs_error_t result;
+
+    if (!mtfs_block_device_is_valid(device) || (status == NULL)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    result = device->ops->status(device->context, status);
+    if ((result == MTFS_OK) &&
+        ((device->capabilities & MTFS_BLOCK_CAPABILITY_READ_ONLY) != 0U)) {
+        *status |= MTFS_BLOCK_STATUS_WRITE_PROTECTED;
+    }
+    return result;
+}
+
+mtfs_error_t mtfs_block_get_geometry(
+    mtfs_block_device_t *device,
+    mtfs_block_geometry_t *geometry)
+{
+    mtfs_error_t result;
+
+    if (!mtfs_block_device_is_valid(device) || (geometry == NULL)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    result = device->ops->get_geometry(device->context, geometry);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    if ((geometry->sector_size == 0U) || (geometry->sector_count == 0U) ||
+        (geometry->erase_block_size == 0U)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_block_read(
+    mtfs_block_device_t *device,
+    void *buffer,
+    mtfs_lba_t lba,
+    uint32_t count)
+{
+    mtfs_error_t result;
+
+    if (!mtfs_block_device_is_valid(device) || (buffer == NULL)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    result = mtfs_block_check_range(device, lba, (mtfs_lba_t)count);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    return device->ops->read(device->context, buffer, lba, count);
+}
+
+mtfs_error_t mtfs_block_write(
+    mtfs_block_device_t *device,
+    const void *buffer,
+    mtfs_lba_t lba,
+    uint32_t count)
+{
+    mtfs_error_t result;
+
+    if (!mtfs_block_device_is_valid(device) || (buffer == NULL)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    if ((device->capabilities & MTFS_BLOCK_CAPABILITY_READ_ONLY) != 0U) {
+        return MTFS_ERROR_WRITE_PROTECTED;
+    }
+    result = mtfs_block_check_range(device, lba, (mtfs_lba_t)count);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    return device->ops->write(device->context, buffer, lba, count);
+}
+
+mtfs_error_t mtfs_block_sync(mtfs_block_device_t *device)
+{
+    if (!mtfs_block_device_is_valid(device)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    return device->ops->sync(device->context);
+}
+
+mtfs_error_t mtfs_block_trim(
+    mtfs_block_device_t *device,
+    mtfs_lba_t lba,
+    mtfs_lba_t count)
+{
+    mtfs_error_t result;
+
+    if (!mtfs_block_device_is_valid(device)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    if ((device->capabilities & MTFS_BLOCK_CAPABILITY_READ_ONLY) != 0U) {
+        return MTFS_ERROR_WRITE_PROTECTED;
+    }
+    if (((device->capabilities & MTFS_BLOCK_CAPABILITY_TRIM) == 0U) ||
+        (device->ops->trim == NULL)) {
+        return MTFS_ERROR_NOT_SUPPORTED;
+    }
+    result = mtfs_block_check_range(device, lba, count);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    return device->ops->trim(device->context, lba, count);
+}

@@ -8,6 +8,8 @@
 #include "mtfs_config.h"
 #include "mtfs_error.h"
 #include "mtfs_types.h"
+#include "block/mtfs_block_device.h"
+#include "block/mtfs_block_registry.h"
 
 #define MTFS_VERSION_MAJOR (0U)
 #define MTFS_VERSION_MINOR (1U)
