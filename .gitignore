@@ -59,6 +59,14 @@ makefile
 compile_commands.json
 doxygen-output/
 
+# STM32CubeIDE local workspace and managed-build outputs
+.cubeide-workspace-phase3*/
+.e2studio-workspace-phase3*/
+tests/targets/stm32n6570_dk/basic/Appli/Debug/
+tests/targets/stm32n6570_dk/basic/Appli/Release/
+tests/targets/stm32n6570_dk/basic/FSBL/Debug/
+tests/targets/stm32n6570_dk/basic/FSBL/Release/
+
 # 子プロジェクト配下を含む .settings は原則無視
 **/.settings/*
 
