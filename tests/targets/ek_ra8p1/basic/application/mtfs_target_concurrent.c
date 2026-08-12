@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <tk/tkernel.h>
+#include <tm/tmonitor.h>
 
 #include "ff.h"
 
@@ -27,6 +28,7 @@ typedef struct target_worker
     FRESULT result;
     UINT transferred;
     unsigned int failed_iteration;
+    int file_open;
     FIL file;
     BYTE write_buffer[TARGET_CHUNK_SIZE];
     BYTE read_buffer[TARGET_CHUNK_SIZE];
@@ -64,6 +66,7 @@ static void target_worker_task(INT start_code, void *opaque)
     if (worker->result != FR_OK) {
         goto done;
     }
+    worker->file_open = 1;
     for (iteration = 0U; iteration < TARGET_ITERATIONS; ++iteration) {
         target_fill(worker->write_buffer, worker->seed, iteration);
         worker->transferred = 0U;
@@ -81,6 +84,7 @@ static void target_worker_task(INT start_code, void *opaque)
     }
     {
         FRESULT close_result = f_close(&worker->file);
+        worker->file_open = 0;
         if (worker->result == FR_OK) {
             worker->result = close_result;
         }
@@ -88,11 +92,11 @@ static void target_worker_task(INT start_code, void *opaque)
     if (worker->result != FR_OK) {
         goto done;
     }
-
     worker->result = f_open(&worker->file, worker->path, FA_READ);
     if (worker->result != FR_OK) {
         goto done;
     }
+    worker->file_open = 1;
     for (iteration = 0U; iteration < TARGET_ITERATIONS; ++iteration) {
         target_fill(worker->write_buffer, worker->seed, iteration);
         worker->transferred = 0U;
@@ -109,6 +113,7 @@ static void target_worker_task(INT start_code, void *opaque)
     }
     {
         FRESULT close_result = f_close(&worker->file);
+        worker->file_open = 0;
         if (worker->result == FR_OK) {
             worker->result = close_result;
         }
@@ -157,7 +162,8 @@ static int target_verify_persisted(mtfs_test_t *test, target_worker_t *worker)
     return ok;
 }
 
-int mtfs_target_run_concurrent(mtfs_test_t *test, const char *volume_path)
+int mtfs_target_run_concurrent(mtfs_test_t *test, const char *volume_path,
+    unsigned int outer_iteration)
 {
     static const char *const paths[TARGET_WORKERS] = {
         "0:TASKA.BIN", "0:TASKB.BIN"
@@ -177,6 +183,7 @@ int mtfs_target_run_concurrent(mtfs_test_t *test, const char *volume_path)
         .bufptr = NULL
     };
     ID task_ids[TARGET_WORKERS] = {0, 0};
+    int task_started[TARGET_WORKERS] = {0, 0};
     ID event_flag_id;
     UINT flags;
     FRESULT fat_result;
@@ -208,10 +215,15 @@ int mtfs_target_run_concurrent(mtfs_test_t *test, const char *volume_path)
         task_config.exinf = &workers[i];
         task_config.bufptr = worker_stacks[i];
         task_ids[i] = tk_cre_tsk(&task_config);
-        if ((task_ids[i] <= 0) || (tk_sta_tsk(task_ids[i], 0) < E_OK)) {
+        if (task_ids[i] <= 0) {
+            (void)MTFS_TEST_CHECK(test, 0, "create both writer tasks");
+            goto cleanup_tasks;
+        }
+        if (tk_sta_tsk(task_ids[i], 0) < E_OK) {
             (void)MTFS_TEST_CHECK(test, 0, "create and start both writer tasks");
             goto cleanup_tasks;
         }
+        task_started[i] = 1;
     }
     if (!MTFS_TEST_CHECK(test,
             tk_wai_flg(event_flag_id, TARGET_READY_MASK, TWF_ANDW,
@@ -230,15 +242,18 @@ int mtfs_target_run_concurrent(mtfs_test_t *test, const char *volume_path)
     for (i = 0U; i < TARGET_WORKERS; ++i) {
         if (!MTFS_TEST_CHECK(test, workers[i].result == FR_OK,
                 "worker write and immediate read-back succeeded")) {
+            tm_printf((UB *)"[mtfs] round %u worker %u FAIL: fresult=%u inner=%u\n",
+                outer_iteration, i, workers[i].result,
+                workers[i].failed_iteration);
             goto cleanup_tasks;
         }
     }
     fat_result = f_mount(NULL, volume_path, 0U);
-    mounted = 0;
     if (!MTFS_TEST_CHECK(test, fat_result == FR_OK,
             "unmount after target concurrent writes")) {
         goto cleanup_tasks;
     }
+    mounted = 0;
     fat_result = f_mount(&concurrent_filesystem, volume_path, 1U);
     if (!MTFS_TEST_CHECK(test, fat_result == FR_OK,
             "remount after target concurrent writes")) {
@@ -262,11 +277,20 @@ cleanup_tasks:
     (void)tk_set_flg(event_flag_id, TARGET_START_BIT);
     for (i = 0U; i < TARGET_WORKERS; ++i) {
         if (task_ids[i] > 0) {
-            (void)tk_ter_tsk(task_ids[i]);
-            (void)tk_del_tsk(task_ids[i]);
+            if (task_started[i]) {
+                (void)MTFS_TEST_CHECK(test, tk_ter_tsk(task_ids[i]) >= E_OK,
+                    "terminate writer task during cleanup");
+            }
+            if (workers[i].file_open) {
+                (void)f_close(&workers[i].file);
+                workers[i].file_open = 0;
+            }
+            (void)MTFS_TEST_CHECK(test, tk_del_tsk(task_ids[i]) >= E_OK,
+                "delete writer task during cleanup");
         }
     }
-    (void)tk_del_flg(event_flag_id);
+    (void)MTFS_TEST_CHECK(test, tk_del_flg(event_flag_id) >= E_OK,
+        "delete coordination event flag during cleanup");
 cleanup:
     if (mounted) {
         if (result != 0) {

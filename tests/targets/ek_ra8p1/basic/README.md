@@ -1,4 +1,4 @@
-# EK-RA8P1 Phase 2 basic runner
+# EK-RA8P1 Phase 2.1 stability runner
 
 FATで事前フォーマットしたSDカードをPMOD2へSPI接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセスを順に確認するe² studioプロジェクトです。テストはカードをフォーマットしません。
 
@@ -44,12 +44,12 @@ SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマッ�
 - TX/RX transfer instanceはNULL（DMA/DTC未使用）
 - P601/P602/P603をSCI0 SCK/RXD/TXD、P604を初期HighのGPIO output
 
-指定のmtk3_bsp2 v1.00.04では、RA8P1のRAM例外ベクタ更新後に必要な
-cache clean/invalidate処理がまだ入っていません。古いベクタを参照すると
-Cortex-M85が`0xEFFFFFFE`のlockup状態へ入るため、このターゲットは
-`hal_entry()`でI/D cacheを無効化してからmicroT-Kernelを起動します。
-BSP2をベクタテーブルのcache maintenance対応版へ更新した後は、この互換策を
-削除してcacheを有効化できます。
+指定のmtk3_bsp2 v1.00.04はRAM例外ベクタのcopy、kernel例外登録、実行中の
+`tk_def_int()`更新後にD-cache cleanを行いません。Phase 2.1ではsubmoduleを変更
+せず、targetのlinker wrapで各更新範囲をcleanしてDSB/ISBを実行します。通常build
+ではI-cache/D-cacheを無効化しません。codeは更新していないためI-cache invalidate
+も行いません。根本原因、処理順、上流patch、削除条件は
+`docs/adr/0001-ra8p1-vector-cache-coherency.md`を参照してください。
 
 FatFs設定はcompile definitionと `src/mtfs_config.h` により、read/write有効、`FF_FS_REENTRANT=1`、microT-Kernel mutex adapter、`FF_FS_NORTC=1`、1 volume、`FF_USE_MKFS=0`です。
 
@@ -60,7 +60,28 @@ FatFs設定はcompile definitionと `src/mtfs_config.h` により、read/write�
 3. 必要なら **Generate Project Content** を実行します。
 4. configurationを **Debug** にして **Project > Build Project** を実行します。
 
-成功時は `Debug/mtfs_ek_ra8p1_basic.elf` と `.srec` が生成されます。確認済み構成のサイズ目安はtext約65 KiB、BSS約18 KiBです。
+成功時は `Debug/mtfs_ek_ra8p1_basic.elf` と `.srec` が生成されます。Phase 2.1
+Debug buildのサイズ目安はtext約67 KiB、BSS約50 KiBです。各workerの16 KiB static
+stackを含みます。
+
+### 反復profileとfallback
+
+既定はnormal 10周です。e² studioの **C/C++ Build > Settings > GNU Arm Cross C
+Compiler > Preprocessor** で次のcompile definitionを追加すると切り替えられます。
+
+| profile | definition | 周回数 |
+|---|---|---:|
+| smoke | `MTFS_RA8P1_TEST_PROFILE=1` | 1 |
+| normal | なし、または`=2` | 10 |
+| stress | `MTFS_RA8P1_TEST_PROFILE=3` | 100 |
+
+各周でSD context/init、geometry、sector 0 read、mount/unmount、file round-trip、
+2-task並行access、remount後検証、file削除、task/event flag/context解放まで行います。
+mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件ではありません。
+
+診断時だけ`MTFS_RA8P1_DISABLE_CACHES_FALLBACK=1`を定義すると旧来の全面cache
+無効化を再現できます。このbuildは起動logに`fallback=ACTIVE`を出し、Phase 2.1の
+合格対象にはなりません。通常buildにはこのdefinitionを設定しないでください。
 
 ## 書込みと実行
 
@@ -76,27 +97,47 @@ FatFs設定はcompile definitionと `src/mtfs_config.h` により、read/write�
 容量値やカード種別は媒体により変わります。`55 aa` は情報表示だけでPASS条件ではありません。
 
 ```text
-[mtfs] EK-RA8P1 Phase 2 test start
-[mtfs] SD init PASS: SDHC/SDXC, SPI=4000000 Hz
-[mtfs] geometry PASS: sectors=... sector_size=512 erase=1
-[mtfs] sector 0 read PASS; signature=55 aa (present)
+[mtfs] EK-RA8P1 Phase 2.1 start: profile=normal rounds=10
+[mtfs] cache: I=enabled D=enabled fallback=off VTOR=0x22......
+[mtfs] vector: [0x22......,0x22......) size=448 line=32 cleans=2
+[mtfs] round 1/10 BEGIN
+[mtfs] round 1 SD/geometry/sector PASS: SDHC/SDXC sectors=... signature=55aa (present)
 [TEST] fatfs_roundtrip: BEGIN
 [TEST] fatfs_roundtrip: PASS (...)
 [TEST] fatfs_concurrent_microtkernel: BEGIN
 [TEST] fatfs_concurrent_microtkernel: PASS (...)
-[mtfs] PHASE 2 PASS
+[mtfs] round 1/10 PASS
+...
+[mtfs] round 10/10 PASS
+[mtfs] PHASE 2.1 PASS
 ```
 
 失敗時はテスト名、source line、check内容に加え、SD初期化では最後のmtfs/microT-Kernel/FSP errorとR1 responseを表示します。`FR_NO_FILESYSTEM`相当のmount失敗ならカード形式を確認してください。
 
+## fault/lockupのデバッガ確認
+
+Phase 2.1のtest-only fault handlerは、HardFault、MemManage、BusFault、UsageFaultで
+`g_mtfs_ra8p1_fault_snapshot`へ情報を保存してBKPT停止します。Expressions viewで
+同変数を開き、`valid == 0x4D544653`なら`exception_number`, `cfsr`, `hfsr`,
+`mmfar`, `bfar`, `shcsr`, `vtor`, `msp`, `psp`, `exc_return`, `stacked_lr`,
+`stacked_pc`を記録してください。
+
+handlerへ入れずlockupした場合はCPUをhaltし、Registers viewで`SCB->CFSR`
+(`0xE000ED28`), HFSR (`0xE000ED2C`), MMFAR (`0xE000ED34`), BFAR
+(`0xE000ED38`), SHCSR (`0xE000ED24`), VTOR (`0xE000ED08`), IPSR, MSP, PSP,
+LRを確認します。LR/EXC_RETURN bit 2が0ならMSP、1ならPSPがfault frameです。
+bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
+`SP + 0x60`です。`knl_start_mtkernel`, `__wrap_knl_init_interrupt`,
+`mtfs_ra8p1_fault_entry`へbreakpointを置くとVTOR変更前後を追跡できます。
+
 ## 現時点の制限
 
 - card detectとwrite protect入力は未接続で、通電中のhot plugを扱いません。
-- 指定BSP2版のRAM例外ベクタcache coherency対策として、現在はI/D cacheを無効化しています。
+- cache coherencyはtarget linker wrapによる互換策です。BSP2側へ同等修正が入ったらADR記載の範囲を削除します。
 - FatFs/FSPの呼出し深さとCortex-M85のstack limitを考慮し、並行テストの各workerは16 KiBのstatic user stackを使用します。
 - workerは完了通知後にsleepし、coordinatorが結果確認後にterminate/deleteします。共有event flagの削除とtask終了を競合させません。
 - read/writeはCMD17/CMD24をsectorごとに反復します。CMD18/CMD25、ACMD23は性能改善候補です。
 - CRC7はcommandへ付与しますが、data CRC16は検証しません。
 - trim/eraseは未対応です。CSDのerase granularityを未解釈なので、geometryのerase block sizeは暫定1 sectorです。
 - SDXCでもexFATは無効です。FATで使用してください。
-- 実機へのdownloadとSD媒体試験は、接続されたボード上で別途実施する必要があります。
+- 2026-08-12時点ではPhase 2.1 Debug ELFのbuild/linkまで確認済みで、cache有効実機normal/stressは未実施です。

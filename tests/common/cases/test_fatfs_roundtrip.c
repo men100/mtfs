@@ -77,10 +77,10 @@ int test_fatfs_roundtrip(mtfs_test_t *test, const char *volume_path)
     }
 
     fat_result = f_mount(NULL, volume_path, 0U);
-    mounted = 0;
     if (!MTFS_TEST_CHECK(test, fat_result == FR_OK, "unmount after write")) {
         goto cleanup;
     }
+    mounted = 0;
     fat_result = f_mount(&filesystem, volume_path, 1U);
     if (!MTFS_TEST_CHECK(test, fat_result == FR_OK, "remount FAT volume")) {
         goto cleanup;
@@ -116,10 +116,10 @@ int test_fatfs_roundtrip(mtfs_test_t *test, const char *volume_path)
         goto cleanup;
     }
     fat_result = f_mount(NULL, volume_path, 0U);
-    mounted = 0;
     if (!MTFS_TEST_CHECK(test, fat_result == FR_OK, "final unmount")) {
         goto cleanup;
     }
+    mounted = 0;
     result = 0;
 
 cleanup:

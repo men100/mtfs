@@ -1,0 +1,64 @@
+diff --git a/sysdepend/ra_fsp/cpu/core/armv8m/sys_start.c b/sysdepend/ra_fsp/cpu/core/armv8m/sys_start.c
+index 66f668f..ca12c19 100644
+--- a/sysdepend/ra_fsp/cpu/core/armv8m/sys_start.c
++++ b/sysdepend/ra_fsp/cpu/core/armv8m/sys_start.c
+@@ -62,7 +62,17 @@ EXPORT void knl_start_mtkernel(void)
+ 	for(i=0; i < (N_SYSVEC + N_INTVEC); i++) {
+ 		*top++ = *src++;
+ 	}
++
++#if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U)
++	if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U) {
++		SCB_CleanDCache_by_Addr(knl_exctbl,
++			(INT)(sizeof(UW) * (N_SYSVEC + N_INTVEC)));
++	}
++#endif
++	__DSB();
+ 	out_w(SCB_VTOR, (UW)knl_exctbl);
++	__DSB();
++	__ISB();
+ 
+ 	/* Configure exception priorities */
+ 	reg = *(_UW*)SCB_AIRCR;
+diff --git a/sysdepend/ra_fsp/cpu/core/armv8m/interrupt.c b/sysdepend/ra_fsp/cpu/core/armv8m/interrupt.c
+index 1c6fd68..f4be358 100644
+--- a/sysdepend/ra_fsp/cpu/core/armv8m/interrupt.c
++++ b/sysdepend/ra_fsp/cpu/core/armv8m/interrupt.c
+@@ -23,6 +23,19 @@
+ #include "sysdepend.h"
+ #include "cpu_status.h"
+ 
++#include <cmsis_gcc.h>
++
++LOCAL void knl_sync_exctbl(void *address, INT size)
++{
++#if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U)
++	if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U) {
++		SCB_CleanDCache_by_Addr(address, size);
++	}
++#endif
++	__DSB();
++	__ISB();
++}
++
+ /* HLL Interrupt Handler Table */
+ LOCAL UW hllint_tbl[N_INTVEC];
+ 
+@@ -77,6 +90,7 @@ EXPORT ER knl_define_inthdr( INT intno, ATR intatr, FP inthdr )
+ 	intvet = (FP*)(knl_exctbl + N_SYSVEC);
+ 	intvet[intno] = inthdr;
+ 
++	knl_sync_exctbl((void *)&intvet[intno], sizeof(FP));
+ 	return E_OK;
+ }
+ 
+@@ -115,6 +129,9 @@ EXPORT ER knl_init_interrupt( void )
+ 	knl_exctbl[14]	= (UW)knl_dispatch_entry;	/* 14: Pend SV */
+ 	knl_exctbl[15]	= (UW)knl_systim_inthdr;	/* 15: Systick */
+ 
++	knl_sync_exctbl(knl_exctbl,
++		(INT)(sizeof(UW) * (N_SYSVEC + N_INTVEC)));
++
+ 	return E_OK;
+ }
+ 
