@@ -23,7 +23,9 @@ src/                  本番用ソース一式（ライブラリの配布単位�
   core/               ファイルシステム中核
   fatfs/              microT-FS が管理・改良する FatFs
   block/              ブロックデバイス抽象化とフィルタ
-  os/microtkernel/    microT-Kernel 3.0 適合層
+  os/                 OS 適合層
+    host/             POSIX pthread 適合層
+    microtkernel/     microT-Kernel 3.0 適合層
   ports/              RA FSP、STM32Cube、ホスト向けポート
   extensions/         セキュリティおよび AI 拡張
 tests/                共通テストと構成別テストランナー
@@ -40,6 +42,8 @@ FatFs は外部 submodule として扱わず、microT-FS の中核として `src
 `mtk3_bsp2/` は TRON Forum の `mtk3_bsp2` を submodule として参照します。既存の clone では `git submodule update --init --recursive` を実行してください。
 
 `tron2026_work` は成果や知見の参照元としてのみ利用し、コードや IDE プロジェクトをそのままコピーせず、microT-FS の設計に合わせて再構築します。
+
+FatFsの再入可能化は `src/mtfs_config.h` で設定します。既定はRTCなし・再入不可です。再入可能にする場合は `MTFS_FF_FS_REENTRANT=1` と、POSIXまたはmicroT-Kernelの `MTFS_FATFS_MUTEX_ADAPTER` を必ず組み合わせてください。Linux/WSL2のビルドとテスト手順は `tests/host/README.md` を参照してください。
 
 ## ライセンス
 

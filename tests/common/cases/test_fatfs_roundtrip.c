@@ -5,10 +5,32 @@
 #include "ff.h"
 
 #define MTFS_ROUNDTRIP_DATA_SIZE (1537U)
+#define MTFS_ROUNDTRIP_PATH_SIZE (64U)
+
+static int mtfs_roundtrip_make_path(
+    char *destination,
+    size_t destination_size,
+    const char *volume_path)
+{
+    static const char filename[] = "RTTEST.BIN";
+    size_t volume_length;
+
+    if ((destination == NULL) || (volume_path == NULL)) {
+        return 0;
+    }
+    volume_length = strlen(volume_path);
+    if ((destination_size < sizeof(filename)) ||
+        (volume_length > (destination_size - sizeof(filename)))) {
+        return 0;
+    }
+    memcpy(destination, volume_path, volume_length);
+    memcpy(destination + volume_length, filename, sizeof(filename));
+    return 1;
+}
 
 int test_fatfs_roundtrip(mtfs_test_t *test, const char *volume_path)
 {
-    static const char test_path[] = "0:RTTEST.BIN";
+    char test_path[MTFS_ROUNDTRIP_PATH_SIZE];
     FATFS filesystem;
     FIL file;
     BYTE expected[MTFS_ROUNDTRIP_DATA_SIZE];
@@ -19,6 +41,12 @@ int test_fatfs_roundtrip(mtfs_test_t *test, const char *volume_path)
     int mounted = 0;
     int file_open = 0;
     int result = 1;
+
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_roundtrip_make_path(test_path, sizeof(test_path), volume_path),
+            "build round-trip path from the selected volume")) {
+        return result;
+    }
 
     for (i = 0U; i < MTFS_ROUNDTRIP_DATA_SIZE; ++i) {
         expected[i] = (BYTE)((i * 37U + 11U) & 0xFFU);

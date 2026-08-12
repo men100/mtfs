@@ -10,6 +10,7 @@
 #include "mtfs_block_registry.h"
 #include "mtfs_host_block_file.h"
 #include "mtfs_test.h"
+#include "test_fatfs_concurrent.h"
 #include "test_fatfs_roundtrip.h"
 
 #define MTFS_HOST_IMAGE_SIZE (16L * 1024L * 1024L)
@@ -52,11 +53,27 @@ static int mtfs_create_temp_image(char *path, size_t path_size)
     return 1;
 }
 
-DWORD get_fattime(void)
+static void mtfs_host_reporter(
+    void *context,
+    mtfs_test_event_t event,
+    const char *test_name,
+    const char *file,
+    int line,
+    const char *message,
+    unsigned int checks,
+    unsigned int failures)
 {
-    return ((DWORD)(2026U - 1980U) << 25) |
-        ((DWORD)8U << 21) | ((DWORD)11U << 16) |
-        ((DWORD)12U << 11);
+    (void)context;
+    if (event == MTFS_TEST_EVENT_BEGIN) {
+        printf("[ RUN  ] %s\n", test_name);
+    } else if (event == MTFS_TEST_EVENT_CHECK_FAILED) {
+        printf("[ FAIL ] %s:%d: %s\n", file, line, message);
+    } else if (failures == 0U) {
+        printf("[ PASS ] %s (%u checks)\n", test_name, checks);
+    } else {
+        printf("[ FAIL ] %s (%u failures, %u checks)\n",
+            test_name, failures, checks);
+    }
 }
 
 int main(void)
@@ -77,11 +94,13 @@ int main(void)
     int port_open = 0;
     int registered = 0;
     int roundtrip_result = 1;
+    int concurrent_result = 1;
 
     memset(&host_context, 0, sizeof(host_context));
     memset(&device, 0, sizeof(device));
     memset(sector_buffer, 0xA5, sizeof(sector_buffer));
-    mtfs_test_begin(&test, "host block device and FatFs round trip");
+    mtfs_test_begin(&test, "host block device and FatFs concurrency",
+        mtfs_host_reporter, NULL);
 
     if (!MTFS_TEST_CHECK(&test,
             mtfs_block_registry_register(0U, NULL) == MTFS_ERROR_INVALID_ARGUMENT,
@@ -179,6 +198,10 @@ int main(void)
     }
     roundtrip_result = test_fatfs_roundtrip(&test, "0:");
     if (roundtrip_result != 0) {
+        goto cleanup;
+    }
+    concurrent_result = test_fatfs_concurrent(&test, "0:");
+    if (concurrent_result != 0) {
         goto cleanup;
     }
 
