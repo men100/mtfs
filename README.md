@@ -45,6 +45,8 @@ FatFs は外部 submodule として扱わず、microT-FS の中核として `src
 
 FatFsの再入可能化は `src/mtfs_config.h` で設定します。既定はRTCなし・再入不可です。再入可能にする場合は `MTFS_FF_FS_REENTRANT=1` と、POSIXまたはmicroT-Kernelの `MTFS_FATFS_MUTEX_ADAPTER` を必ず組み合わせてください。Linux/WSL2のビルドとテスト手順は `tests/host/README.md` を参照してください。
 
+EK-RA8P1でのPhase 2 SD SPI実機runner、配線、FSP設定、build/download手順は `tests/targets/ek_ra8p1/basic/README.md` を参照してください。
+
 ## ライセンス
 
 リポジトリ全体のライセンスは [LICENSE](LICENSE) を参照してください。取り込んだ FatFs には上流ライセンスが適用されます。詳細は `src/fatfs/UPSTREAM.md` と `src/fatfs/LICENSE.txt` を参照してください。

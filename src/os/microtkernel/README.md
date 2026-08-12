@@ -16,4 +16,4 @@
 
 `FF_FS_TIMEOUT` はそのままmicroT-Kernelの `TMO` へ渡します。microT-Kernel 3.0の標準timeout値はミリ秒で、実際の起床精度はBSPのsystem timer周期に量子化されます。参照中のBSP2既定設定は `CNF_TIMER_PERIOD=10` msです。設定値は `TMO` の正の範囲に収めてください。
 
-Phase 1ではRTCへ接続せず、`MTFS_FF_FS_NORTC=1` とFatFs固定日時を使用します。実機プロジェクト未実装のため実行検証は未実施ですが、submodule v1.00.04の `<tk/tkernel.h>` を使うcompile-only確認を行います。
+Phase 1のcompile-only確認は、submodule v1.00.04の公開ヘッダ `<tk/tkernel.h>` をinclude pathへ指定し、このadapterを `MTFS_FF_FS_REENTRANT=1` / `MTFS_FATFS_MUTEX_ADAPTER_MICROTKERNEL` でコンパイルする方法で行いました。Phase 2のEK-RA8P1 Debug buildでも同じadapter sourceが実際のtargetへ組み込まれます。RTCは使用せず、`MTFS_FF_FS_NORTC=1` とFatFs固定日時を使用します。
