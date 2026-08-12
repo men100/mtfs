@@ -1,6 +1,6 @@
 # ADR 0001: RA8P1 RAM vector tableのcache coherency
 
-- Status: Accepted for Phase 2.1; hardware validation pending
+- Status: Accepted and hardware-validated for Phase 2.1 normal profile
 - Date: 2026-08-12
 - Target: EK-RA8P1 CPU0, Cortex-M85, RA FSP 6.5.0, mtk3_bsp2 v1.00.04 (`1ab52cc`)
 
@@ -93,7 +93,17 @@ target workaroundはBSP2 startupの一部を複製するため、BSP2更新時�
 
 ## Validation status
 
-2026-08-12時点でDebug ELFのcompile/link、wrapされたstartup/init、mutex adapterの
-linkを確認した。実機でcache有効のままPhase 2 test、normal 10周、stress 100周を
-完走した事実はまだない。過去のcache無効時PASSをPhase 2.1 PASSへ読み替えない。
-実機で当時のfault registerを再採取できる場合は、本ADRへ観測値を追記する。
+2026-08-12にDebug ELFのcompile/link、wrapされたstartup/init、mutex adapterの
+linkを確認した。同日、EK-RA8P1実機でnormal profile 10周を実行し、
+I-cache/D-cacheが有効、全面無効化fallbackがoffのまま全周完走した。起動時の
+観測値はVTOR `0x2200c000`、RAM vector範囲
+`[0x2200c000, 0x2200c1c0)`、使用サイズ448 byte、D-cache line 32 byte、
+clean回数2だった。
+
+各周でSDHC/SDXCのgeometry/sector確認、FatFs roundtrip（14 checks）、
+FatFs/microT-Kernel並行テスト（21 checks）が失敗0でPASSし、最終結果は
+`[mtfs] PHASE 2.1 PASS`だった。Host側もCTestが1/1 PASS、並行テストが
+62 checksでPASSした。
+
+stress profile 100周は実施していない。今回はnormal 10周とhost試験を
+Phase 2.1の受入条件とし、stressは完了判定に含めない。

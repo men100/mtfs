@@ -140,4 +140,5 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 - CRC7はcommandへ付与しますが、data CRC16は検証しません。
 - trim/eraseは未対応です。CSDのerase granularityを未解釈なので、geometryのerase block sizeは暫定1 sectorです。
 - SDXCでもexFATは無効です。FATで使用してください。
-- 2026-08-12時点ではPhase 2.1 Debug ELFのbuild/linkまで確認済みで、cache有効実機normal/stressは未実施です。
+- 2026-08-12にcache有効、全面無効化fallback offで実機normal 10周を全周完走し、`PHASE 2.1 PASS`を確認しました。Host側もCTest 1/1と並行テスト62 checksがPASSしています。
+- stress 100周は未実施です。今回はPhase 2.1の完了判定に含めません。
