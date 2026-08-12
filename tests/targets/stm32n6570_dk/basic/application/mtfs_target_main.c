@@ -107,6 +107,14 @@ static void target_print_diagnostics(
         diagnostics->write_single_starts,
         diagnostics->write_multi_starts,
         diagnostics->write_max_blocks);
+    tm_printf((UB *)"[mtfs] last mtfs=%d tk=%d hal=%u/0x%08x clkcr=0x%08x hwfc=%u div=%u\n",
+        context->last_error,
+        context->last_kernel_error,
+        context->last_hal_status,
+        context->last_hal_error,
+        context->config.hal_sd->Instance->CLKCR,
+        (context->config.hal_sd->Instance->CLKCR & SDMMC_CLKCR_HWFC_EN) != 0U,
+        context->config.hal_sd->Instance->CLKCR & SDMMC_CLKCR_CLKDIV);
 }
 
 static void target_coordinator(INT start_code, void *opaque)
@@ -198,6 +206,7 @@ static void target_coordinator(INT start_code, void *opaque)
             (memcmp(sector_zero_single, sector_zero_multi,
                 sizeof(sector_zero_single)) != 0)) {
             tm_printf((UB *)"[mtfs] raw read/compare FAIL: %d\n", error);
+            target_print_diagnostics(&sd_context);
             round_failure = 1;
             goto round_done;
         }
@@ -210,6 +219,7 @@ static void target_coordinator(INT start_code, void *opaque)
         mtfs_test_begin(&test, "fatfs_roundtrip", target_reporter, NULL);
         case_result = test_fatfs_roundtrip(&test, "0:");
         if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
+            target_print_diagnostics(&sd_context);
             round_failure = 1;
         }
 
@@ -217,6 +227,7 @@ static void target_coordinator(INT start_code, void *opaque)
             target_reporter, NULL);
         case_result = mtfs_target_run_concurrent(&test, "0:", round);
         if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
+            target_print_diagnostics(&sd_context);
             round_failure = 1;
         }
 

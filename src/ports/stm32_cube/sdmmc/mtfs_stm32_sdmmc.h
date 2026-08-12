@@ -74,6 +74,7 @@ typedef struct mtfs_stm32_sdmmc_context
     uint8_t objects_ready;
     uint8_t irq_registered;
     uint8_t timebase_acquired;
+    uint8_t hal_initialized;
     uint8_t initialized;
     uint8_t bounce_buffer[MTFS_STM32_SDMMC_BOUNCE_SIZE]
         __attribute__((aligned(MTFS_STM32_SDMMC_CACHE_LINE_SIZE)));

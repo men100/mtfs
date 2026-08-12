@@ -24,6 +24,7 @@ static mtfs_error_t mtfs_stm32_sd_geometry(
     void *opaque, mtfs_block_geometry_t *geometry);
 static mtfs_error_t mtfs_stm32_sd_trim(
     void *opaque, mtfs_lba_t lba, mtfs_lba_t count);
+static void mtfs_stm32_sd_abort(mtfs_stm32_sdmmc_context_t *context);
 
 static const mtfs_block_device_ops_t mtfs_stm32_sd_ops = {
     mtfs_stm32_sd_initialize,
@@ -162,6 +163,66 @@ static void mtfs_stm32_sd_record_start(
             context->diagnostics.read_max_blocks = blocks;
         }
     }
+}
+
+static mtfs_error_t mtfs_stm32_sd_polling_read(
+    mtfs_stm32_sdmmc_context_t *context, void *buffer,
+    uint32_t block, uint32_t count)
+{
+    uint8_t *cursor = buffer;
+    uint32_t index;
+    mtfs_error_t result = MTFS_OK;
+
+    /* Avoid the FW_N6 V1.3.0 CMD18/CMD12 polling path. */
+    for (index = 0U; index < count; ++index) {
+        context->last_hal_status = HAL_SD_ReadBlocks(context->config.hal_sd,
+            cursor, block + index, 1U, context->config.io_timeout_ms);
+        if (context->last_hal_status != HAL_OK) {
+            result = mtfs_stm32_sd_hal_error(
+                context, context->last_hal_status);
+            break;
+        }
+        mtfs_stm32_sd_record_start(context, 0, 1U);
+        result = mtfs_stm32_sd_wait_transfer(context);
+        if (result != MTFS_OK) {
+            break;
+        }
+        cursor += MTFS_STM32_SDMMC_SECTOR_SIZE;
+    }
+    if (result != MTFS_OK) {
+        mtfs_stm32_sd_abort(context);
+    }
+    return result;
+}
+
+static mtfs_error_t mtfs_stm32_sd_polling_write(
+    mtfs_stm32_sdmmc_context_t *context, const void *buffer,
+    uint32_t block, uint32_t count)
+{
+    const uint8_t *cursor = buffer;
+    uint32_t index;
+    mtfs_error_t result = MTFS_OK;
+
+    /* Keep the fallback symmetric and independent of multi-block commands. */
+    for (index = 0U; index < count; ++index) {
+        context->last_hal_status = HAL_SD_WriteBlocks(context->config.hal_sd,
+            cursor, block + index, 1U, context->config.io_timeout_ms);
+        if (context->last_hal_status != HAL_OK) {
+            result = mtfs_stm32_sd_hal_error(
+                context, context->last_hal_status);
+            break;
+        }
+        mtfs_stm32_sd_record_start(context, 1, 1U);
+        result = mtfs_stm32_sd_wait_transfer(context);
+        if (result != MTFS_OK) {
+            break;
+        }
+        cursor += MTFS_STM32_SDMMC_SECTOR_SIZE;
+    }
+    if (result != MTFS_OK) {
+        mtfs_stm32_sd_abort(context);
+    }
+    return result;
 }
 
 static void mtfs_stm32_sd_abort(mtfs_stm32_sdmmc_context_t *context)
@@ -455,7 +516,7 @@ mtfs_error_t mtfs_stm32_sdmmc_context_deinit(
     if (context->irq_registered) {
         HAL_NVIC_DisableIRQ(context->config.irq_number);
     }
-    if (context->initialized || context->transfer_active) {
+    if (context->hal_initialized || context->transfer_active) {
         if (context->transfer_active) {
             mtfs_stm32_sd_abort(context);
         }
@@ -463,6 +524,7 @@ mtfs_error_t mtfs_stm32_sdmmc_context_deinit(
         if (context->last_hal_status != HAL_OK) {
             result = MTFS_ERROR_IO;
         }
+        context->hal_initialized = 0U;
     }
     context->initialized = 0U;
     context->objects_ready = 0U;
@@ -533,6 +595,15 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
     }
 
     context->initialized = 0U;
+    if (context->hal_initialized) {
+        context->last_hal_status = HAL_SD_DeInit(context->config.hal_sd);
+        if (context->last_hal_status != HAL_OK) {
+            result = mtfs_stm32_sd_hal_error(context, context->last_hal_status);
+            goto done;
+        }
+        context->hal_initialized = 0U;
+    }
+    context->hal_initialized = 1U;
     context->last_hal_status = HAL_SD_Init(context->config.hal_sd);
     if (context->last_hal_status != HAL_OK) {
         result = mtfs_stm32_sd_hal_error(context, context->last_hal_status);
@@ -563,6 +634,7 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
 
 failed_init:
     context->last_hal_status = HAL_SD_DeInit(context->config.hal_sd);
+    context->hal_initialized = 0U;
     context->initialized = 0U;
 done:
     mtfs_stm32_sd_unlock(context);
@@ -628,17 +700,8 @@ static mtfs_error_t mtfs_stm32_sd_read(
     if (context->config.use_idma) {
         result = mtfs_stm32_sd_idma_read(context, buffer, block, count);
     } else {
-        context->last_hal_status = HAL_SD_ReadBlocks(context->config.hal_sd,
-            buffer, block, count, context->config.io_timeout_ms);
-        if (context->last_hal_status == HAL_OK) {
-            mtfs_stm32_sd_record_start(context, 0, count);
-            result = mtfs_stm32_sd_wait_transfer(context);
-        } else {
-            result = mtfs_stm32_sd_hal_error(context, context->last_hal_status);
-        }
-        if (result != MTFS_OK) {
-            mtfs_stm32_sd_abort(context);
-        }
+        result = mtfs_stm32_sd_polling_read(
+            context, buffer, block, count);
     }
 done:
     mtfs_stm32_sd_unlock(context);
@@ -670,17 +733,8 @@ static mtfs_error_t mtfs_stm32_sd_write(
     if (context->config.use_idma) {
         result = mtfs_stm32_sd_idma_write(context, buffer, block, count);
     } else {
-        context->last_hal_status = HAL_SD_WriteBlocks(context->config.hal_sd,
-            buffer, block, count, context->config.io_timeout_ms);
-        if (context->last_hal_status == HAL_OK) {
-            mtfs_stm32_sd_record_start(context, 1, count);
-            result = mtfs_stm32_sd_wait_transfer(context);
-        } else {
-            result = mtfs_stm32_sd_hal_error(context, context->last_hal_status);
-        }
-        if (result != MTFS_OK) {
-            mtfs_stm32_sd_abort(context);
-        }
+        result = mtfs_stm32_sd_polling_write(
+            context, buffer, block, count);
     }
 done:
     mtfs_stm32_sd_unlock(context);

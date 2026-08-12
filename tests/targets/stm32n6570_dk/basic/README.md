@@ -1,6 +1,6 @@
 # STM32N6570-DK SDMMC2 runner
 
-STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。I-cache/D-cache を有効のまま使い、RIF readback、raw read、FatFs roundtrip、2 task 同時アクセス、unmount/remount 後の永続性、IRQ/callback/単一・複数 block の診断を実行します。raw sector write と format は行いません。
+STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。I-cache/D-cache を有効のまま使い、RIF readback、raw read、FatFs roundtrip、2 task 同時アクセス、unmount/remount 後の永続性、IRQ/callback/転送 block 数の診断を実行します。raw sector write と format は行いません。
 
 ## 対応ツールとプロジェクト
 
@@ -35,7 +35,7 @@ CubeIDE で `.ioc` を再生成すると `Core/Src/main.c`、`stm32n6xx_hal_msp.
 Appli Debug/Release の C compiler define `MTFS_STM32_SD_USE_IDMA` で切り替えます。
 
 - `1`（既定）: IDMA+IRQ。GPDMA/HPDMA channel は不要で、必要な IRQ は SDMMC2 global interrupt だけです。
-- `0`: polling fallback。同じ Block Device/FatFs/test API を使い、IDMA 固有の診断 assertion だけを省略します。
+- `0`: polling fallback。同じ Block Device/FatFs/test API を使いますが、複数 sector の要求を 1 sector ずつの HAL polling 転送へ分割します。SDMMC hardware flow control もこの経路だけ有効にし、速度より確実性を優先します。IDMA 固有の診断 assertion は省略します。
 
 変更後は clean build してください。実機合格は両設定で別々に確認します。
 
@@ -66,7 +66,7 @@ HAL timeout は microT-Kernel cyclic handler が更新する HAL tick を使い�
 2. カードを挿入して reset し、IDMA=1 / smoke で `cache I=enabled D=enabled`、`RIF ready=1`、geometry、raw read PASS、各 test PASS、最終 `PHASE 3 RUN PASS` を確認します。
 3. 診断値で IRQ/Rx/Tx が 1 以上、error/timeout が 0、read single/multi と write multi が 1 以上、read/write max が 2 以上であることを確認します。
 4. normal profile（既定、10 rounds）、stress profile（`MTFS_STM32N6570_TEST_PROFILE=3`、100 rounds）を実行し、全 round PASS、mount/unmount、2 task 同時 read/write、remount 後 compare が継続することを確認します。
-5. `MTFS_STM32_SD_USE_IDMA=0` へ切り替えて clean build し、カード未挿入 smoke、カード挿入 smoke/normal/stress を同様に実行します。IRQ 診断 assertion がないことと、filesystem の結果が IDMA と同じことを確認します。
+5. `MTFS_STM32_SD_USE_IDMA=0` へ切り替えて clean build し、カード未挿入 smoke、カード挿入 smoke/normal/stress を同様に実行します。IRQ 診断 assertion がないこと、read/write の `multi=0` と `max=1`、filesystem の結果が IDMA と同じことを確認します。
 6. 各構成で複数回 power-cycle し、再起動後も mount と test が成功することを確認します。
 
 IDMA 経路を debugger でも追う場合は、`mtfs_stm32_sd_irq_handler()`、`HAL_SD_RxCpltCallback()`、`HAL_SD_TxCpltCallback()`、`HAL_SD_ErrorCallback()` に breakpoint を置きます。正常時は Rx/Tx に到達し、Error には到達しません。次も watch してください。

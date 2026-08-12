@@ -90,6 +90,9 @@ void mtfs_stm32n6570_dk_sdmmc_config(
     config->io_timeout_ms = 5000U;
     config->transfer_timeout_ms = 5000U;
     config->use_idma = MTFS_STM32_SD_USE_IDMA;
+    if (!config->use_idma) {
+        hsd2.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_ENABLE;
+    }
     config->manage_hal_timebase = 1U;
 }
 

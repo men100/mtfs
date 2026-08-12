@@ -5,7 +5,7 @@
 転送経路:
 
 - `use_idma=1`: `HAL_SD_ReadBlocks_DMA()` / `HAL_SD_WriteBlocks_DMA()`、SDMMC IRQ、HAL 完了 callback、T-Kernel event flag で同期化する既定経路。
-- `use_idma=0`: 同じ API と mutex を保ち、`HAL_SD_ReadBlocks()` / `HAL_SD_WriteBlocks()` を使う polling fallback。
+- `use_idma=0`: 同じ API と mutex を保ち、`HAL_SD_ReadBlocks()` / `HAL_SD_WriteBlocks()` を 1 sector ずつ呼ぶ polling fallback。複数 sector の要求も単一 block command に分割し、速度より確実な復旧性を優先する。
 - 1 回の転送は最大 8 sector。単一・複数 block の開始回数、最大 block 数、IRQ/callback/timeout/abort は `diagnostics` で観測できる。
 
 IDMA では context 内の 4096-byte bounce buffer だけを DMA 対象にします。buffer は 32-byte aligned かつ cache-line 完結で、write は copy 後 clean、read は転送前 clean/invalidate、完了後 invalidate してから user buffer へ copy します。FatFs が未整列 buffer を渡しても隣接 cache line を破壊しません。実際の配置領域は linker map と実機ログの両方で確認してください。
@@ -14,7 +14,7 @@ IDMA では context 内の 4096-byte bounce buffer だけを DMA 対象にしま
 
 - FatFs volume mutex → Block Device 呼出し → SDMMC access mutex の順です。SDMMC mutex を保持したまま FatFs API を呼ばないでください。
 - HAL callback/IRQ は mutex を取らず event flag のみを更新します。
-- IDMA 完了待ちと card-transfer 状態待ちには独立 timeout があり、失敗時は abort して未初期化へ戻します。次回 initialize で復旧できます。
+- IDMA 完了待ちと card-transfer 状態待ちには独立 timeout があり、失敗時は abort して未初期化へ戻します。論理初期化状態とは別に HAL 初期化状態を保持し、deinit または次回 initialize で HAL を確実にリセットしてから復旧します。
 - deinit は IRQ、T-Kernel object、HAL、任意の HAL timebase を解放します。並行 I/O がない状態で呼んでください。
 
 制約:
