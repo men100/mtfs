@@ -47,6 +47,8 @@ FatFsの再入可能化は `src/mtfs_config.h` で設定します。既定はRTC
 
 EK-RA8P1でのPhase 2.1 SD SPI反復runner、vector cache coherency対策、配線、FSP設定、build/download手順は `tests/targets/ek_ra8p1/basic/README.md` を参照してください。
 
+新しいmicroT-Kernel対応ボードへのソース取り込み、Block Device port、OS/DMA統合、実機runnerの作成手順は `docs/porting/README.md` を参照してください。
+
 ## ライセンス
 
 リポジトリ全体のライセンスは [LICENSE](LICENSE) を参照してください。取り込んだ FatFs には上流ライセンスが適用されます。詳細は `src/fatfs/UPSTREAM.md` と `src/fatfs/LICENSE.txt` を参照してください。
