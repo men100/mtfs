@@ -11,14 +11,18 @@ find_package(Threads REQUIRED)
 add_executable(mtfs_host_tests
     main.c
     test_media_lifecycle.c
+    test_time_provider.c
     ../common/framework/mtfs_test.c
     ../common/cases/test_fatfs_concurrent.c
     ../common/cases/test_fatfs_roundtrip.c
+    ../common/cases/test_fatfs_timestamp.c
     ../../src/block/mtfs_block_device.c
     ../../src/block/mtfs_block_registry.c
     ../../src/core/mtfs_media.c
+    ../../src/core/mtfs_time.c
     ../../src/fatfs/ff.c
     ../../src/fatfs/mtfs_diskio.c
+    ../../src/fatfs/mtfs_fattime.c
     ../../src/os/host/mtfs_fatfs_mutex_posix.c
     ../../src/os/microtkernel/mtfs_fatfs_mutex.c
     ../../src/ports/host/mtfs_host_block_file.c
@@ -38,7 +42,7 @@ target_include_directories(mtfs_host_tests PRIVATE
 
 target_compile_definitions(mtfs_host_tests PRIVATE
     MTFS_FF_USE_MKFS=1
-    MTFS_FF_FS_NORTC=1
+    MTFS_FF_FS_NORTC=0
     MTFS_FF_FS_REENTRANT=1
     MTFS_FATFS_MUTEX_ADAPTER=MTFS_FATFS_MUTEX_ADAPTER_POSIX
 )
@@ -68,6 +72,21 @@ add_library(mtfs_fatfs_nonreentrant_compile OBJECT
     ../../src/os/host/mtfs_fatfs_mutex_posix.c
     ../../src/os/microtkernel/mtfs_fatfs_mutex.c
 )
+
+add_library(mtfs_fattime_disabled_compile OBJECT
+    ../../src/fatfs/mtfs_fattime.c
+)
+target_include_directories(mtfs_fattime_disabled_compile PRIVATE
+    ../../src
+    ../../src/core
+    ../../src/fatfs
+)
+target_compile_definitions(mtfs_fattime_disabled_compile PRIVATE
+    MTFS_FF_FS_NORTC=1
+)
+target_compile_options(mtfs_fattime_disabled_compile PRIVATE
+    -Wall -Wextra -Wpedantic
+)
 target_include_directories(mtfs_fatfs_nonreentrant_compile PRIVATE
     ../../src
     ../../src/block
@@ -82,3 +101,24 @@ target_compile_options(mtfs_fatfs_nonreentrant_compile PRIVATE
 )
 
 add_test(NAME mtfs_host_roundtrip COMMAND mtfs_host_tests)
+
+add_executable(mtfs_fattime_enabled_test
+    test_fattime_symbol.c
+    ../../src/core/mtfs_time.c
+    ../../src/fatfs/mtfs_fattime.c
+)
+target_include_directories(mtfs_fattime_enabled_test PRIVATE
+    ../../src
+    ../../src/core
+    ../../src/fatfs
+)
+target_compile_definitions(mtfs_fattime_enabled_test PRIVATE
+    MTFS_FF_FS_NORTC=0
+)
+set_target_properties(mtfs_fattime_enabled_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES
+)
+target_compile_options(mtfs_fattime_enabled_test PRIVATE
+    -Wall -Wextra -Wpedantic
+)
+add_test(NAME mtfs_fattime_enabled COMMAND mtfs_fattime_enabled_test)

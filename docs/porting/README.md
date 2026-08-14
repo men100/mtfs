@@ -4,6 +4,8 @@
 Block Device portを実装して実機runnerで確認するまでの入口です。現在の参照実装は
 Hostのファイル、RA FSPのSPI接続SD、STM32CubeのSDMMC pollingおよびIDMA + IRQです。
 removable mediaの共通設計は[media lifecycle](media-lifecycle.md)を参照してください。
+RTC timestampを使うtargetは[RTC timestamp providerの移植](rtc-timestamp-provider.md)も
+参照してください。
 
 ## 読む順序
 
@@ -58,6 +60,8 @@ STM32 HALの公開ヘッダへのpathが必要です。使用しないportの`.c
 | STM32Cube SDMMCがHAL timebaseも管理 | 上記に加えて`src/ports/stm32_cube/common/mtfs_stm32_hal_timebase.c` |
 | 挿抜状態機械 | `src/core/mtfs_media.c` |
 | optional microT-Kernel worker | `src/os/microtkernel/mtfs_media_service.c` |
+| RTC共通provider/FatFs hook | `src/core/mtfs_time.c`と`src/fatfs/mtfs_fattime.c` |
+| STM32Cube RTC | 上記に加えて`src/ports/stm32_cube/rtc/mtfs_stm32_rtc.c` |
 
 ## 基本構成例
 
@@ -81,8 +85,8 @@ mkfsなしという現在の実機runnerと同じ設定です。値は`src/mtfs_
 `MTFS_FF_VOLUMES`は1から10、かつ`MTFS_BLOCK_REGISTRY_SIZE`以下でなければなりません。
 `MTFS_FF_FS_REENTRANT=1`ではmutex adapterの選択が必須です。
 
-`MTFS_FF_FS_NORTC=0`へ変更する場合、現在の共通層は`get_fattime()`を提供しないため、
-target/applicationがFatFs契約の`get_fattime()`を実装する必要があります。
+`MTFS_FF_FS_NORTC=0`へ変更する場合は共通providerと`mtfs_fattime.c`をリンクし、targetの
+RTC providerをregisterします。RTCなし構成ではこれらをリンクせず固定日時を維持します。
 
 ## pdrv登録から終了まで
 
@@ -181,7 +185,7 @@ card detect、write protect、DMA/RIF準備確認はtarget callbackです。Card
 | SDカード挿抜（hot plug） | STM32/RA実機PASS | 共通media層がedge後debounceと重複排除を行う。STM32はIDMA/polling双方、RAはSCI_B SPI+P409/IRQ6でidle抜去後NO_MEDIA、再挿入後の明示initialize/roundtrip、cleanupを確認済み。自動mount、open FIL再開、書込み中抜去のdata保護は保証しない。 |
 | card detect | STM32実機確認済み、RA実装済み | STM32N6570-DKはPN12/EXTI12、実測active-low、両edge、priority 6を`tk_def_int(TA_HLNG)`で登録する。RA8P1はPmod Pin 9→P409→FSP ICU IRQ6、両edge、priority 12、実測active-low。P000 IRQ6-DSのISELは競合防止のため無効化する。callback未指定のport契約は常時presentで従来動作を維持する。 |
 | write protect | target設定次第 | STM32 portは任意の`write_protected` callbackを持つが、STM32N6570-DK targetはNULL。RAは端子未接続。Hostはopen時のread-only指定とBlock Device capabilityで表現する。 |
-| RTC timestamp | target設定次第 | 既定と既存runnerは`MTFS_FF_FS_NORTC=1`で固定日時。0にする場合はtarget/applicationが`get_fattime()`を提供する。共通RTC adapterはない。 |
+| RTC timestamp | 共通層/ST port実装済み | 既定は`MTFS_FF_FS_NORTC=1`の固定日時。共通providerが4状態、calendar検証、FAT packingを提供し、STM32N6570-DK runnerはHAL RTC/LSI/TAMP markerと`get_fattime()`を接続する。RA RTC portは未実装。 |
 | LFN/UTF-8 | 未対応 | 現在の`ffconf.h`は`FF_USE_LFN=0`、`FF_LFN_UNICODE=0`。8.3名を使用する。 |
 | exFAT | 未対応 | `FF_FS_EXFAT=0`。既存targetはFAT12/16/32のみを対象とする。 |
 | multi-volume | target設定次第 | `MTFS_FF_VOLUMES`と固定長registryは複数pdrvを扱える。既定/既存runnerは1 volume。`FF_MULTI_PARTITION=0`なので1物理drive上の任意partition割当は未対応。 |

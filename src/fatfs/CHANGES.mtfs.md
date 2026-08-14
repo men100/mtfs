@@ -1,5 +1,11 @@
 # microT-FS changes to FatFs
 
+## Phase 3.3 RTC timestamp bridge
+
+- Added `mtfs_fattime.c` outside upstream `ff.c`; no upstream timestamp logic was modified.
+- `MTFS_FF_FS_NORTC=1` remains the zero-dependency fixed-time default.
+- With `MTFS_FF_FS_NORTC=0`, `get_fattime()` returns a packed local timestamp only for a `VALID` microT-FS provider and returns zero for every untrusted state.
+
 This file tracks intentional microT-FS differences from the upstream baseline recorded in `UPSTREAM.md`.
 
 The current baseline is FatFs R0.16 with official patch-1 followed by official patch-2. Those patches are upstream ChaN patches and are not microT-FS-specific changes.

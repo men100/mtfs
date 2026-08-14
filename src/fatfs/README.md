@@ -9,3 +9,9 @@ FatFs は submodule や `external/` の外部依存物ではなく、microT-FS �
 - 上流ライセンスは `LICENSE.txt` を参照してください。
 
 上流の `source/diskio.c` はサンプル／雛形のため収録していません。ディスクI/O実装は後続作業でmicroT-FS共通の `mtfs_diskio.c` として提供します。
+
+timestampを必要としないtargetは既定の`MTFS_FF_FS_NORTC=1`を維持し、2025-01-01の
+固定日時を使います。この構成ではRTC providerも`mtfs_fattime.c`もリンク不要です。
+RTC targetは`MTFS_FF_FS_NORTC=0`にし、`mtfs_fattime.c`をリンクします。`get_fattime()`は
+providerが`VALID`かつ日時がFAT範囲内の場合だけpacked timestampを返し、`UNSET`、
+`ERROR`、`UNAVAILABLE`またはread失敗では0を返します。

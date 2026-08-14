@@ -14,6 +14,22 @@
 #include "test_fatfs_roundtrip.h"
 #include "mtfs_stm32n6570_dk_platform.h"
 #include "mtfs_target_concurrent.h"
+#ifndef MTFS_FF_FS_NORTC
+#define MTFS_FF_FS_NORTC (1)
+#endif
+#if !MTFS_FF_FS_NORTC
+#include "mtfs_stm32_rtc.h"
+#endif
+#ifndef MTFS_TARGET_RTC_CONSOLE
+#define MTFS_TARGET_RTC_CONSOLE (0)
+#endif
+#if !MTFS_FF_FS_NORTC && MTFS_TARGET_RTC_CONSOLE
+#include "mtfs_rtc_set_app.h"
+#include "test_fatfs_timestamp.h"
+#define MTFS_TARGET_RTC_CONSOLE_ACTIVE (1)
+#else
+#define MTFS_TARGET_RTC_CONSOLE_ACTIVE (0)
+#endif
 
 #define MTFS_TEST_PROFILE_SMOKE   (1)
 #define MTFS_TEST_PROFILE_NORMAL  (2)
@@ -55,6 +71,44 @@ static volatile uint32_t media_reinitialize_count;
 static ID media_application_event_flag_id;
 static uint8_t sector_zero_single[MTFS_STM32_SDMMC_SECTOR_SIZE];
 static uint8_t sector_zero_multi[MTFS_STM32_SDMMC_SECTOR_SIZE * 2U];
+#if !MTFS_FF_FS_NORTC
+static mtfs_stm32_rtc_context_t rtc_context;
+static ID rtc_mutex_id;
+
+static mtfs_error_t target_rtc_lock(void *opaque)
+{
+    ID mutex_id = *(ID *)opaque;
+    return tk_loc_mtx(mutex_id, TMO_FEVR) == E_OK ? MTFS_OK : MTFS_ERROR_IO;
+}
+
+static void target_rtc_unlock(void *opaque)
+{
+    ID mutex_id = *(ID *)opaque;
+    (void)tk_unl_mtx(mutex_id);
+}
+#endif
+
+#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+static void target_rtc_write(void *opaque, const char *text)
+{
+    (void)opaque;
+    (void)tm_putstring((const UB *)text);
+}
+
+static int target_rtc_command(void *opaque, const char *line);
+
+static void target_rtc_console(void)
+{
+    mtfs_rtc_set_app_t app;
+    mtfs_rtc_set_app_init(&app, target_rtc_write, NULL);
+    mtfs_rtc_set_app_set_extension(&app, target_rtc_command, NULL,
+        "test-fatfs-time           verify FatFs timestamp against RTC\r\n");
+    mtfs_rtc_set_app_banner(&app);
+    for (;;) {
+        mtfs_rtc_set_app_feed(&app, (char)tm_getchar(1));
+    }
+}
+#endif
 
 static void target_reporter(
     void *opaque, mtfs_test_event_t event, const char *test_name,
@@ -191,12 +245,124 @@ static void target_print_diagnostics(
         diagnostics->last_clkcr & SDMMC_CLKCR_CLKDIV);
 }
 
+#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+static void target_print_timestamp_datetime(
+    const char *label, const mtfs_datetime_t *datetime)
+{
+    tm_printf((UB *)"%s%04u-%02u-%02u %02u:%02u:%02u\n",
+        (UB *)label, datetime->year, datetime->month, datetime->day,
+        datetime->hour, datetime->minute, datetime->second);
+}
+
+static int target_run_fatfs_time_test(void)
+{
+    mtfs_stm32_sdmmc_config_t config;
+    mtfs_block_device_t *device = NULL;
+    mtfs_fatfs_timestamp_result_t timestamp_result;
+    mtfs_time_status_t rtc_status = MTFS_TIME_STATUS_UNAVAILABLE;
+    mtfs_error_t error;
+    mtfs_test_t test;
+    int case_result = 1;
+    int test_failure = 1;
+    int registered = 0;
+    int context_ready = 0;
+    int media_ready = 0;
+
+    if ((mtfs_time_get_status(&rtc_status) != MTFS_OK) ||
+        (rtc_status != MTFS_TIME_STATUS_VALID)) {
+        tm_printf((UB *)"[mtfs] FAT timestamp command FAIL: RTC state=%u\n",
+            (UW)rtc_status);
+        return 1;
+    }
+    mtfs_stm32n6570_dk_sdmmc_config(&config);
+    error = mtfs_stm32_sdmmc_context_init(&sd_context, &config);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] timestamp context init FAIL: %d\n", error);
+        goto cleanup;
+    }
+    context_ready = 1;
+    error = mtfs_stm32n6570_dk_card_detect_start(&media_context,
+        &media_service, &sd_context, target_media_event, NULL);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] timestamp card detect start FAIL: %d\n",
+            error);
+        goto cleanup;
+    }
+    media_ready = 1;
+    device = mtfs_stm32_sdmmc_block_device(&sd_context);
+    error = mtfs_block_initialize(device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] timestamp SD init FAIL: %d\n", error);
+        goto cleanup;
+    }
+    error = mtfs_block_registry_register(0U, device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] timestamp pdrv 0 register FAIL: %d\n",
+            error);
+        goto cleanup;
+    }
+    registered = 1;
+
+    mtfs_test_begin(&test, "fatfs_timestamp", target_reporter, NULL);
+    case_result = test_fatfs_timestamp(&test, "0:", &timestamp_result);
+    test_failure = (mtfs_test_finish(&test) != 0) || (case_result != 0);
+    if (timestamp_result.fat_file != 0U) {
+        target_print_timestamp_datetime(
+            "RTC before : ", &timestamp_result.rtc_before);
+        target_print_timestamp_datetime(
+            "File time  : ", &timestamp_result.file_time);
+        target_print_timestamp_datetime(
+            "RTC after  : ", &timestamp_result.rtc_after);
+        tm_printf((UB *)"FAT raw    : 0x%08x\n",
+            timestamp_result.fat_file);
+    }
+
+cleanup:
+    if (media_ready &&
+        (mtfs_stm32n6570_dk_card_detect_stop() != MTFS_OK)) {
+        tm_printf((UB *)"[mtfs] timestamp card detect cleanup FAIL\n");
+        test_failure = 1;
+    }
+    if (registered && (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
+        tm_printf((UB *)"[mtfs] timestamp registry cleanup FAIL\n");
+        test_failure = 1;
+    }
+    if (context_ready &&
+        (mtfs_stm32_sdmmc_context_deinit(&sd_context) != MTFS_OK)) {
+        tm_printf((UB *)"[mtfs] timestamp context cleanup FAIL\n");
+        test_failure = 1;
+    }
+    if (context_ready && test_failure) {
+        target_print_diagnostics(&sd_context);
+    }
+    tm_printf((UB *)"[mtfs] FAT timestamp command %s\n",
+        test_failure ? (UB *)"FAIL" : (UB *)"PASS");
+    return test_failure ? 1 : 0;
+}
+
+static int target_rtc_command(void *opaque, const char *line)
+{
+    (void)opaque;
+    if (strcmp(line, "test-fatfs-time") != 0) {
+        return 0;
+    }
+    (void)target_run_fatfs_time_test();
+    return 1;
+}
+#endif
+
 static void target_coordinator(INT start_code, void *opaque)
 {
     mtfs_stm32_sdmmc_config_t config;
     mtfs_stm32n6570_dk_rif_diagnostics_t rif;
     unsigned int round;
     int overall_failure = 0;
+#if !MTFS_FF_FS_NORTC
+    mtfs_error_t rtc_error;
+    T_CMTX rtc_mutex = {
+        .mtxatr = TA_INHERIT
+    };
+#endif
 #if MTFS_STM32N6570_HOTPLUG_TEST
     T_CFLG media_flag_config = {
         .flgatr = TA_TFIFO,
@@ -206,6 +372,29 @@ static void target_coordinator(INT start_code, void *opaque)
 
     (void)start_code;
     (void)opaque;
+#if !MTFS_FF_FS_NORTC
+    rtc_mutex_id = tk_cre_mtx(&rtc_mutex);
+    if (rtc_mutex_id <= 0) {
+        tm_printf((UB *)"[mtfs] RTC mutex create FAIL: %d\n", rtc_mutex_id);
+        tk_exd_tsk();
+    }
+    rtc_error = mtfs_stm32_rtc_init(
+        &rtc_context, target_rtc_lock, target_rtc_unlock, &rtc_mutex_id);
+    if (rtc_error == MTFS_OK) {
+        rtc_error = mtfs_time_provider_register(
+            mtfs_stm32_rtc_provider(&rtc_context));
+    }
+    if (rtc_error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] RTC provider init FAIL: %d reset=0x%08x\n",
+            rtc_error, rtc_context.reset_flags_at_init);
+        overall_failure = 1;
+    } else {
+        mtfs_time_status_t rtc_status;
+        (void)mtfs_time_get_status(&rtc_status);
+        tm_printf((UB *)"[mtfs] RTC provider state=%u source=LSI local-time reset=0x%08x\n",
+            (UW)rtc_status, rtc_context.reset_flags_at_init);
+    }
+#endif
     mtfs_stm32n6570_dk_sdmmc_config(&config);
 #if MTFS_STM32N6570_HOTPLUG_TEST
     media_application_event_flag_id = tk_cre_flg(&media_flag_config);
@@ -459,6 +648,12 @@ round_done:
     if (media_application_event_flag_id > 0) {
         (void)tk_del_flg(media_application_event_flag_id);
         media_application_event_flag_id = 0;
+    }
+#endif
+#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+    if (rtc_error == MTFS_OK) {
+        tm_printf((UB *)"[mtfs] RTC console ready after test run\n");
+        target_rtc_console();
     }
 #endif
     tk_exd_tsk();

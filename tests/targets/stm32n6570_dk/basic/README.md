@@ -48,6 +48,66 @@ IDMA buffer は `mtfs_stm32_sdmmc_context_t` 内の aligned 4096-byte bounce buf
 
 HAL timeout は microT-Kernel cyclic handler が更新する HAL tick を使います。FatFs は `FF_FS_REENTRANT=1` と microT-Kernel mutex adapter を使用します。lock 順序は FatFs volume mutex が外側、SDMMC port mutex が内側です。
 
+## RTC timestamp provider（Phase 3.3 ST先行実装）
+
+Appliは`MTFS_FF_FS_NORTC=0`、STM32N6 HAL RTC、`src/ports/stm32_cube/rtc`、
+`src/core/mtfs_time`、`src/fatfs/mtfs_fattime.c`をリンクします。RTC sourceはSTの
+STM32N6570-DK exampleに合わせたLSI（公称32 kHz）です。local timeをそのままFATへ記録し、
+timezone/UTC/DST変換は行いません。
+
+設定済みmarkerはTAMP backup register 28-30を予約します。BKP28は`MTFS` magicのcommit
+word、BKP29はversion/check、BKP30はmagic反転値です。`set`はcommitを先にclearし、HALで
+time/date設定、HAL readback一致確認、BKP29/30、最後にBKP28の順で書きます。marker欠落は
+`UNSET`、marker有効かつcalendar不正/read失敗は`ERROR`です。STM32の2桁year制約により
+このportのset範囲は2000-2099年です。
+
+RTC/provider mutexはcoordinator task開始時に静的T-Kernel objectとして作成します。通常の
+FatFs試験完了後、同じtaskがUSART1 VCP（115200 8N1）でRTC consoleへ移行します。
+`MTFS_TARGET_RTC_CONSOLE=1`はこの診断consoleだけを選択し、製品構成では0にできます。
+`MTFS_FF_FS_NORTC=1`ではconsole指定にかかわらずRTC初期化とconsoleをコンパイル対象の
+実行経路から外し、このtargetのHAL RTC moduleとSTM32 RTC port本体も無効になります。
+
+```text
+status
+set 2026-08-14 21:30:00
+get
+test-fatfs-time
+clear
+help
+```
+
+`test-fatfs-time`はSDMMC context、card detect、pdrv 0をその場で初期化し、専用の
+`MTFSTIME.TST`を作成・closeして`f_stat()`の日時が作成前後のRTC範囲内にあることを
+FATの2秒精度で確認します。最後に専用ファイル、mount、registry、card detect、SDMMC
+contextを後片付けします。実行中はカードを抜去しないでください。出力例は次のとおりです。
+
+```text
+> test-fatfs-time
+[TEST] fatfs_timestamp: PASS (checks=12 failures=0)
+RTC before : 2026-08-14 21:35:10
+File time  : 2026-08-14 21:35:10
+RTC after  : 2026-08-14 21:35:11
+[mtfs] FAT timestamp command PASS
+```
+
+software system resetではRTCとTAMP backup registerが保持されます。STM32N6 deviceとしては
+backup registerはVBAT供給中にVDD-off保持されますが、このtargetはLSIを使うためVDD-off中の
+RTC進行を保証しません。電源断保持を必要とする製品boardではLSEと独立VBATを実装し、clock
+source変更時はbackup domain/markerを明示的に無効化してください。STM32N6570-DKでの電源断
+保持は未実測であり、本Phaseの合否はsoftware reset保持までです。
+
+### RTC実機結果（2026-08-14）
+
+- `set 2026-08-14 21:30:00`後にsoftware system resetし、`status: VALID`を確認。
+- reset後の`get`は`21:30:59`、約65秒後は`21:32:04`で、calendar進行とmarker保持を確認。
+- `test-fatfs-time`のSTM32N6570-DK実機実行は未確認。
+
+現在はFull Secure imageなのでRTC/TAMP secure aliasへ直接アクセスします。将来TrustZone化
+する場合は設定とmarker writeをSecure側へ残し、Non-Secure側には検証済みread serviceだけを
+公開します。Cube再生成後はHAL RTC module/source link、`MTFS_FF_FS_NORTC=0`、
+`MTFS_TARGET_RTC_CONSOLE`、`mtfs_stm32_rtc`/`mtfs_rtc_set_app` linked resourceを
+再確認してください。
+
 ## Card Detect構成
 
 socketの`SD_DETECT`はPN12へ接続し、このtargetではLowを挿入、Highを抜去として扱います。

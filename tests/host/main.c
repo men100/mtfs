@@ -12,10 +12,48 @@
 #include "mtfs_test.h"
 #include "test_fatfs_concurrent.h"
 #include "test_fatfs_roundtrip.h"
+#include "test_fatfs_timestamp.h"
 #include "test_media_lifecycle.h"
+#include "test_time_provider.h"
 
 #define MTFS_HOST_IMAGE_SIZE (16L * 1024L * 1024L)
 #define MTFS_HOST_SECTOR_SIZE MTFS_HOST_BLOCK_FILE_DEFAULT_SECTOR_SIZE
+
+static mtfs_error_t mtfs_host_time_get_local(
+    void *context, mtfs_datetime_t *datetime, mtfs_time_status_t *status)
+{
+    *datetime = *(const mtfs_datetime_t *)context;
+    *status = MTFS_TIME_STATUS_VALID;
+    return MTFS_OK;
+}
+
+static mtfs_error_t mtfs_host_time_set_local(
+    void *context, const mtfs_datetime_t *datetime)
+{
+    *(mtfs_datetime_t *)context = *datetime;
+    return MTFS_OK;
+}
+
+static mtfs_error_t mtfs_host_time_get_status(
+    void *context, mtfs_time_status_t *status)
+{
+    (void)context;
+    *status = MTFS_TIME_STATUS_VALID;
+    return MTFS_OK;
+}
+
+static mtfs_error_t mtfs_host_time_clear(void *context)
+{
+    (void)context;
+    return MTFS_OK;
+}
+
+static const mtfs_time_provider_ops_t mtfs_host_time_ops = {
+    .get_local = mtfs_host_time_get_local,
+    .set_local = mtfs_host_time_set_local,
+    .get_status = mtfs_host_time_get_status,
+    .clear = mtfs_host_time_clear
+};
 
 static int mtfs_create_temp_image(char *path, size_t path_size)
 {
@@ -94,14 +132,35 @@ int main(void)
     int image_created = 0;
     int port_open = 0;
     int registered = 0;
+    int time_provider_registered = 0;
     int roundtrip_result = 1;
     int concurrent_result = 1;
+    int timestamp_result_code = 1;
+    mtfs_datetime_t host_datetime = {2026U, 8U, 14U, 21U, 30U, 58U};
+    mtfs_time_provider_t host_time_provider = {
+        .ops = &mtfs_host_time_ops,
+        .context = &host_datetime,
+        .lock = NULL,
+        .unlock = NULL,
+        .lock_context = NULL
+    };
+    mtfs_fatfs_timestamp_result_t timestamp_result;
 
     memset(&host_context, 0, sizeof(host_context));
     memset(&device, 0, sizeof(device));
     memset(sector_buffer, 0xA5, sizeof(sector_buffer));
     mtfs_test_begin(&test, "host block device and FatFs concurrency",
         mtfs_host_reporter, NULL);
+
+    if (test_time_provider(&test) != 0) {
+        goto cleanup;
+    }
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_time_provider_register(&host_time_provider) == MTFS_OK,
+            "register fixed host provider for FatFs timestamp tests")) {
+        goto cleanup;
+    }
+    time_provider_registered = 1;
 
     if (test_media_lifecycle(&test) != 0) {
         goto cleanup;
@@ -205,6 +264,11 @@ int main(void)
     if (roundtrip_result != 0) {
         goto cleanup;
     }
+    timestamp_result_code = test_fatfs_timestamp(
+        &test, "0:", &timestamp_result);
+    if (timestamp_result_code != 0) {
+        goto cleanup;
+    }
     concurrent_result = test_fatfs_concurrent(&test, "0:");
     if (concurrent_result != 0) {
         goto cleanup;
@@ -267,6 +331,12 @@ cleanup:
         (void)MTFS_TEST_CHECK(&test, remove(image_path) == 0,
             "delete only the temporary image created by this test");
         image_created = 0;
+    }
+    if (time_provider_registered) {
+        (void)MTFS_TEST_CHECK(&test,
+            mtfs_time_provider_unregister(&host_time_provider) == MTFS_OK,
+            "unregister fixed host time provider");
+        time_provider_registered = 0;
     }
     return mtfs_test_finish(&test);
 }

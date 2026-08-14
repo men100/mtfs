@@ -69,7 +69,9 @@ extern "C" {
 /*#define HAL_RAMCFG_MODULE_ENABLED   */
 /*#define HAL_RIF_MODULE_ENABLED   */
 /*#define HAL_RNG_MODULE_ENABLED   */
-/*#define HAL_RTC_MODULE_ENABLED   */
+#if defined(MTFS_FF_FS_NORTC) && !MTFS_FF_FS_NORTC
+#define HAL_RTC_MODULE_ENABLED
+#endif
 /*#define HAL_SAI_MODULE_ENABLED   */
 #define HAL_SD_MODULE_ENABLED
 /*#define HAL_SDIO_MODULE_ENABLED   */
