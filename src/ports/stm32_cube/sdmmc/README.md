@@ -17,8 +17,8 @@ IDMA では context 内の 4096-byte bounce buffer だけを DMA 対象にしま
 - Card Detect ISRは`mtfs_stm32_sdmmc_media_changed_isr()`へ抜去hintを渡せます。IDMA待機は
   removal bitで即時解除され、`HAL_SD_Abort()`は起床した通常I/O文脈で実行されます。
 - 挿入接点のbounceで一時的なraw抜去hintが残る場合があります。明示initializeはI/O mutex
-  取得後に古いremoval pending/eventをclearしてからHAL DeInit/Initを行います。確定挿入だけで
-  initializedを復元することはありません。
+  取得後に古いremoval pendingと、IDMA event flagが存在する場合はそのeventをclearしてから
+  HAL DeInit/Initを行います。確定挿入だけでinitializedを復元することはありません。
 - IDMA 完了待ちと card-transfer 状態待ちには独立 timeout があり、失敗時は abort して未初期化へ戻します。論理初期化状態とは別に HAL 初期化状態を保持し、deinit または次回 initialize で HAL を確実にリセットしてから復旧します。
 - deinit は IRQ、T-Kernel object、HAL、任意の HAL timebase を解放します。並行 I/O がない状態で呼んでください。
 

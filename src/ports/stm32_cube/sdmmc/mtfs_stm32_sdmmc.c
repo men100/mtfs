@@ -645,12 +645,14 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
      * A raw removal hint may be produced by contact bounce during insertion.
      * Explicit initialize, under the I/O mutex and after a stable present
      * check, is the safe recovery boundary for clearing that stale hint.
-     */
+    */
     context->media_removal_pending = 0U;
-    result = mtfs_stm32_sd_kernel_error(context,
-        tk_clr_flg(context->transfer_event_flag_id, 0U));
-    if (result != MTFS_OK) {
-        goto done;
+    if (context->transfer_event_flag_id > 0) {
+        result = mtfs_stm32_sd_kernel_error(context,
+            tk_clr_flg(context->transfer_event_flag_id, 0U));
+        if (result != MTFS_OK) {
+            goto done;
+        }
     }
     mtfs_stm32_sd_invalidate_media(context);
     if (context->hal_initialized) {
