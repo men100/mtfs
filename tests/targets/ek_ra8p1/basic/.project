@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
 	<name>mtfs_ek_ra8p1_basic</name>
-	<comment>microT-FS Phase 2 EK-RA8P1 hardware test</comment>
+	<comment>microT-FS Phase 3.2 EK-RA8P1 SD SPI and Card Detect test</comment>
 	<projects></projects>
 	<buildSpec>
 		<buildCommand><name>com.renesas.cdt.ddsc.contentgen.ddscBuilder</name><arguments></arguments></buildCommand>

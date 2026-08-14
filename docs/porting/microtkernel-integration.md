@@ -56,9 +56,12 @@ workerのSTOPPED通知は、以後context/event flagへ触れない最終境界�
 `tk_ter_tsk()`でDORMANTにしてから削除します。task削除に失敗したcontext/stackは再利用しません。
 
 RA FSP SPIはFSP生成IRQから`mtfs_ra_sd_spi_callback()`へ入り、callbackがevent flagを
-設定します。IRQ番号/priority/callback設定はFSP生成側の責務です。STM32方式の
-`tk_def_int()`登録と同じだとみなさず、FSP/BSPが割込みentryとmicroT-Kernel task独立部の
-契約を満たすことをtargetごとに確認します。
+設定します。EK-RA8P1のCard DetectもFSP生成`r_icu_isr()`から
+`mtfs_ra8p1_card_detect_callback()`へ入り、P409 raw levelをmedia serviceとSD-SPIの
+event flagへ通知します。IRQ6、両edge、priority 12、callback設定はFSP生成側の責務です。
+STM32方式の`tk_def_int()`登録と同じだとみなさず、FSP/BSPのISRからtask独立系
+`tk_set_flg()`を呼べる契約を使用します。RAM vector table更新のcache対策はRA8P1固有ADR
+0001に従い、STM32へ流用しません。
 
 ## HAL timebase
 

@@ -1,6 +1,6 @@
-# EK-RA8P1 Phase 2.1 stability runner
+# EK-RA8P1 Phase 3.2 SD SPI / Card Detect runner
 
-FATで事前フォーマットしたSDカードをPMOD2へSPI接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセスを順に確認するe² studioプロジェクトです。テストはカードをフォーマットしません。
+FATで事前フォーマットしたDigilent Pmod MicroSD Revision AをPMOD2へ接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセス、P409/IRQ6による挿入・抜去・再挿入を確認するe² studioプロジェクトです。テストはカードをフォーマットしません。
 
 ## 必要環境
 
@@ -28,6 +28,7 @@ git submodule update --init --recursive
 | DO/MISO | PMOD2_RX | P602 / SCI0 RXD0 |
 | DI/MOSI | PMOD2_TX | P603 / SCI0 TXD0 |
 | CS | PMOD2_CTS | P604 / GPIO output high |
+| CD / J1 Pin 9 | PMOD2_GPIO1 / J25 Pin 9 | P409 / IRQ6 |
 | VCC | 3V3 | 3.3 V |
 | GND | GND | GND |
 
@@ -43,6 +44,10 @@ SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマッ�
 - RXI/TXI/TEI/ERI priority 12
 - TX/RX transfer instanceはNULL（DMA/DTC未使用）
 - P601/P602/P603をSCI0 SCK/RXD/TXD、P604を初期HighのGPIO output
+- P409をGPIO IRQ input、External IRQ channel 6、両edge、priority 12
+- callback: `mtfs_ra8p1_card_detect_callback`
+
+Card Detectは100 msのsoftware debounceを既定とし、edge後だけoptional media service taskが再確認します。`MTFS_RA8P1_CD_DEBOUNCE_MS`で変更できます。Pmod回路からactive-lowを初期候補として`MTFS_RA8P1_CD_ACTIVE_LOW=1`にしていますが、実機raw level未確認のためまだ確定していません。未挿入で`raw=1`、挿入で`raw=0`になることをログまたはデバッガで確認してください。逆なら同defineを0へ変更します。
 
 指定のmtk3_bsp2 v1.00.04はRAM例外ベクタのcopy、kernel例外登録、実行中の
 `tk_def_int()`更新後にD-cache cleanを行いません。Phase 2.1ではsubmoduleを変更
@@ -60,9 +65,9 @@ FatFs設定はcompile definitionと `src/mtfs_config.h` により、read/write�
 3. 必要なら **Generate Project Content** を実行します。
 4. configurationを **Debug** にして **Project > Build Project** を実行します。
 
-成功時は `Debug/mtfs_ek_ra8p1_basic.elf` と `.srec` が生成されます。Phase 2.1
-Debug buildのサイズ目安はtext約67 KiB、BSS約50 KiBです。各workerの16 KiB static
-stackを含みます。
+成功時は `Debug/mtfs_ek_ra8p1_basic.elf` と `.srec` が生成されます。Phase 3.2
+Debug buildの確認値はtext約75 KiB、BSS約54 KiBです。coordinatorと並行test workerに
+加え、明示的に組み込んだmedia serviceの2 KiB static stackを含みます。
 
 ### 反復profileとfallback
 
@@ -75,12 +80,19 @@ Compiler > Preprocessor** で次のcompile definitionを追加すると切り替
 | normal | なし、または`=2` | 10 |
 | stress | `MTFS_RA8P1_TEST_PROFILE=3` | 100 |
 
+挿抜試験は既定で無効です。実機smoke試験ではcompiler defineへ次を追加します。
+
+```text
+MTFS_RA8P1_TEST_PROFILE=1
+MTFS_RA8P1_HOTPLUG_TEST=1
+```
+
 各周でSD context/init、geometry、sector 0 read、mount/unmount、file round-trip、
 2-task並行access、remount後検証、file削除、task/event flag/context解放まで行います。
 mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件ではありません。
 
 診断時だけ`MTFS_RA8P1_DISABLE_CACHES_FALLBACK=1`を定義すると旧来の全面cache
-無効化を再現できます。このbuildは起動logに`fallback=ACTIVE`を出し、Phase 2.1の
+無効化を再現できます。このbuildは起動logに`fallback=ACTIVE`を出し、Phase 3.2の
 合格対象にはなりません。通常buildにはこのdefinitionを設定しないでください。
 
 ## 書込みと実行
@@ -90,26 +102,43 @@ mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件�
 3. download後にCPUをresumeします。
 4. e² studio Debug Virtual Console（`tm_printf`出力）を確認します。
 
-実機試験はSDへ書込みを行います。重要データのないカードで実施し、実行中は抜かないでください。
+実機試験はSDへ書込みを行います。重要データのないカードで実施してください。runnerが`ACTION REQUIRED`を表示するまでは抜き差しせず、active write中の抜去は行わないでください。
+
+### 挿抜smoke手順
+
+1. カード未挿入で起動し、`initial ABSENT status PASS`を確認します。
+2. `ACTION REQUIRED: INSERT`でカードを挿入します。
+3. roundtripと並行testがPASSするまで操作しません。
+4. `ACTION REQUIRED: REMOVE`で、I/O停止中にカードを抜きます。
+5. `removal contract PASS`と`ACTION REQUIRED: REINSERT`を確認して再挿入します。
+6. `fatfs_roundtrip_after_reinsert`と`PHASE 3.2 RUN PASS`を確認します。
+
+各操作待ちは120秒です。共通media層は自動mount/unmountしません。runnerがevent callback後にinitialize/register/mount、またはunmount/unregisterを実行します。
 
 ## 期待ログ
 
 容量値やカード種別は媒体により変わります。`55 aa` は情報表示だけでPASS条件ではありません。
 
 ```text
-[mtfs] EK-RA8P1 Phase 2.1 start: profile=normal rounds=10
+[mtfs] EK-RA8P1 Phase 3.2: profile=smoke rounds=1 path=SCI_B SPI+IRQ CD hotplug=on
 [mtfs] cache: I=enabled D=enabled fallback=off VTOR=0x22......
 [mtfs] vector: [0x22......,0x22......) size=448 line=32 cleans=2
 [mtfs] round 1/10 BEGIN
-[mtfs] round 1 SD/geometry/sector PASS: SDHC/SDXC sectors=... signature=55aa (present)
+[mtfs] initial ABSENT status PASS: ...
+[mtfs] ACTION REQUIRED: INSERT card now; waiting up to 120000 ms
+[mtfs] media INSERTED ...
+[mtfs] geometry sectors=... size=512 erase=1 type=SDHC/SDXC
 [TEST] fatfs_roundtrip: BEGIN
 [TEST] fatfs_roundtrip: PASS (...)
 [TEST] fatfs_concurrent_microtkernel: BEGIN
 [TEST] fatfs_concurrent_microtkernel: PASS (...)
-[mtfs] round 1/10 PASS
-...
-[mtfs] round 10/10 PASS
-[mtfs] PHASE 2.1 PASS
+[mtfs] ACTION REQUIRED: REMOVE card now; ...
+[mtfs] media REMOVED ...
+[mtfs] HOTPLUG: removal contract PASS
+[mtfs] ACTION REQUIRED: REINSERT card now; waiting up to 120000 ms
+[TEST] fatfs_roundtrip_after_reinsert: PASS (...)
+[mtfs] round 1/1 PASS
+[mtfs] PHASE 3.2 RUN PASS
 ```
 
 失敗時はテスト名、source line、check内容に加え、SD初期化では最後のmtfs/microT-Kernel/FSP errorとR1 responseを表示します。`FR_NO_FILESYSTEM`相当のmount失敗ならカード形式を確認してください。
@@ -132,7 +161,8 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 
 ## 現時点の制限
 
-- card detectとwrite protect入力は未接続で、通電中のhot plugを扱いません。
+- write protect入力は未接続です。
+- P409 Card Detectのactive levelとIRQ実機到達は未確認です。回路情報だけでactive-low確定とは記載しません。
 - cache coherencyはtarget linker wrapによる互換策です。BSP2側へ同等修正が入ったらADR記載の範囲を削除します。
 - FatFs/FSPの呼出し深さとCortex-M85のstack limitを考慮し、並行テストの各workerは16 KiBのstatic user stackを使用します。
 - workerは完了通知後にsleepし、coordinatorが結果確認後にterminate/deleteします。共有event flagの削除とtask終了を競合させません。
@@ -141,4 +171,5 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 - trim/eraseは未対応です。CSDのerase granularityを未解釈なので、geometryのerase block sizeは暫定1 sectorです。
 - SDXCでもexFATは無効です。FATで使用してください。
 - 2026-08-12にcache有効、全面無効化fallback offで実機normal 10周を全周完走し、`PHASE 2.1 PASS`を確認しました。Host側もCTest 1/1と並行テスト62 checksがPASSしています。
-- stress 100周は未実施です。今回はPhase 2.1の完了判定に含めません。
+- 2026-08-14にPhase 3.2 RA Debug build（FSP 6.5.0、Arm GCC 13.2.1）が警告なしで成功しました。P409/IRQ6の実機挿抜試験は未実施です。
+- stress 100周は未実施です。今回はPhase 3.2の完了判定に含めません。

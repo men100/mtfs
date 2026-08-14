@@ -20,6 +20,8 @@ extern "C" {
 #define MTFS_RA_SD_SPI_DEFAULT_TIMEOUT_MS (1000U)
 #define MTFS_RA_SD_SPI_DUMMY_SIZE        (514U)
 
+typedef int (*mtfs_ra_sd_spi_signal_fn)(void *opaque);
+
 typedef enum mtfs_ra_sd_card_type
 {
     MTFS_RA_SD_CARD_UNKNOWN = 0,
@@ -37,7 +39,20 @@ typedef struct mtfs_ra_sd_spi_config
     uint32_t data_bitrate_hz;
     uint32_t initialization_timeout_ms;
     uint32_t transfer_timeout_ms;
+    mtfs_ra_sd_spi_signal_fn card_present;
+    void *signal_context;
 } mtfs_ra_sd_spi_config_t;
+
+typedef struct mtfs_ra_sd_spi_diagnostics
+{
+    uint32_t transfer_starts;
+    uint32_t transfer_completions;
+    uint32_t transfer_errors;
+    uint32_t media_removal_notifications;
+    uint32_t media_wait_wakeups;
+    uint32_t read_sectors;
+    uint32_t write_sectors;
+} mtfs_ra_sd_spi_diagnostics_t;
 
 /*
  * The object is intentionally concrete so applications can place it in BSS.
@@ -65,11 +80,13 @@ typedef struct mtfs_ra_sd_spi_context
     mtfs_ra_sd_card_type_t card_type;
     mtfs_lba_t sector_count;
     uint32_t current_bitrate_hz;
+    mtfs_ra_sd_spi_diagnostics_t diagnostics;
 
     uint8_t dummy_tx[MTFS_RA_SD_SPI_DUMMY_SIZE];
     uint8_t registered;
     uint8_t fsp_open;
-    uint8_t initialized;
+    volatile uint8_t initialized;
+    volatile uint8_t media_removal_pending;
 } mtfs_ra_sd_spi_context_t;
 
 /* Apply defaults, create fixed kernel objects, and register device_name. */
@@ -81,6 +98,14 @@ mtfs_error_t mtfs_ra_sd_spi_context_init(
 mtfs_error_t mtfs_ra_sd_spi_context_deinit(mtfs_ra_sd_spi_context_t *context);
 
 mtfs_block_device_t *mtfs_ra_sd_spi_block_device(mtfs_ra_sd_spi_context_t *context);
+
+/*
+ * ISR-safe removal hint.  It only invalidates lightweight state and wakes a
+ * transfer waiter.  FSP close/reopen and SD reinitialization stay in normal
+ * I/O context.  A present notification never restores initialized state.
+ */
+mtfs_error_t mtfs_ra_sd_spi_media_changed_isr(
+    mtfs_ra_sd_spi_context_t *context, int present);
 
 /* FSP callback selected for the SCI_B SPI stack in configuration.xml. */
 void mtfs_ra_sd_spi_callback(spi_callback_args_t *args);

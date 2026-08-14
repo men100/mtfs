@@ -454,6 +454,10 @@
       <description>I2C Master Interface</description>
       <originalPack>Renesas.RA.6.5.0.pack</originalPack>
     </component>
+    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_icu" variant="" vendor="Renesas" version="6.5.0">
+      <description>External IRQ</description>
+      <originalPack>Renesas.RA.6.5.0.pack</originalPack>
+    </component>
     <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_sci_b_spi" variant="" vendor="Renesas" version="6.5.0">
       <description>Serial Peripheral Interface on Serial Communications Interface</description>
       <originalPack>Renesas.RA.6.5.0.pack</originalPack>
@@ -1250,11 +1254,23 @@
       <property id="module.driver.spi.tx_fifo_trigger" value="module.driver.spi.tx_fifo_trigger.0"/>
       <property id="module.driver.spi.rx_sampling_delay" value="module.driver.spi.rx_sampling_delay.0"/>
     </module>
+    <module id="module.driver.external_irq_on_icu.320409006">
+      <property id="module.driver.external_irq.name" value="g_sd_card_detect_irq"/>
+      <property id="module.driver.external_irq.channel" value="6"/>
+      <property id="module.driver.external_irq.trigger" value="module.driver.external_irq.trigger.trig_both_edge"/>
+      <property id="module.driver.external_irq.filter_enable" value="module.driver.external_irq.filter_enable.false"/>
+      <property id="module.driver.external_irq.filter_source" value="module.driver.external_irq.filter_source.pclk"/>
+      <property id="module.driver.external_irq.clock_source_div" value="module.driver.external_irq.clock_source_div.clock_source_div_by_64"/>
+      <property id="module.driver.external_irq.p_context" value="NULL"/>
+      <property id="module.driver.external_irq.p_callback" value="mtfs_ra8p1_card_detect_callback"/>
+      <property id="module.driver.external_irq.ipl" value="board.icu.common.irq.priority12"/>
+    </module>
     <context id="_hal.0">
       <stack module="module.driver.ioport_on_ioport.0"/>
       <stack module="module.driver.adc_on_adc_b.1129451091"/>
       <stack module="module.driver.i2c_on_iic_master.317421864"/>
       <stack module="module.driver.spi_on_sci_b_spi.111267621"/>
+      <stack module="module.driver.external_irq_on_icu.320409006"/>
     </context>
     <config id="config.driver.iic_master">
       <property id="config.driver.iic_master.param_checking_enable" value="config.driver.iic_master.param_checking_enable.bsp"/>
@@ -1265,6 +1281,9 @@
       <property id="config.driver.sci_b_spi.param_checking_enable" value="config.driver.sci_b_spi.param_checking_enable.bsp"/>
       <property id="config.driver.sci_b_spi.dtc_support_enable" value="config.driver.sci_b_spi.dtc_support_enable.enabled"/>
       <property id="config.driver.sci_b_spi.fifo_support" value="config.driver.sci_b_spi.fifo_support.disabled"/>
+    </config>
+    <config id="config.driver.icu">
+      <property id="config.driver.icu.param_checking_enable" value="config.driver.icu.param_checking_enable.bsp"/>
     </config>
     <config id="config.driver.ioport">
       <property id="config.driver.ioport.checking" value="config.driver.ioport.checking.system"/>
@@ -1784,6 +1803,9 @@
       <configSetting altId="p408.usbhs.usbhs_vbus" configurationId="p408"/>
       <configSetting altId="p408.gpio_speed.gpio_speed_m" configurationId="p408.gpio_drivecapacity"/>
       <configSetting altId="p408.gpio_mode.gpio_mode_peripheral" configurationId="p408.gpio_mode"/>
+      <configSetting altId="p409.input" configurationId="p409"/>
+      <configSetting altId="p409.gpio_irq.gpio_irq_enabled" configurationId="p409.gpio_irq"/>
+      <configSetting altId="p409.gpio_mode.gpio_mode_in" configurationId="p409.gpio_mode"/>
       <configSetting altId="p411.mipi.dsi_te" configurationId="p411"/>
       <configSetting altId="p411.gpio_speed.gpio_speed_m" configurationId="p411.gpio_drivecapacity"/>
       <configSetting altId="p411.gpio_mode.gpio_mode_peripheral" configurationId="p411.gpio_mode"/>

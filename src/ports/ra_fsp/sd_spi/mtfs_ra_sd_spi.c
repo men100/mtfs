@@ -18,6 +18,7 @@
 #define MTFS_SD_DATA_RESPONSE_MASK  (0x1FU)
 #define MTFS_SD_DATA_ACCEPTED       (0x05U)
 #define MTFS_SD_EVENT_TRANSFER      (UINT32_C(1) << 0)
+#define MTFS_SD_EVENT_REMOVED       (UINT32_C(1) << 1)
 #define MTFS_SD_COMMAND_POLLS       (8U)
 #define MTFS_SD_ERASE_BLOCK_SECTORS (1U)
 
@@ -39,45 +40,74 @@ static const mtfs_block_device_ops_t mtfs_sd_ops = {
     mtfs_sd_trim
 };
 
+static mtfs_error_t mtfs_sd_set_error(
+    mtfs_ra_sd_spi_context_t *context, mtfs_error_t error)
+{
+    context->last_error = error;
+    return error;
+}
+
+static int mtfs_sd_card_present(const mtfs_ra_sd_spi_context_t *context)
+{
+    return (context->config.card_present == NULL) ||
+        context->config.card_present(context->config.signal_context);
+}
+
+static void mtfs_sd_invalidate_media(mtfs_ra_sd_spi_context_t *context)
+{
+    context->initialized = 0U;
+    context->card_type = MTFS_RA_SD_CARD_UNKNOWN;
+    context->sector_count = 0U;
+}
+
+static mtfs_error_t mtfs_sd_no_media(mtfs_ra_sd_spi_context_t *context)
+{
+    mtfs_sd_invalidate_media(context);
+    return mtfs_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+}
+
 static mtfs_error_t mtfs_sd_kernel_error(mtfs_ra_sd_spi_context_t *context, ER error)
 {
     context->last_kernel_error = error;
     if (error >= E_OK) {
-        return MTFS_OK;
+        return mtfs_sd_set_error(context, MTFS_OK);
     }
     switch (MERCD(error)) {
     case MERCD(E_PAR):
     case MERCD(E_ID):
-        return MTFS_ERROR_INVALID_ARGUMENT;
+        return mtfs_sd_set_error(context, MTFS_ERROR_INVALID_ARGUMENT);
     case MERCD(E_NOSPT):
-        return MTFS_ERROR_NOT_SUPPORTED;
+        return mtfs_sd_set_error(context, MTFS_ERROR_NOT_SUPPORTED);
     case MERCD(E_NOEXS):
     case MERCD(E_OBJ):
     case MERCD(E_BUSY):
     case MERCD(E_TMOUT):
-        return MTFS_ERROR_NOT_READY;
+        return mtfs_sd_set_error(context, MTFS_ERROR_NOT_READY);
     case MERCD(E_NOMDA):
-        return MTFS_ERROR_NO_MEDIA;
+        return mtfs_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
     case MERCD(E_RONLY):
-        return MTFS_ERROR_WRITE_PROTECTED;
+        return mtfs_sd_set_error(context, MTFS_ERROR_WRITE_PROTECTED);
     default:
-        return MTFS_ERROR_IO;
+        return mtfs_sd_set_error(context, MTFS_ERROR_IO);
     }
 }
 
 static mtfs_error_t mtfs_sd_fsp_error(mtfs_ra_sd_spi_context_t *context, fsp_err_t error)
 {
     context->last_fsp_error = error;
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
     if (error == FSP_SUCCESS) {
-        return MTFS_OK;
+        return mtfs_sd_set_error(context, MTFS_OK);
     }
     if (error == FSP_ERR_ASSERTION || error == FSP_ERR_INVALID_ARGUMENT) {
-        return MTFS_ERROR_INVALID_ARGUMENT;
+        return mtfs_sd_set_error(context, MTFS_ERROR_INVALID_ARGUMENT);
     }
     if (error == FSP_ERR_NOT_OPEN || error == FSP_ERR_IN_USE || error == FSP_ERR_TIMEOUT) {
-        return MTFS_ERROR_NOT_READY;
+        return mtfs_sd_set_error(context, MTFS_ERROR_NOT_READY);
     }
-    return MTFS_ERROR_IO;
+    return mtfs_sd_set_error(context, MTFS_ERROR_IO);
 }
 
 static ER mtfs_sd_driver_open(ID device_id, UINT open_mode, void *opaque)
@@ -177,6 +207,11 @@ void mtfs_ra_sd_spi_callback(spi_callback_args_t *args)
     context = (mtfs_ra_sd_spi_context_t *)args->p_context;
     context->transfer_result =
         (args->event == SPI_EVENT_TRANSFER_COMPLETE) ? E_OK : E_IO;
+    if (context->transfer_result == E_OK) {
+        ++context->diagnostics.transfer_completions;
+    } else {
+        ++context->diagnostics.transfer_errors;
+    }
     (void)tk_set_flg(context->transfer_event_flag_id, MTFS_SD_EVENT_TRANSFER);
 }
 
@@ -216,11 +251,19 @@ static mtfs_error_t mtfs_sd_transfer(
         ((transmit == NULL) && (receive == NULL))) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
-    kernel_result = tk_clr_flg(context->transfer_event_flag_id, ~MTFS_SD_EVENT_TRANSFER);
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
+    if (context->media_removal_pending) {
+        return mtfs_sd_set_error(context, MTFS_ERROR_NOT_READY);
+    }
+    kernel_result = tk_clr_flg(context->transfer_event_flag_id,
+        ~(MTFS_SD_EVENT_TRANSFER | MTFS_SD_EVENT_REMOVED));
     if (kernel_result < E_OK) {
         return mtfs_sd_kernel_error(context, kernel_result);
     }
     context->transfer_result = E_IO;
+    ++context->diagnostics.transfer_starts;
     if ((transmit != NULL) && (receive != NULL)) {
         fsp_result = R_SCI_B_SPI_WriteRead(context->config.spi->p_ctrl,
             transmit, receive, length, SPI_BIT_WIDTH_8_BITS);
@@ -235,10 +278,21 @@ static mtfs_error_t mtfs_sd_transfer(
         return mtfs_sd_fsp_error(context, fsp_result);
     }
     kernel_result = tk_wai_flg(context->transfer_event_flag_id,
-        MTFS_SD_EVENT_TRANSFER, TWF_ANDW | TWF_BITCLR, &flags,
+        MTFS_SD_EVENT_TRANSFER | MTFS_SD_EVENT_REMOVED,
+        TWF_ORW | TWF_BITCLR, &flags,
         (TMO)context->config.transfer_timeout_ms);
     if (kernel_result < E_OK) {
         return mtfs_sd_kernel_error(context, kernel_result);
+    }
+    if (((flags & MTFS_SD_EVENT_REMOVED) != 0U) ||
+        !mtfs_sd_card_present(context)) {
+        ++context->diagnostics.media_wait_wakeups;
+        if (context->fsp_open != 0U) {
+            context->last_fsp_error =
+                R_SCI_B_SPI_Close(context->config.spi->p_ctrl);
+            context->fsp_open = 0U;
+        }
+        return mtfs_sd_no_media(context);
     }
     return mtfs_sd_kernel_error(context, context->transfer_result);
 }
@@ -375,11 +429,13 @@ static mtfs_error_t mtfs_sd_set_bitrate(
     if (result != FSP_SUCCESS) {
         return mtfs_sd_fsp_error(context, result);
     }
-    result = R_SCI_B_SPI_Close(context->config.spi->p_ctrl);
-    if (result != FSP_SUCCESS) {
-        return mtfs_sd_fsp_error(context, result);
+    if (context->fsp_open != 0U) {
+        result = R_SCI_B_SPI_Close(context->config.spi->p_ctrl);
+        if (result != FSP_SUCCESS) {
+            return mtfs_sd_fsp_error(context, result);
+        }
+        context->fsp_open = 0U;
     }
-    context->fsp_open = 0U;
     result = R_SCI_B_SPI_Open(context->config.spi->p_ctrl, &context->spi_config_ram);
     if (result != FSP_SUCCESS) {
         return mtfs_sd_fsp_error(context, result);
@@ -482,9 +538,19 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     int version2 = 0;
     mtfs_error_t result;
 
-    context->initialized = 0U;
-    context->card_type = MTFS_RA_SD_CARD_UNKNOWN;
-    context->sector_count = 0U;
+    mtfs_sd_invalidate_media(context);
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
+    context->media_removal_pending = 0U;
+    result = mtfs_sd_kernel_error(context,
+        tk_clr_flg(context->transfer_event_flag_id, 0U));
+    if (result != MTFS_OK) {
+        return result;
+    }
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
 
     if (context->device_descriptor <= 0) {
         context->device_descriptor = tk_opn_dev(
@@ -624,6 +690,9 @@ static mtfs_error_t mtfs_sd_initialize(void *opaque)
     if (context == NULL) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
     result = mtfs_sd_lock(context);
     if (result == MTFS_OK) {
         result = mtfs_sd_initialize_locked(context);
@@ -639,11 +708,16 @@ static mtfs_error_t mtfs_sd_status(void *opaque, mtfs_block_status_t *status)
     if ((context == NULL) || (status == NULL)) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
+    *status = 0U;
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
     *status = MTFS_BLOCK_STATUS_MEDIA_PRESENT;
-    if (context->initialized != 0U) {
+    if ((context->initialized != 0U) &&
+        (context->media_removal_pending == 0U)) {
         *status |= MTFS_BLOCK_STATUS_INITIALIZED;
     }
-    return MTFS_OK;
+    return mtfs_sd_set_error(context, MTFS_OK);
 }
 
 static mtfs_error_t mtfs_sd_read_one(
@@ -728,16 +802,26 @@ static mtfs_error_t mtfs_sd_read(void *opaque, void *buffer, mtfs_lba_t lba, uin
     if ((context == NULL) || (buffer == NULL) || (count == 0U)) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
-    if (context->initialized == 0U) {
-        return MTFS_ERROR_NOT_READY;
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
+    if ((context->initialized == 0U) || context->media_removal_pending) {
+        return mtfs_sd_set_error(context, MTFS_ERROR_NOT_READY);
     }
     result = mtfs_sd_lock(context);
     if (result != MTFS_OK) {
         return result;
     }
     for (index = 0U; (result == MTFS_OK) && (index < count); ++index) {
+        if (!mtfs_sd_card_present(context)) {
+            result = mtfs_sd_no_media(context);
+            break;
+        }
         result = mtfs_sd_read_one(context, cursor, lba + index);
-        cursor += MTFS_RA_SD_SPI_SECTOR_SIZE;
+        if (result == MTFS_OK) {
+            ++context->diagnostics.read_sectors;
+            cursor += MTFS_RA_SD_SPI_SECTOR_SIZE;
+        }
     }
     context->last_error = result;
     mtfs_sd_unlock(context);
@@ -753,16 +837,26 @@ static mtfs_error_t mtfs_sd_write(void *opaque, const void *buffer, mtfs_lba_t l
     if ((context == NULL) || (buffer == NULL) || (count == 0U)) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
-    if (context->initialized == 0U) {
-        return MTFS_ERROR_NOT_READY;
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
+    if ((context->initialized == 0U) || context->media_removal_pending) {
+        return mtfs_sd_set_error(context, MTFS_ERROR_NOT_READY);
     }
     result = mtfs_sd_lock(context);
     if (result != MTFS_OK) {
         return result;
     }
     for (index = 0U; (result == MTFS_OK) && (index < count); ++index) {
+        if (!mtfs_sd_card_present(context)) {
+            result = mtfs_sd_no_media(context);
+            break;
+        }
         result = mtfs_sd_write_one(context, cursor, lba + index);
-        cursor += MTFS_RA_SD_SPI_SECTOR_SIZE;
+        if (result == MTFS_OK) {
+            ++context->diagnostics.write_sectors;
+            cursor += MTFS_RA_SD_SPI_SECTOR_SIZE;
+        }
     }
     context->last_error = result;
     mtfs_sd_unlock(context);
@@ -772,8 +866,16 @@ static mtfs_error_t mtfs_sd_write(void *opaque, const void *buffer, mtfs_lba_t l
 static mtfs_error_t mtfs_sd_sync(void *opaque)
 {
     mtfs_ra_sd_spi_context_t *context = (mtfs_ra_sd_spi_context_t *)opaque;
-    return ((context != NULL) && (context->initialized != 0U))
-        ? MTFS_OK : MTFS_ERROR_NOT_READY;
+    if (context == NULL) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
+    return ((context->initialized != 0U) &&
+        !context->media_removal_pending)
+        ? mtfs_sd_set_error(context, MTFS_OK)
+        : mtfs_sd_set_error(context, MTFS_ERROR_NOT_READY);
 }
 
 static mtfs_error_t mtfs_sd_geometry(void *opaque, mtfs_block_geometry_t *geometry)
@@ -782,13 +884,17 @@ static mtfs_error_t mtfs_sd_geometry(void *opaque, mtfs_block_geometry_t *geomet
     if ((context == NULL) || (geometry == NULL)) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
-    if ((context->initialized == 0U) || (context->sector_count == 0U)) {
-        return MTFS_ERROR_NOT_READY;
+    if (!mtfs_sd_card_present(context)) {
+        return mtfs_sd_no_media(context);
+    }
+    if ((context->initialized == 0U) || context->media_removal_pending ||
+        (context->sector_count == 0U)) {
+        return mtfs_sd_set_error(context, MTFS_ERROR_NOT_READY);
     }
     geometry->sector_size = MTFS_RA_SD_SPI_SECTOR_SIZE;
     geometry->sector_count = context->sector_count;
     geometry->erase_block_size = MTFS_SD_ERASE_BLOCK_SECTORS;
-    return MTFS_OK;
+    return mtfs_sd_set_error(context, MTFS_OK);
 }
 
 static mtfs_error_t mtfs_sd_trim(void *opaque, mtfs_lba_t lba, mtfs_lba_t count)
@@ -901,7 +1007,8 @@ mtfs_error_t mtfs_ra_sd_spi_context_deinit(mtfs_ra_sd_spi_context_t *context)
     if (context == NULL) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
-    context->initialized = 0U;
+    context->media_removal_pending = 1U;
+    mtfs_sd_invalidate_media(context);
     if (context->device_descriptor > 0) {
         result = tk_cls_dev(context->device_descriptor, 0U);
         if (result < E_OK) {
@@ -937,4 +1044,29 @@ mtfs_error_t mtfs_ra_sd_spi_context_deinit(mtfs_ra_sd_spi_context_t *context)
 mtfs_block_device_t *mtfs_ra_sd_spi_block_device(mtfs_ra_sd_spi_context_t *context)
 {
     return (context == NULL) ? NULL : &context->block_device;
+}
+
+mtfs_error_t mtfs_ra_sd_spi_media_changed_isr(
+    mtfs_ra_sd_spi_context_t *context, int present)
+{
+    ER result;
+
+    if ((context == NULL) || (context->transfer_event_flag_id <= 0) ||
+        (context->config.card_present == NULL)) {
+        return MTFS_ERROR_NOT_READY;
+    }
+    if (present) {
+        return MTFS_OK;
+    }
+
+    context->media_removal_pending = 1U;
+    context->initialized = 0U;
+    ++context->diagnostics.media_removal_notifications;
+    result = tk_set_flg(context->transfer_event_flag_id,
+        MTFS_SD_EVENT_REMOVED);
+    if (result < E_OK) {
+        context->last_kernel_error = result;
+        return MTFS_ERROR_IO;
+    }
+    return MTFS_OK;
 }

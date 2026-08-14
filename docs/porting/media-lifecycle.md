@@ -11,8 +11,10 @@
 targetのCard Detect ISRはraw levelを読み、`mtfs_media_notify_isr()`またはoptional serviceの
 `mtfs_media_service_notify_isr()`へ渡します。これらはraw levelとsequenceを記録し、service
 版はさらに`tk_set_flg()`するだけです。ISRからevent callback、FatFs、mount/unmount、mutex、
-HAL abort/deinit、待機を呼びません。ISR-safeという契約は、microT-Kernelの
-`TA_HLNG` task独立部から`tk_set_flg()`可能なtargetに限ります。
+HAL abort/deinit、待機を呼びません。STM32はmicroT-Kernelの`TA_HLNG` task独立部、
+RAはFSP生成`r_icu_isr()` callback（既存SCI_B SPI callbackと同じtask独立文脈）から
+`tk_set_flg()`を使用します。targetはその割り込み経路からtask独立系system callを
+安全に呼べることを確認する必要があります。
 
 workerはedge後にだけ起床し、`debounce_ms`後に`read_signal`でGPIOを再読出しします。
 debounce中にsequenceまたはlevelが変われば期限を再設定します。event flagのbitが
@@ -46,7 +48,8 @@ initialize/register/mountが必要です。自動formatは行いません。
 ## cleanup順序
 
 1. `mtfs_media_service_stop_notifications()`で新規通知を拒否する。
-2. targetのCard Detect IRQをdisableし、`tk_def_int(..., NULL)`等で解除する。
+2. targetのCard Detect IRQをdisableし、STM32では`tk_def_int(..., NULL)`、RAでは
+   FSP External IRQの`close()`等で解除する。
 3. `mtfs_media_service_deinit()`でworker停止を確認する。
 4. taskとevent flagを削除する。
 5. `mtfs_media_deinit()`で共通contextを無効化する。

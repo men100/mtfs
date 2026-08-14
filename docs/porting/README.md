@@ -178,8 +178,8 @@ card detect、write protect、DMA/RIF準備確認はtarget callbackです。Card
 | 項目 | 分類 | 現在の状態 |
 |---|---|---|
 | FAT12/FAT16/FAT32 mount/read/write | 共通層で対応済み | FatFs、Disk I/O bridge、Block Device registryで提供。既存実機runnerは事前format済みFAT媒体を使用する。 |
-| SDカード挿抜（hot plug） | STM32 IDMA smoke実機PASS | 共通media層がedge後debounceと重複排除を行う。STM32はidle抜去後NO_MEDIA、再挿入後の明示initialize/roundtrip、cleanupを確認済み。polling実機とRA IRQ統合は次段。自動mount、open FIL再開、書込み中抜去のdata保護は保証しない。 |
-| card detect | STM32実機確認済み | STM32N6570-DKはPN12/EXTI12、実測active-low、両edge、priority 6を`tk_def_int(TA_HLNG)`で登録する。SDMMC2 IRQ priority 5とは別経路。callback未指定のport契約は常時presentで従来動作を維持する。RA P409/IRQ6は未着手。 |
+| SDカード挿抜（hot plug） | STM32実機PASS、RA build済み | 共通media層がedge後debounceと重複排除を行う。STM32はIDMA/polling双方でidle抜去後NO_MEDIA、再挿入後の明示initialize/roundtrip、cleanupを確認済み。RAもP409/IRQ6統合と同じrunner契約を実装しDebug build済みだが実機未確認。自動mount、open FIL再開、書込み中抜去のdata保護は保証しない。 |
+| card detect | STM32実機確認済み、RA実装済み | STM32N6570-DKはPN12/EXTI12、実測active-low、両edge、priority 6を`tk_def_int(TA_HLNG)`で登録する。RA8P1はPmod Pin 9→P409→FSP ICU IRQ6、両edge、priority 12。RA active-low設定は実機raw level確認待ち。callback未指定のport契約は常時presentで従来動作を維持する。 |
 | write protect | target設定次第 | STM32 portは任意の`write_protected` callbackを持つが、STM32N6570-DK targetはNULL。RAは端子未接続。Hostはopen時のread-only指定とBlock Device capabilityで表現する。 |
 | RTC timestamp | target設定次第 | 既定と既存runnerは`MTFS_FF_FS_NORTC=1`で固定日時。0にする場合はtarget/applicationが`get_fattime()`を提供する。共通RTC adapterはない。 |
 | LFN/UTF-8 | 未対応 | 現在の`ffconf.h`は`FF_USE_LFN=0`、`FF_LFN_UNICODE=0`。8.3名を使用する。 |
@@ -187,7 +187,7 @@ card detect、write protect、DMA/RIF準備確認はtarget callbackです。Card
 | multi-volume | target設定次第 | `MTFS_FF_VOLUMES`と固定長registryは複数pdrvを扱える。既定/既存runnerは1 volume。`FF_MULTI_PARTITION=0`なので1物理drive上の任意partition割当は未対応。 |
 | trim | 制限あり | 共通Block Device契約と`CTRL_TRIM` bridgeはあるが、`FF_USE_TRIM=0`で、Host/RA/STM32の全portがTRIM capabilityを公開しない。 |
 | mkfs | target設定次第 | `MTFS_FF_USE_MKFS`の既定値は0。Host roundtrip targetだけが1でbuildする。既存実機runnerはmkfsせず、事前format済み媒体を使う。 |
-| fault recovery | 制限あり | STM32 SDMMCはtimeout/error/media removal時に通常文脈でabort、未初期化化し、再initializeでHAL DeInit/Initする。RA SPIはinitialize再実行のみ。共通層は検出・通知のみでfilesystem recovery policyは持たない。 |
+| fault recovery | 制限あり | STM32 SDMMCはtimeout/error/media removal時に通常文脈でabort、未初期化化し、再initializeでHAL DeInit/Initする。RA SPIは抜去eventで転送待ちを解除し通常文脈でFSP SPIをclose、再initializeでopenし直す。共通層は検出・通知のみでfilesystem recovery policyは持たない。 |
 | atomic file update | 未対応 | atomic replace、journal、transaction用のmicroT-FS共通APIはない。FatFsの通常APIを直接使用する。 |
 | read-only構成 | target設定次第 | `MTFS_FF_FS_READONLY=1`と、deviceの`MTFS_BLOCK_CAPABILITY_READ_ONLY`を用途に合わせて設定する。Host compile-only確認がある。 |
 | SDMMC IDMA + IRQ | port依存で対応済み | STM32Cube portがHAL callback、event flag、bounce buffer、cache maintenanceを実装する。利用にはtargetのIRQ/RAM/RIF設定が必要。 |
