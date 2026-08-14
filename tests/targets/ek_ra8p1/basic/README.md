@@ -44,10 +44,11 @@ SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマッ�
 - RXI/TXI/TEI/ERI priority 12
 - TX/RX transfer instanceはNULL（DMA/DTC未使用）
 - P601/P602/P603をSCI0 SCK/RXD/TXD、P604を初期HighのGPIO output
-- P409をGPIO IRQ input、External IRQ channel 6、両edge、priority 12
+- P409をIRQ mode（IRQ6、input pull-up）、External IRQ channel 6、両edge、priority 12
+- 同じ内部IRQ6へ接続されるP000（IRQ6-DS）はGPIO inputのままIRQ inputを無効化
 - callback: `mtfs_ra8p1_card_detect_callback`
 
-Card Detectは100 msのsoftware debounceを既定とし、edge後だけoptional media service taskが再確認します。`MTFS_RA8P1_CD_DEBOUNCE_MS`で変更できます。Pmod回路からactive-lowを初期候補として`MTFS_RA8P1_CD_ACTIVE_LOW=1`にしていますが、実機raw level未確認のためまだ確定していません。未挿入で`raw=1`、挿入で`raw=0`になることをログまたはデバッガで確認してください。逆なら同defineを0へ変更します。
+Card Detectは100 msのsoftware debounceを既定とし、edge後だけoptional media service taskが再確認します。`MTFS_RA8P1_CD_DEBOUNCE_MS`で変更できます。実機で未挿入`raw=1`、挿入`raw=0`を確認済みのため、`MTFS_RA8P1_CD_ACTIVE_LOW=1`を既定としています。
 
 指定のmtk3_bsp2 v1.00.04はRAM例外ベクタのcopy、kernel例外登録、実行中の
 `tk_def_int()`更新後にD-cache cleanを行いません。Phase 2.1ではsubmoduleを変更
@@ -102,7 +103,7 @@ mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件�
 3. download後にCPUをresumeします。
 4. e² studio Debug Virtual Console（`tm_printf`出力）を確認します。
 
-実機試験はSDへ書込みを行います。重要データのないカードで実施してください。runnerが`ACTION REQUIRED`を表示するまでは抜き差しせず、active write中の抜去は行わないでください。
+実機試験はSDへ書込みを行います。重要データのないカードで実施してください。runnerが`ACTION REQUIRED`を表示するまでは抜き差しせず、active write中の抜去は行わないでください。待機中は5秒ごとにGPIO raw levelとIRQ回数を表示します。raw levelが期待値へ変化したのにIRQ回数が500 ms変化しない場合は、ICU/NVIC/VTOR診断を出して早期FAILします。
 
 ### 挿抜smoke手順
 
@@ -162,7 +163,7 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 ## 現時点の制限
 
 - write protect入力は未接続です。
-- P409 Card Detectのactive levelとIRQ実機到達は未確認です。回路情報だけでactive-low確定とは記載しません。
+- P409 Card Detectは実機でactive-lowとIRQ6到達を確認済みです。P000 IRQ6-DSは同じ内部IRQ6との競合防止のため無効化します。
 - cache coherencyはtarget linker wrapによる互換策です。BSP2側へ同等修正が入ったらADR記載の範囲を削除します。
 - FatFs/FSPの呼出し深さとCortex-M85のstack limitを考慮し、並行テストの各workerは16 KiBのstatic user stackを使用します。
 - workerは完了通知後にsleepし、coordinatorが結果確認後にterminate/deleteします。共有event flagの削除とtask終了を競合させません。
@@ -171,5 +172,5 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 - trim/eraseは未対応です。CSDのerase granularityを未解釈なので、geometryのerase block sizeは暫定1 sectorです。
 - SDXCでもexFATは無効です。FATで使用してください。
 - 2026-08-12にcache有効、全面無効化fallback offで実機normal 10周を全周完走し、`PHASE 2.1 PASS`を確認しました。Host側もCTest 1/1と並行テスト62 checksがPASSしています。
-- 2026-08-14にPhase 3.2 RA Debug build（FSP 6.5.0、Arm GCC 13.2.1）が警告なしで成功しました。P409/IRQ6の実機挿抜試験は未実施です。
+- 2026-08-14にPhase 3.2 RA Debug build（FSP 6.5.0、Arm GCC 13.2.1）が警告なしで成功しました。実機smokeで未挿入起動、P409/IRQ6挿入、FatFs/並行access、idle抜去後NO_MEDIA、再挿入後の明示initialize/roundtrip、cleanupがPASSしました。
 - stress 100周は未実施です。今回はPhase 3.2の完了判定に含めません。

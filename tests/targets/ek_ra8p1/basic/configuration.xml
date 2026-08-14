@@ -1657,7 +1657,7 @@
       <configSetting altId="ospi0.om_0_sio7.p804" configurationId="ospi0.om_0_sio7"/>
       <configSetting altId="ospi1.mode.custom.free" configurationId="ospi1.mode"/>
       <configSetting altId="p000.input" configurationId="p000"/>
-      <configSetting altId="p000.gpio_irq.gpio_irq_enabled" configurationId="p000.gpio_irq"/>
+      <configSetting altId="p000.gpio_irq.gpio_irq_none" configurationId="p000.gpio_irq"/>
       <configSetting altId="p000.gpio_mode.gpio_mode_in" configurationId="p000.gpio_mode"/>
       <configSetting altId="p001.adc0.an001" configurationId="p001"/>
       <configSetting altId="p001.gpio_mode.gpio_mode_an" configurationId="p001.gpio_mode"/>
@@ -1803,9 +1803,10 @@
       <configSetting altId="p408.usbhs.usbhs_vbus" configurationId="p408"/>
       <configSetting altId="p408.gpio_speed.gpio_speed_m" configurationId="p408.gpio_drivecapacity"/>
       <configSetting altId="p408.gpio_mode.gpio_mode_peripheral" configurationId="p408.gpio_mode"/>
-      <configSetting altId="p409.input" configurationId="p409"/>
+      <configSetting altId="p409.irq.irq6" configurationId="p409"/>
+      <configSetting altId="p409.gpio_pupd.gpio_pupd_ip_up" configurationId="p409.gpio_pupd"/>
       <configSetting altId="p409.gpio_irq.gpio_irq_enabled" configurationId="p409.gpio_irq"/>
-      <configSetting altId="p409.gpio_mode.gpio_mode_in" configurationId="p409.gpio_mode"/>
+      <configSetting altId="p409.gpio_mode.gpio_mode_irq" configurationId="p409.gpio_mode"/>
       <configSetting altId="p411.mipi.dsi_te" configurationId="p411"/>
       <configSetting altId="p411.gpio_speed.gpio_speed_m" configurationId="p411.gpio_drivecapacity"/>
       <configSetting altId="p411.gpio_mode.gpio_mode_peripheral" configurationId="p411.gpio_mode"/>

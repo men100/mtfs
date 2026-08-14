@@ -14,7 +14,7 @@
 | VCC | 3V3 | - | 3.3 Vのみ |
 | GND | GND | - | 共通GND |
 
-参照実績と同じくCSにはPMOD2_CTSを使います。SDモジュールは3.3 V SPI対応品を使用し、5 V専用品や信号を5 Vへプルアップするモジュールは接続しないでください。Digilent Pmod MicroSD Revision AのJ1 Pin 9（CD）をPMOD2 J25 Pin 9へ接続します。回路と初期設定ではactive-lowを候補としていますが、実機確認前のため確定事項ではありません。runnerの`CD raw=... active=...`で、未挿入/挿入時のlevelを確認してください。write-protect端子は未接続です。
+参照実績と同じくCSにはPMOD2_CTSを使います。SDモジュールは3.3 V SPI対応品を使用し、5 V専用品や信号を5 Vへプルアップするモジュールは接続しないでください。Digilent Pmod MicroSD Revision AのJ1 Pin 9（CD）をPMOD2 J25 Pin 9へ接続します。実機で未挿入`raw=1`、挿入`raw=0`を確認済みのためactive-lowです。write-protect端子は未接続です。
 
 ## FSP/BSP2条件
 
@@ -22,7 +22,8 @@
 - SCI_B SPI channel 0、master、mode 0（CPOL Low / odd edge）、MSB first
 - 初期bitrate 400,000 bps（生成値は約398,089 bps）
 - RXI/TXI/TEI/ERI priority 12
-- P409はGPIO IRQ input、External IRQ channel 6（`r_icu`）、両edge、priority 12
+- P409はIRQ mode（IRQ6、input pull-up）、External IRQ channel 6（`r_icu`）、両edge、priority 12
+- 同じ内部IRQ6へ接続されるP000（IRQ6-DS）のISELは無効化し、IRQ6 inputをP409だけにする
 - `p_transfer_tx` / `p_transfer_rx` はNULL。DMA/DTCは使用しません。DTC supportのFSPコンポーネント設定は有効でも、転送インスタンスを接続しません
 - callbackは `mtfs_ra_sd_spi_callback`
 - 公開ヘッダ `<tk/tkernel.h>`, `r_ioport_api.h`, `r_sci_b_spi.h` のみを利用し、`mtk3_bsp2`内部は変更しません

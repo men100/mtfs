@@ -116,18 +116,94 @@ static void target_media_event(void *opaque, mtfs_media_event_t event,
 }
 
 #if MTFS_RA8P1_HOTPLUG_TEST
+#define MTFS_TARGET_MEDIA_WAIT_SLICE_MS (100U)
+#define MTFS_TARGET_MEDIA_WAIT_LOG_MS   (5000U)
+#define MTFS_TARGET_IRQ_GRACE_MS        (500U)
+
+static void target_print_card_detect_hardware(void)
+{
+    mtfs_ra8p1_card_detect_hardware_diagnostics_t hardware;
+
+    mtfs_ra8p1_get_card_detect_hardware_diagnostics(&hardware);
+    tm_printf((UB *)"[mtfs] CD HW irq=%d pfs(P000/P409)=0x%08x/0x%08x irqcr=0x%02x "
+        "ielsr=0x%08x nvic=%u/%u vector=0x%08x expected=0x%08x\n",
+        hardware.vector_number, hardware.p000_pfs, hardware.p409_pfs,
+        hardware.irqcr,
+        hardware.ielsr, hardware.nvic_enabled, hardware.nvic_pending,
+        hardware.vector_entry, hardware.expected_vector_entry);
+}
+
 static int target_wait_media_event(UINT expected, const char *operation)
 {
-    UINT events = 0U;
-    ER result = tk_wai_flg(media_application_event_flag_id,
-        expected | MTFS_TARGET_MEDIA_ERROR, TWF_ORW | TWF_BITCLR,
-        &events, MTFS_TARGET_HOTPLUG_WAIT_MS);
-    if ((result < E_OK) || ((events & expected) == 0U)) {
-        tm_printf((UB *)"[mtfs] %s wait FAIL tk=%d events=0x%08x\n",
-            (UB *)operation, result, events);
-        return 0;
+    mtfs_ra8p1_card_detect_diagnostics_t initial;
+    uint32_t elapsed_ms = 0U;
+    uint32_t expected_raw_ms = 0U;
+    uint32_t next_log_ms = MTFS_TARGET_MEDIA_WAIT_LOG_MS;
+    int expected_present = (expected == MTFS_TARGET_MEDIA_INSERTED);
+
+    mtfs_ra8p1_get_card_detect_diagnostics(&initial);
+    while (elapsed_ms < MTFS_TARGET_HOTPLUG_WAIT_MS) {
+        UINT events = 0U;
+        uint32_t remaining_ms = MTFS_TARGET_HOTPLUG_WAIT_MS - elapsed_ms;
+        uint32_t wait_ms = remaining_ms < MTFS_TARGET_MEDIA_WAIT_SLICE_MS
+            ? remaining_ms : MTFS_TARGET_MEDIA_WAIT_SLICE_MS;
+        ER result = tk_wai_flg(media_application_event_flag_id,
+            expected | MTFS_TARGET_MEDIA_ERROR, TWF_ORW | TWF_BITCLR,
+            &events, (TMO)wait_ms);
+
+        if (result >= E_OK) {
+            if ((events & expected) != 0U) {
+                return 1;
+            }
+            tm_printf((UB *)"[mtfs] %s wait FAIL tk=%d events=0x%08x\n",
+                (UB *)operation, result, events);
+            return 0;
+        }
+        if (MERCD(result) != MERCD(E_TMOUT)) {
+            tm_printf((UB *)"[mtfs] %s wait FAIL tk=%d events=0x%08x\n",
+                (UB *)operation, result, events);
+            return 0;
+        }
+
+        elapsed_ms += wait_ms;
+        {
+            mtfs_ra8p1_card_detect_diagnostics_t current;
+            int present;
+
+            mtfs_ra8p1_get_card_detect_diagnostics(&current);
+            present = current.active_low ? !current.raw_level
+                                         : current.raw_level;
+            if (present == expected_present) {
+                expected_raw_ms += wait_ms;
+                if ((current.irq_entries == initial.irq_entries) &&
+                    (expected_raw_ms >= MTFS_TARGET_IRQ_GRACE_MS)) {
+                    tm_printf((UB *)"[mtfs] %s IRQ DELIVERY FAIL: "
+                        "GPIO raw=%u reached expected %s but IRQ count "
+                        "remained %u for %u ms\n",
+                        (UB *)operation, current.raw_level,
+                        expected_present ? (UB *)"PRESENT" : (UB *)"ABSENT",
+                        current.irq_entries, expected_raw_ms);
+                    target_print_card_detect_hardware();
+                    return 0;
+                }
+            } else {
+                expected_raw_ms = 0U;
+            }
+            if (elapsed_ms >= next_log_ms) {
+                tm_printf((UB *)"[mtfs] WAITING for %s: raw=%u irq=%u "
+                    "rise=%u fall=%u elapsed=%u/%u ms\n",
+                    (UB *)operation, current.raw_level,
+                    current.irq_entries, current.rising_edges,
+                    current.falling_edges, elapsed_ms,
+                    MTFS_TARGET_HOTPLUG_WAIT_MS);
+                next_log_ms += MTFS_TARGET_MEDIA_WAIT_LOG_MS;
+            }
+        }
     }
-    return 1;
+    tm_printf((UB *)"[mtfs] %s wait FAIL tk=%d events=0x%08x\n",
+        (UB *)operation, E_TMOUT, 0U);
+    target_print_card_detect_hardware();
+    return 0;
 }
 #endif
 
@@ -257,9 +333,12 @@ static void target_coordinator(INT start_code, void *opaque)
         {
             mtfs_ra8p1_card_detect_diagnostics_t cd;
             mtfs_ra8p1_get_card_detect_diagnostics(&cd);
-            tm_printf((UB *)"[mtfs] CD initial raw=%u configured-active=%s irq=%u (verify level on hardware)\n",
+            tm_printf((UB *)"[mtfs] CD initial raw=%u configured-active=%s irq=%u\n",
                 cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
                 cd.irq_entries);
+#if MTFS_RA8P1_HOTPLUG_TEST
+            target_print_card_detect_hardware();
+#endif
         }
 
 #if MTFS_RA8P1_HOTPLUG_TEST

@@ -20,6 +20,19 @@ typedef struct mtfs_ra8p1_card_detect_diagnostics
     uint8_t irq_registered;
 } mtfs_ra8p1_card_detect_diagnostics_t;
 
+typedef struct mtfs_ra8p1_card_detect_hardware_diagnostics
+{
+    uint32_t p000_pfs;
+    uint32_t p409_pfs;
+    uint32_t ielsr;
+    uint32_t vector_entry;
+    uint32_t expected_vector_entry;
+    int32_t vector_number;
+    uint8_t irqcr;
+    uint8_t nvic_enabled;
+    uint8_t nvic_pending;
+} mtfs_ra8p1_card_detect_hardware_diagnostics_t;
+
 void mtfs_ra8p1_sd_spi_config(mtfs_ra_sd_spi_config_t *config);
 
 mtfs_error_t mtfs_ra8p1_card_detect_start(
@@ -31,6 +44,8 @@ mtfs_error_t mtfs_ra8p1_card_detect_start(
 mtfs_error_t mtfs_ra8p1_card_detect_stop(void);
 void mtfs_ra8p1_get_card_detect_diagnostics(
     mtfs_ra8p1_card_detect_diagnostics_t *diagnostics);
+void mtfs_ra8p1_get_card_detect_hardware_diagnostics(
+    mtfs_ra8p1_card_detect_hardware_diagnostics_t *diagnostics);
 
 /* FSP External IRQ callback. It runs in IRQ context and only posts flags. */
 void mtfs_ra8p1_card_detect_callback(external_irq_callback_args_t *args);

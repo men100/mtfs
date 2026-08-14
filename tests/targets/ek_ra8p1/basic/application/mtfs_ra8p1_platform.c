@@ -221,3 +221,33 @@ void mtfs_ra8p1_get_card_detect_diagnostics(
         diagnostics->raw_level = (uint8_t)raw;
     }
 }
+
+void mtfs_ra8p1_get_card_detect_hardware_diagnostics(
+    mtfs_ra8p1_card_detect_hardware_diagnostics_t *diagnostics)
+{
+    IRQn_Type irq;
+
+    if (diagnostics == NULL) {
+        return;
+    }
+    (void)memset(diagnostics, 0, sizeof(*diagnostics));
+    irq = g_sd_card_detect_irq_cfg.irq;
+    diagnostics->vector_number = (int32_t)irq;
+    diagnostics->p000_pfs = R_PFS->PORT[0].PIN[0].PmnPFS;
+    diagnostics->p409_pfs = R_PFS->PORT[4].PIN[9].PmnPFS;
+    diagnostics->irqcr = R_ICU->IRQCRa[g_sd_card_detect_irq_cfg.channel];
+    if (irq >= 0) {
+        diagnostics->ielsr = R_ICU->IELSR[(uint32_t)irq];
+        diagnostics->nvic_enabled =
+            (uint8_t)((NVIC->ISER[(uint32_t)irq >> 5U] >>
+                ((uint32_t)irq & 31U)) & 1U);
+        diagnostics->nvic_pending =
+            (uint8_t)((NVIC->ISPR[(uint32_t)irq >> 5U] >>
+                ((uint32_t)irq & 31U)) & 1U);
+        diagnostics->vector_entry =
+            ((const uint32_t *)(uintptr_t)SCB->VTOR)
+                [16U + (uint32_t)irq];
+    }
+    diagnostics->expected_vector_entry =
+        (uint32_t)(uintptr_t)r_icu_isr;
+}
