@@ -3,6 +3,7 @@
 アーキテクチャ、API、移植、セキュリティモデル、テスト方針など、ルート README より詳細な文書を配置します。
 
 - `adr/0001-ra8p1-vector-cache-coherency.md`: EK-RA8P1 Phase 2.1のRAM vector cache coherency判断
+- `adr/0002-ra8p1-tmonitor-receive.md`: EK-RA8P1 T-Monitor受信待ち不具合のtarget互換修正
 - `porting/README.md`: 新規ボードへのソース取り込みから実機testまでの移植ガイド
 - `porting/block-device-port.md`: Block Device operation、状態、error、contextの実装契約
 - `porting/microtkernel-integration.md`: mutex、IRQ、event flag、HAL timebase、task寿命

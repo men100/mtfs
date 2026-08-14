@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
 	<name>mtfs_ek_ra8p1_basic</name>
-	<comment>microT-FS Phase 3.2 EK-RA8P1 SD SPI and Card Detect test</comment>
+	<comment>microT-FS Phase 3.3 EK-RA8P1 RTC, SD SPI, and Card Detect test</comment>
 	<projects></projects>
 	<buildSpec>
 		<buildCommand><name>com.renesas.cdt.ddsc.contentgen.ddscBuilder</name><arguments></arguments></buildCommand>
@@ -23,6 +23,7 @@
 		<link><name>FatFs</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/fatfs</locationURI></link>
 		<link><name>mtfs_block</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/block</locationURI></link>
 		<link><name>mtfs_os</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/os/microtkernel</locationURI></link>
+		<link><name>mtfs_rtc_set_app</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/apps/rtc-set</locationURI></link>
 		<link><name>mtfs_sd_spi</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/ports/ra_fsp/sd_spi</locationURI></link>
 		<link><name>mtfs_test_framework</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/framework</locationURI></link>
 		<link><name>mtfs_test_cases</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/cases</locationURI></link>
