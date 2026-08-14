@@ -14,6 +14,11 @@ IDMA では context 内の 4096-byte bounce buffer だけを DMA 対象にしま
 
 - FatFs volume mutex → Block Device 呼出し → SDMMC access mutex の順です。SDMMC mutex を保持したまま FatFs API を呼ばないでください。
 - HAL callback/IRQ は mutex を取らず event flag のみを更新します。
+- Card Detect ISRは`mtfs_stm32_sdmmc_media_changed_isr()`へ抜去hintを渡せます。IDMA待機は
+  removal bitで即時解除され、`HAL_SD_Abort()`は起床した通常I/O文脈で実行されます。
+- 挿入接点のbounceで一時的なraw抜去hintが残る場合があります。明示initializeはI/O mutex
+  取得後に古いremoval pending/eventをclearしてからHAL DeInit/Initを行います。確定挿入だけで
+  initializedを復元することはありません。
 - IDMA 完了待ちと card-transfer 状態待ちには独立 timeout があり、失敗時は abort して未初期化へ戻します。論理初期化状態とは別に HAL 初期化状態を保持し、deinit または次回 initialize で HAL を確実にリセットしてから復旧します。
 - deinit は IRQ、T-Kernel object、HAL、任意の HAL timebase を解放します。並行 I/O がない状態で呼んでください。
 
@@ -21,5 +26,12 @@ IDMA では context 内の 4096-byte bounce buffer だけを DMA 対象にしま
 
 - HAL の global SD callback を handle 一致で dispatch するため、IDMA context は同時に 1 instance です。
 - geometry は HAL card info から sector count/size を取得し、erase block は保守的に 1 sector、trim は unsupported です。
-- card-detect / write-protect は target callback の能力に従います。hot-plug 中の I/O は保証せず、挿抜後は明示再初期化または再起動を前提にします。
+- card-detect / write-protect は target callback の能力に従います。`card_present=NULL`は
+  従来互換の常時present契約で、IRQ通知APIは使用しません。検出あり構成では抜去後の
+  status/read/write/sync/geometryがNO_MEDIAまたは未初期化を返し、geometryを無効扱いにします。
+  再挿入だけではinitializedへ戻らず、明示initializeがHAL DeInit/Initして復旧します。
+- polling経路はsector間とHAL呼出し後に抜去を確認します。同期HAL呼出しそのものをIRQで
+  中断できないため、active polling転送の停止時間はHAL timeoutで上限されます。
+- 物理抜去後の未保存data、open `FIL`、書込み中媒体の整合性は保証しません。mount/unmountは
+  application policyです。
 - `idma_platform_ready` は RIF/MPU 等の target 条件を検証する hook です。

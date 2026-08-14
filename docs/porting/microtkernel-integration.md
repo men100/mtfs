@@ -43,6 +43,18 @@ STM32 SDMMCは`tk_def_int()`でSDMMC IRQを`TA_HLNG` handlerとして登録し�
 確認して`tk_set_flg()`します。新targetでも、使用するmicroT-Kernel APIがtask独立部から
 呼出し可能か、BSPのIRQ entryがmicroT-Kernel管理下かを確認してください。
 
+STM32N6570-DKのCard DetectもPN12/EXTI12を別の`TA_HLNG` handlerとして登録します。
+ISRはEXTI pending clear、raw level/sequence記録、media serviceと転送待ちevent flagの
+設定だけを行います。debounce、event callback、`HAL_SD_Abort()`はworker/I/O task文脈です。
+SDMMC2はpriority 5、EXTI12はpriority 6で、両IRQの診断counterも分離しています。
+
+optional `mtfs_media_service`は静的user stack、1 task、1 event flagを明示init時だけ生成します。
+cleanupは通知拒否、source IRQ disable/解除、worker停止、task/event flag削除、media context
+無効化の順です。serviceを使わず、既存storage taskが`mtfs_media_process()`を呼ぶ構成も可能です。
+workerのSTOPPED通知は、以後context/event flagへ触れない最終境界です。高優先度のcleanup taskが
+その通知で先にdispatchされ、workerが`tk_ext_tsk()`へ到達する前でも、serviceはworkerを
+`tk_ter_tsk()`でDORMANTにしてから削除します。task削除に失敗したcontext/stackは再利用しません。
+
 RA FSP SPIはFSP生成IRQから`mtfs_ra_sd_spi_callback()`へ入り、callbackがevent flagを
 設定します。IRQ番号/priority/callback設定はFSP生成側の責務です。STM32方式の
 `tk_def_int()`登録と同じだとみなさず、FSP/BSPが割込みentryとmicroT-Kernel task独立部の
@@ -95,4 +107,3 @@ handler、IRQ登録の生成途中で失敗した場合も、作成済みobject�
 - [ ] stackと大きなbufferの配置を確認した
 - [ ] task終了後に同期objectを削除する
 - [ ] init失敗/deinitの全経路でkernel objectを解放する
-

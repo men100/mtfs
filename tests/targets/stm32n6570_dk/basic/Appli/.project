@@ -161,6 +161,7 @@
 		</link>
 		<link><name>Application</name><type>2</type><locationURI>PARENT-1-PROJECT_LOC/application</locationURI></link>
 		<link><name>mtfs_block</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/block</locationURI></link>
+		<link><name>mtfs_core</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/core</locationURI></link>
 		<link><name>mtfs_fatfs</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/fatfs</locationURI></link>
 		<link><name>mtfs_os</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/os/microtkernel</locationURI></link>
 		<link><name>mtfs_stm32_common</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/common</locationURI></link>

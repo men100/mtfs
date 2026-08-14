@@ -8,6 +8,7 @@
 
 #include "mtfs_block_device.h"
 #include "mtfs_block_registry.h"
+#include "ff.h"
 #include "mtfs_stm32_sdmmc.h"
 #include "mtfs_test.h"
 #include "test_fatfs_roundtrip.h"
@@ -21,6 +22,15 @@
 #ifndef MTFS_STM32N6570_TEST_PROFILE
 #define MTFS_STM32N6570_TEST_PROFILE MTFS_TEST_PROFILE_NORMAL
 #endif
+
+#ifndef MTFS_STM32N6570_HOTPLUG_TEST
+#define MTFS_STM32N6570_HOTPLUG_TEST (0)
+#endif
+
+#define MTFS_TARGET_MEDIA_INSERTED (UINT32_C(1) << 0)
+#define MTFS_TARGET_MEDIA_REMOVED  (UINT32_C(1) << 1)
+#define MTFS_TARGET_MEDIA_ERROR    (UINT32_C(1) << 2)
+#define MTFS_TARGET_HOTPLUG_WAIT_MS (120000)
 
 #if MTFS_STM32N6570_TEST_PROFILE == MTFS_TEST_PROFILE_SMOKE
 #define MTFS_STM32N6570_TEST_ROUNDS       (1U)
@@ -36,6 +46,13 @@
 #endif
 
 static mtfs_stm32_sdmmc_context_t sd_context;
+static mtfs_media_context_t media_context;
+static mtfs_media_service_context_t media_service;
+static volatile uint32_t media_inserted_events;
+static volatile uint32_t media_removed_events;
+static volatile uint32_t media_error_events;
+static volatile uint32_t media_reinitialize_count;
+static ID media_application_event_flag_id;
 static uint8_t sector_zero_single[MTFS_STM32_SDMMC_SECTOR_SIZE];
 static uint8_t sector_zero_multi[MTFS_STM32_SDMMC_SECTOR_SIZE * 2U];
 
@@ -56,6 +73,60 @@ static void target_reporter(
             checks, failures);
     }
 }
+
+static void target_media_event(void *opaque, mtfs_media_event_t event,
+    mtfs_media_state_t state)
+{
+    mtfs_stm32n6570_dk_card_detect_diagnostics_t cd;
+    (void)opaque;
+    if (event == MTFS_MEDIA_EVENT_INSERTED) {
+        ++media_inserted_events;
+        tm_printf((UB *)"[mtfs] media INSERTED state=%u; application must initialize/register/mount\n",
+            (UW)state);
+        if (media_application_event_flag_id > 0) {
+            (void)tk_set_flg(media_application_event_flag_id,
+                MTFS_TARGET_MEDIA_INSERTED);
+        }
+    } else if (event == MTFS_MEDIA_EVENT_REMOVED) {
+        ++media_removed_events;
+        tm_printf((UB *)"[mtfs] media REMOVED state=%u; application must stop requests/unmount/unregister\n",
+            (UW)state);
+        if (media_application_event_flag_id > 0) {
+            (void)tk_set_flg(media_application_event_flag_id,
+                MTFS_TARGET_MEDIA_REMOVED);
+        }
+    } else {
+        ++media_error_events;
+        tm_printf((UB *)"[mtfs] media ERROR state=%u\n", (UW)state);
+        if (media_application_event_flag_id > 0) {
+            (void)tk_set_flg(media_application_event_flag_id,
+                MTFS_TARGET_MEDIA_ERROR);
+        }
+    }
+    mtfs_stm32n6570_dk_get_card_detect_diagnostics(&cd);
+    tm_printf((UB *)"[mtfs] CD raw=%u active=%s irq=%u rise=%u fall=%u debounce=%u/%u events=%u/%u/%u\n",
+        cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
+        cd.irq_entries, cd.rising_edges, cd.falling_edges,
+        media_context.diagnostics.debounce_starts,
+        media_context.diagnostics.debounce_rechecks,
+        media_inserted_events, media_removed_events, media_error_events);
+}
+
+#if MTFS_STM32N6570_HOTPLUG_TEST
+static int target_wait_media_event(UINT expected, const char *operation)
+{
+    UINT events = 0U;
+    ER result = tk_wai_flg(media_application_event_flag_id,
+        expected | MTFS_TARGET_MEDIA_ERROR, TWF_ORW | TWF_BITCLR,
+        &events, MTFS_TARGET_HOTPLUG_WAIT_MS);
+    if ((result < E_OK) || ((events & expected) == 0U)) {
+        tm_printf((UB *)"[mtfs] %s wait FAIL tk=%d events=0x%08x\n",
+            (UB *)operation, result, events);
+        return 0;
+    }
+    return 1;
+}
+#endif
 
 static int target_check_idma_diagnostics(
     mtfs_test_t *test, const mtfs_stm32_sdmmc_context_t *context)
@@ -100,6 +171,9 @@ static void target_print_diagnostics(
         diagnostics->aborts,
         diagnostics->completion_timeouts,
         diagnostics->card_state_timeouts);
+    tm_printf((UB *)"[mtfs] media removal hints=%u wait wakeups=%u\n",
+        diagnostics->media_removal_notifications,
+        diagnostics->media_wait_wakeups);
     tm_printf((UB *)"[mtfs] read single=%u multi=%u max=%u; write single=%u multi=%u max=%u\n",
         diagnostics->read_single_starts,
         diagnostics->read_multi_starts,
@@ -107,14 +181,14 @@ static void target_print_diagnostics(
         diagnostics->write_single_starts,
         diagnostics->write_multi_starts,
         diagnostics->write_max_blocks);
-    tm_printf((UB *)"[mtfs] last mtfs=%d tk=%d hal=%u/0x%08x clkcr=0x%08x hwfc=%u div=%u\n",
+    tm_printf((UB *)"[mtfs] last mtfs=%d tk=%d hal=%u/0x%08x clkcr(snapshot)=0x%08x hwfc=%u div=%u\n",
         context->last_error,
         context->last_kernel_error,
         context->last_hal_status,
         context->last_hal_error,
-        context->config.hal_sd->Instance->CLKCR,
-        (context->config.hal_sd->Instance->CLKCR & SDMMC_CLKCR_HWFC_EN) != 0U,
-        context->config.hal_sd->Instance->CLKCR & SDMMC_CLKCR_CLKDIV);
+        diagnostics->last_clkcr,
+        (diagnostics->last_clkcr & SDMMC_CLKCR_HWFC_EN) != 0U,
+        diagnostics->last_clkcr & SDMMC_CLKCR_CLKDIV);
 }
 
 static void target_coordinator(INT start_code, void *opaque)
@@ -123,15 +197,30 @@ static void target_coordinator(INT start_code, void *opaque)
     mtfs_stm32n6570_dk_rif_diagnostics_t rif;
     unsigned int round;
     int overall_failure = 0;
+#if MTFS_STM32N6570_HOTPLUG_TEST
+    T_CFLG media_flag_config = {
+        .flgatr = TA_TFIFO,
+        .iflgptn = 0U
+    };
+#endif
 
     (void)start_code;
     (void)opaque;
     mtfs_stm32n6570_dk_sdmmc_config(&config);
+#if MTFS_STM32N6570_HOTPLUG_TEST
+    media_application_event_flag_id = tk_cre_flg(&media_flag_config);
+    if (media_application_event_flag_id <= 0) {
+        tm_printf((UB *)"[mtfs] application media event flag create FAIL: %d\n",
+            media_application_event_flag_id);
+        tk_exd_tsk();
+    }
+#endif
     mtfs_stm32n6570_dk_get_rif_diagnostics(&rif);
-    tm_printf((UB *)"\n[mtfs] STM32N6570-DK Phase 3: profile=%s rounds=%u path=%s\n",
+    tm_printf((UB *)"\n[mtfs] STM32N6570-DK Phase 3: profile=%s rounds=%u path=%s hotplug=%s\n",
         (UB *)MTFS_STM32N6570_TEST_PROFILE_NAME,
         MTFS_STM32N6570_TEST_ROUNDS,
-        config.use_idma ? (UB *)"IDMA+IRQ" : (UB *)"polling fallback");
+        config.use_idma ? (UB *)"IDMA+IRQ" : (UB *)"polling fallback",
+        MTFS_STM32N6570_HOTPLUG_TEST ? (UB *)"on" : (UB *)"off");
     tm_printf((UB *)"[mtfs] cache I=%s D=%s CCR=0x%08x\n",
         (SCB->CCR & SCB_CCR_IC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
         (SCB->CCR & SCB_CCR_DC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
@@ -154,6 +243,7 @@ static void target_coordinator(INT start_code, void *opaque)
         int case_result;
         int registered = 0;
         int context_ready = 0;
+        int media_ready = 0;
         int round_failure = 0;
 
         tm_printf((UB *)"[mtfs] round %u/%u BEGIN\n",
@@ -167,20 +257,56 @@ static void target_coordinator(INT start_code, void *opaque)
             goto round_done;
         }
         context_ready = 1;
+        error = mtfs_stm32n6570_dk_card_detect_start(&media_context,
+            &media_service, &sd_context, target_media_event, NULL);
+        if (error != MTFS_OK) {
+            tm_printf((UB *)"[mtfs] card detect start FAIL mtfs=%d tk=%d\n",
+                error, media_service.last_kernel_error);
+            round_failure = 1;
+            goto round_done;
+        }
+        media_ready = 1;
         device = mtfs_stm32_sdmmc_block_device(&sd_context);
-        tm_printf((UB *)"[mtfs] context=%p bounce=%p size=%u align32=%u\n",
+        tm_printf((UB *)"[mtfs] context=%p bounce=%p size=%u align32=%u cd-debounce=%u ms\n",
             &sd_context, sd_context.bounce_buffer,
             (UW)sizeof(sd_context.bounce_buffer),
-            ((uintptr_t)sd_context.bounce_buffer & 31U) == 0U);
+            ((uintptr_t)sd_context.bounce_buffer & 31U) == 0U,
+            media_context.config.debounce_ms);
+
+#if MTFS_STM32N6570_HOTPLUG_TEST
+        if (!mtfs_media_is_present(&media_context)) {
+            mtfs_block_status_t absent_status = 0U;
+            mtfs_error_t absent_error =
+                mtfs_block_status(device, &absent_status);
+            if ((absent_error != MTFS_ERROR_NO_MEDIA) ||
+                ((absent_status & MTFS_BLOCK_STATUS_MEDIA_PRESENT) != 0U)) {
+                tm_printf((UB *)"[mtfs] initial ABSENT status FAIL: %d/0x%08x\n",
+                    absent_error, absent_status);
+                round_failure = 1;
+                goto round_done;
+            }
+            tm_printf((UB *)"[mtfs] initial ABSENT status PASS: mtfs=%d flags=0x%08x\n",
+                absent_error, absent_status);
+            tm_printf((UB *)"[mtfs] card absent: insert within %u ms\n",
+                MTFS_TARGET_HOTPLUG_WAIT_MS);
+            if (!target_wait_media_event(MTFS_TARGET_MEDIA_INSERTED,
+                    "initial INSERTED")) {
+                round_failure = 1;
+                goto round_done;
+            }
+        }
+#endif
 
         error = mtfs_block_initialize(device);
         if (error != MTFS_OK) {
             tm_printf((UB *)"[mtfs] SD init FAIL mtfs=%d tk=%d hal=%u/0x%08x\n",
                 error, sd_context.last_kernel_error,
                 sd_context.last_hal_status, sd_context.last_hal_error);
+            target_print_diagnostics(&sd_context);
             round_failure = 1;
             goto round_done;
         }
+        ++media_reinitialize_count;
         error = mtfs_block_registry_register(0U, device);
         if (error != MTFS_OK) {
             tm_printf((UB *)"[mtfs] pdrv 0 register FAIL: %d\n", error);
@@ -239,7 +365,73 @@ static void target_coordinator(INT start_code, void *opaque)
         }
         target_print_diagnostics(&sd_context);
 
+#if MTFS_STM32N6570_HOTPLUG_TEST
+        tm_printf((UB *)"[mtfs] HOTPLUG: files are closed/synced; remove card while I/O is idle\n");
+        if (!target_wait_media_event(MTFS_TARGET_MEDIA_REMOVED, "REMOVED")) {
+            round_failure = 1;
+            goto round_done;
+        }
+        (void)f_mount(NULL, "0:", 0U);
+        {
+            mtfs_block_status_t status = 0U;
+            mtfs_error_t status_error = mtfs_block_status(device, &status);
+            mtfs_error_t read_error = mtfs_block_read(
+                device, sector_zero_single, 0U, 1U);
+            if ((status_error != MTFS_ERROR_NO_MEDIA) ||
+                ((status & MTFS_BLOCK_STATUS_MEDIA_PRESENT) != 0U) ||
+                (read_error != MTFS_ERROR_NO_MEDIA)) {
+                tm_printf((UB *)"[mtfs] removal contract FAIL status=%d/0x%08x read=%d\n",
+                    status_error, status, read_error);
+                round_failure = 1;
+                goto round_done;
+            }
+        }
+        if (mtfs_block_registry_unregister(0U) != MTFS_OK) {
+            tm_printf((UB *)"[mtfs] removal unregister FAIL\n");
+            round_failure = 1;
+            goto round_done;
+        }
+        registered = 0;
+        tm_printf((UB *)"[mtfs] HOTPLUG: removal contract PASS; reinsert card\n");
+        if (!target_wait_media_event(MTFS_TARGET_MEDIA_INSERTED, "re-INSERTED")) {
+            round_failure = 1;
+            goto round_done;
+        }
+        error = mtfs_block_initialize(device);
+        if ((error != MTFS_OK) ||
+            (mtfs_block_registry_register(0U, device) != MTFS_OK)) {
+            tm_printf((UB *)"[mtfs] reinitialize/register FAIL: %d\n", error);
+            round_failure = 1;
+            goto round_done;
+        }
+        ++media_reinitialize_count;
+        registered = 1;
+        mtfs_test_begin(&test, "fatfs_roundtrip_after_reinsert",
+            target_reporter, NULL);
+        case_result = test_fatfs_roundtrip(&test, "0:");
+        if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
+            round_failure = 1;
+        }
+#endif
+
 round_done:
+        if (media_ready) {
+            mtfs_stm32n6570_dk_card_detect_diagnostics_t cd;
+            mtfs_stm32n6570_dk_get_card_detect_diagnostics(&cd);
+            tm_printf((UB *)"[mtfs] CD raw=%u active=%s irq=%u rise=%u fall=%u inserted=%u removed=%u error=%u state=%u reinit=%u\n",
+                cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
+                cd.irq_entries, cd.rising_edges, cd.falling_edges,
+                media_inserted_events, media_removed_events,
+                media_error_events, (UW)mtfs_media_state(&media_context),
+                media_reinitialize_count);
+            if (mtfs_stm32n6570_dk_card_detect_stop() != MTFS_OK) {
+                tm_printf((UB *)"[mtfs] card detect cleanup FAIL tk=%d task=%d flag=%d\n",
+                    media_service.last_kernel_error,
+                    media_service.task_id, media_service.event_flag_id);
+                round_failure = 1;
+            }
+            media_ready = 0;
+        }
         if (registered && (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
             tm_printf((UB *)"[mtfs] registry cleanup FAIL\n");
             round_failure = 1;
@@ -260,6 +452,12 @@ round_done:
     }
     tm_printf((UB *)"[mtfs] PHASE 3 RUN %s\n",
         overall_failure ? (UB *)"FAIL" : (UB *)"PASS");
+#if MTFS_STM32N6570_HOTPLUG_TEST
+    if (media_application_event_flag_id > 0) {
+        (void)tk_del_flg(media_application_event_flag_id);
+        media_application_event_flag_id = 0;
+    }
+#endif
     tk_exd_tsk();
 }
 

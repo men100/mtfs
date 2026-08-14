@@ -11,6 +11,7 @@
 #if defined(MTKBSP_STM32CUBE) && defined(MTKBSP_CPU_CORE_ARMV8M)
 
 #include <tk/tkernel.h>
+#include <tm/tmonitor.h>
 #include <kernel.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -78,6 +79,16 @@ EXPORT ER knl_define_inthdr(INT interrupt_number, ATR attributes, FP handler)
 
 EXPORT void knl_return_inthdr(void)
 {
+}
+
+/* Keep actionable fault registers in the serial log during board testing. */
+EXPORT void knl_busfault_handler(void)
+{
+    tm_printf((UB *)"Bus Fault CFSR=0x%08x HFSR=0x%08x BFAR=0x%08x MMFAR=0x%08x SHCSR=0x%08x ICSR=0x%08x\n",
+        SCB->CFSR, SCB->HFSR, SCB->BFAR, SCB->MMFAR, SCB->SHCSR, SCB->ICSR);
+    while (1) {
+        __NOP();
+    }
 }
 
 EXPORT ER knl_init_interrupt(void)

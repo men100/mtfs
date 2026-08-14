@@ -9,6 +9,7 @@
 #define MTFS_STM32_SD_EVENT_RX       (UINT32_C(1) << 0)
 #define MTFS_STM32_SD_EVENT_TX       (UINT32_C(1) << 1)
 #define MTFS_STM32_SD_EVENT_ERROR    (UINT32_C(1) << 2)
+#define MTFS_STM32_SD_EVENT_REMOVED  (UINT32_C(1) << 3)
 
 static mtfs_stm32_sdmmc_context_t *mtfs_stm32_sdmmc_irq_context;
 
@@ -25,6 +26,13 @@ static mtfs_error_t mtfs_stm32_sd_geometry(
 static mtfs_error_t mtfs_stm32_sd_trim(
     void *opaque, mtfs_lba_t lba, mtfs_lba_t count);
 static void mtfs_stm32_sd_abort(mtfs_stm32_sdmmc_context_t *context);
+
+static void mtfs_stm32_sd_invalidate_media(
+    mtfs_stm32_sdmmc_context_t *context)
+{
+    context->initialized = 0U;
+    (void)memset(&context->geometry, 0, sizeof(context->geometry));
+}
 
 static const mtfs_block_device_ops_t mtfs_stm32_sd_ops = {
     mtfs_stm32_sd_initialize,
@@ -70,7 +78,7 @@ static mtfs_error_t mtfs_stm32_sd_hal_error(
     context->last_hal_status = status;
     context->last_hal_error = context->config.hal_sd->ErrorCode;
     if (!mtfs_stm32_sd_card_present(context)) {
-        context->initialized = 0U;
+        mtfs_stm32_sd_invalidate_media(context);
         return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
     }
     if ((status == HAL_BUSY) || (status == HAL_TIMEOUT)) {
@@ -127,8 +135,11 @@ static mtfs_error_t mtfs_stm32_sd_wait_transfer(
 
     do {
         if (!mtfs_stm32_sd_card_present(context)) {
-            context->initialized = 0U;
+            mtfs_stm32_sd_invalidate_media(context);
             return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+        }
+        if (context->media_removal_pending) {
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
         }
         if (HAL_SD_GetCardState(context->config.hal_sd) == HAL_SD_CARD_TRANSFER) {
             return mtfs_stm32_sd_set_error(context, MTFS_OK);
@@ -233,7 +244,7 @@ static void mtfs_stm32_sd_abort(mtfs_stm32_sdmmc_context_t *context)
     context->last_hal_status = HAL_SD_Abort(context->config.hal_sd);
     context->last_hal_error = (transfer_error != HAL_SD_ERROR_NONE)
         ? transfer_error : context->config.hal_sd->ErrorCode;
-    context->initialized = 0U;
+    mtfs_stm32_sd_invalidate_media(context);
     ++context->diagnostics.aborts;
     if (context->transfer_event_flag_id > 0) {
         (void)tk_clr_flg(context->transfer_event_flag_id, 0U);
@@ -245,7 +256,8 @@ static mtfs_error_t mtfs_stm32_sd_wait_event(
 {
     UINT events = 0U;
     ER result = tk_wai_flg(context->transfer_event_flag_id,
-        completion_event | MTFS_STM32_SD_EVENT_ERROR,
+        completion_event | MTFS_STM32_SD_EVENT_ERROR |
+            MTFS_STM32_SD_EVENT_REMOVED,
         TWF_ORW | TWF_BITCLR, &events, (TMO)context->config.io_timeout_ms);
 
     context->transfer_active = 0U;
@@ -254,6 +266,13 @@ static mtfs_error_t mtfs_stm32_sd_wait_event(
             ++context->diagnostics.completion_timeouts;
         }
         return mtfs_stm32_sd_kernel_error(context, result);
+    }
+    if ((events & MTFS_STM32_SD_EVENT_REMOVED) != 0U) {
+        ++context->diagnostics.media_wait_wakeups;
+        mtfs_stm32_sd_invalidate_media(context);
+        return mtfs_stm32_sd_set_error(context,
+            mtfs_stm32_sd_card_present(context)
+                ? MTFS_ERROR_NOT_READY : MTFS_ERROR_NO_MEDIA);
     }
     if ((events & MTFS_STM32_SD_EVENT_ERROR) != 0U) {
         context->last_hal_error = context->transfer_hal_error;
@@ -357,8 +376,11 @@ static mtfs_error_t mtfs_stm32_sd_validate_transfer(
         return mtfs_stm32_sd_set_error(context, MTFS_ERROR_INVALID_ARGUMENT);
     }
     if (!mtfs_stm32_sd_card_present(context)) {
-        context->initialized = 0U;
+        mtfs_stm32_sd_invalidate_media(context);
         return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+    }
+    if (context->media_removal_pending) {
+        return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
     }
     if (!context->initialized) {
         return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
@@ -572,6 +594,31 @@ void mtfs_stm32_sdmmc_diagnostics_reset(
     }
 }
 
+mtfs_error_t mtfs_stm32_sdmmc_media_changed_isr(
+    mtfs_stm32_sdmmc_context_t *context, int present)
+{
+    if ((context == NULL) || !context->objects_ready ||
+        (context->config.card_present == NULL)) {
+        return MTFS_ERROR_NOT_READY;
+    }
+    if (present) {
+        return MTFS_OK;
+    }
+
+    context->media_removal_pending = 1U;
+    context->initialized = 0U;
+    ++context->diagnostics.media_removal_notifications;
+    if (context->transfer_event_flag_id > 0) {
+        ER result = tk_set_flg(context->transfer_event_flag_id,
+            MTFS_STM32_SD_EVENT_REMOVED);
+        if (result < E_OK) {
+            context->last_kernel_error = result;
+            return MTFS_ERROR_IO;
+        }
+    }
+    return MTFS_OK;
+}
+
 static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
 {
     mtfs_stm32_sdmmc_context_t *context = opaque;
@@ -582,7 +629,7 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
         return MTFS_ERROR_NOT_READY;
     }
     if (!mtfs_stm32_sd_card_present(context)) {
-        context->initialized = 0U;
+        mtfs_stm32_sd_invalidate_media(context);
         return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
     }
     if (context->config.use_idma && !mtfs_stm32_sd_platform_ready(context)) {
@@ -594,7 +641,18 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
         return result;
     }
 
-    context->initialized = 0U;
+    /*
+     * A raw removal hint may be produced by contact bounce during insertion.
+     * Explicit initialize, under the I/O mutex and after a stable present
+     * check, is the safe recovery boundary for clearing that stale hint.
+     */
+    context->media_removal_pending = 0U;
+    result = mtfs_stm32_sd_kernel_error(context,
+        tk_clr_flg(context->transfer_event_flag_id, 0U));
+    if (result != MTFS_OK) {
+        goto done;
+    }
+    mtfs_stm32_sd_invalidate_media(context);
     if (context->hal_initialized) {
         context->last_hal_status = HAL_SD_DeInit(context->config.hal_sd);
         if (context->last_hal_status != HAL_OK) {
@@ -609,6 +667,9 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
         result = mtfs_stm32_sd_hal_error(context, context->last_hal_status);
         goto done;
     }
+    /* Snapshot while the peripheral clock is known to be enabled. */
+    context->diagnostics.last_clkcr =
+        context->config.hal_sd->Instance->CLKCR;
     result = mtfs_stm32_sd_wait_transfer(context);
     if (result != MTFS_OK) {
         goto failed_init;
@@ -628,6 +689,7 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
     context->geometry.sector_count = card_info.LogBlockNbr;
     /* STM32 HAL does not expose reliable SD erase-unit geometry. */
     context->geometry.erase_block_size = 1U;
+    context->media_removal_pending = 0U;
     context->initialized = 1U;
     result = mtfs_stm32_sd_set_error(context, MTFS_OK);
     goto done;
@@ -656,7 +718,7 @@ static mtfs_error_t mtfs_stm32_sd_status(
         return result;
     }
     if (!mtfs_stm32_sd_card_present(context)) {
-        context->initialized = 0U;
+        mtfs_stm32_sd_invalidate_media(context);
         result = mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
         goto done;
     }
@@ -664,7 +726,7 @@ static mtfs_error_t mtfs_stm32_sd_status(
     if (mtfs_stm32_sd_write_protected(context)) {
         *status |= MTFS_BLOCK_STATUS_WRITE_PROTECTED;
     }
-    if (!context->initialized) {
+    if (!context->initialized || context->media_removal_pending) {
         result = mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
         goto done;
     }
@@ -753,7 +815,10 @@ static mtfs_error_t mtfs_stm32_sd_sync(void *opaque)
     if (result != MTFS_OK) {
         return result;
     }
-    if (!context->initialized) {
+    if (!mtfs_stm32_sd_card_present(context)) {
+        mtfs_stm32_sd_invalidate_media(context);
+        result = mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+    } else if (!context->initialized || context->media_removal_pending) {
         result = mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
     } else {
         result = mtfs_stm32_sd_wait_transfer(context);
@@ -779,9 +844,9 @@ static mtfs_error_t mtfs_stm32_sd_geometry(
         return result;
     }
     if (!mtfs_stm32_sd_card_present(context)) {
-        context->initialized = 0U;
+        mtfs_stm32_sd_invalidate_media(context);
         result = mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
-    } else if (!context->initialized) {
+    } else if (!context->initialized || context->media_removal_pending) {
         result = mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
     } else {
         *geometry = context->geometry;

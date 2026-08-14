@@ -3,6 +3,7 @@
 このガイドは、microT-FSのソースを新しいmicroT-Kernel対応ボードへ取り込み、
 Block Device portを実装して実機runnerで確認するまでの入口です。現在の参照実装は
 Hostのファイル、RA FSPのSPI接続SD、STM32CubeのSDMMC pollingおよびIDMA + IRQです。
+removable mediaの共通設計は[media lifecycle](media-lifecycle.md)を参照してください。
 
 ## 読む順序
 
@@ -55,6 +56,8 @@ STM32 HALの公開ヘッダへのpathが必要です。使用しないportの`.c
 | RA FSP SD SPI | `src/ports/ra_fsp/sd_spi/mtfs_ra_sd_spi.c` |
 | STM32Cube SDMMC | `src/ports/stm32_cube/sdmmc/mtfs_stm32_sdmmc.c` |
 | STM32Cube SDMMCがHAL timebaseも管理 | 上記に加えて`src/ports/stm32_cube/common/mtfs_stm32_hal_timebase.c` |
+| 挿抜状態機械 | `src/core/mtfs_media.c` |
+| optional microT-Kernel worker | `src/os/microtkernel/mtfs_media_service.c` |
 
 ## 基本構成例
 
@@ -160,9 +163,11 @@ HAL callback、event flagを使い、4096 byteのbounce buffer単位で最大8 s
 multi-block転送します。`use_idma=0`はBlock Device上の複数sector要求を受けますが、
 内部では`HAL_SD_ReadBlocks()`/`HAL_SD_WriteBlocks()`を1 sectorずつ呼びます。
 
-card detect、write protect、DMA/RIF準備確認はtarget callbackです。HAL callbackの
-global dispatch制約により、IDMA contextは同時に1 instanceです。timeoutまたは転送
-失敗時はabortして未初期化へ戻り、次の`initialize`でHALをdeinit/initします。
+card detect、write protect、DMA/RIF準備確認はtarget callbackです。Card Detect IRQは
+`mtfs_stm32_sdmmc_media_changed_isr()`へ抜去hintを渡し、IDMA待ちをmedia event bitで
+即時解除します。HAL callbackのglobal dispatch制約により、IDMA contextは同時に
+1 instanceです。timeout、HAL error、media removalは診断上区別し、通常文脈でabortして
+未初期化へ戻し、次の`initialize`でHALをdeinit/initします。
 
 ## 現行機能の対応状況
 
@@ -173,8 +178,8 @@ global dispatch制約により、IDMA contextは同時に1 instanceです。time
 | 項目 | 分類 | 現在の状態 |
 |---|---|---|
 | FAT12/FAT16/FAT32 mount/read/write | 共通層で対応済み | FatFs、Disk I/O bridge、Block Device registryで提供。既存実機runnerは事前format済みFAT媒体を使用する。 |
-| SDカード挿抜（hot plug） | 制限あり | STM32 portは媒体不在を検出して未初期化へ戻せるが、I/O中の挿抜は保証しない。既存runnerは挿抜後resetを前提とする。RA portは挿抜検出なし。 |
-| card detect | port依存で対応済み | STM32 portは任意の`card_present` callbackを持ち、STM32N6570-DK targetがGPIOを接続する。callback未指定時は常時present扱い。RA/Hostには物理card detectがない。 |
+| SDカード挿抜（hot plug） | STM32 IDMA smoke実機PASS | 共通media層がedge後debounceと重複排除を行う。STM32はidle抜去後NO_MEDIA、再挿入後の明示initialize/roundtrip、cleanupを確認済み。polling実機とRA IRQ統合は次段。自動mount、open FIL再開、書込み中抜去のdata保護は保証しない。 |
+| card detect | STM32実機確認済み | STM32N6570-DKはPN12/EXTI12、実測active-low、両edge、priority 6を`tk_def_int(TA_HLNG)`で登録する。SDMMC2 IRQ priority 5とは別経路。callback未指定のport契約は常時presentで従来動作を維持する。RA P409/IRQ6は未着手。 |
 | write protect | target設定次第 | STM32 portは任意の`write_protected` callbackを持つが、STM32N6570-DK targetはNULL。RAは端子未接続。Hostはopen時のread-only指定とBlock Device capabilityで表現する。 |
 | RTC timestamp | target設定次第 | 既定と既存runnerは`MTFS_FF_FS_NORTC=1`で固定日時。0にする場合はtarget/applicationが`get_fattime()`を提供する。共通RTC adapterはない。 |
 | LFN/UTF-8 | 未対応 | 現在の`ffconf.h`は`FF_USE_LFN=0`、`FF_LFN_UNICODE=0`。8.3名を使用する。 |
@@ -182,7 +187,7 @@ global dispatch制約により、IDMA contextは同時に1 instanceです。time
 | multi-volume | target設定次第 | `MTFS_FF_VOLUMES`と固定長registryは複数pdrvを扱える。既定/既存runnerは1 volume。`FF_MULTI_PARTITION=0`なので1物理drive上の任意partition割当は未対応。 |
 | trim | 制限あり | 共通Block Device契約と`CTRL_TRIM` bridgeはあるが、`FF_USE_TRIM=0`で、Host/RA/STM32の全portがTRIM capabilityを公開しない。 |
 | mkfs | target設定次第 | `MTFS_FF_USE_MKFS`の既定値は0。Host roundtrip targetだけが1でbuildする。既存実機runnerはmkfsせず、事前format済み媒体を使う。 |
-| fault recovery | 制限あり | STM32 SDMMCはtimeout/error時にabort、未初期化化、再initializeを実装する。RA SPIはinitializeの再実行は可能だが、媒体挿抜検出や全転送失敗後の自動未初期化化はない。共通の自動recovery policyはない。 |
+| fault recovery | 制限あり | STM32 SDMMCはtimeout/error/media removal時に通常文脈でabort、未初期化化し、再initializeでHAL DeInit/Initする。RA SPIはinitialize再実行のみ。共通層は検出・通知のみでfilesystem recovery policyは持たない。 |
 | atomic file update | 未対応 | atomic replace、journal、transaction用のmicroT-FS共通APIはない。FatFsの通常APIを直接使用する。 |
 | read-only構成 | target設定次第 | `MTFS_FF_FS_READONLY=1`と、deviceの`MTFS_BLOCK_CAPABILITY_READ_ONLY`を用途に合わせて設定する。Host compile-only確認がある。 |
 | SDMMC IDMA + IRQ | port依存で対応済み | STM32Cube portがHAL callback、event flag、bounce buffer、cache maintenanceを実装する。利用にはtargetのIRQ/RAM/RIF設定が必要。 |

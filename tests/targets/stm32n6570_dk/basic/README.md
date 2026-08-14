@@ -1,6 +1,6 @@
 # STM32N6570-DK SDMMC2 runner
 
-STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。I-cache/D-cache を有効のまま使い、RIF readback、raw read、FatFs roundtrip、2 task 同時アクセス、unmount/remount 後の永続性、IRQ/callback/転送 block 数の診断を実行します。raw sector write と format は行いません。
+STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。Phase 3.2ではPN12/EXTI12のCard Detect、edge後だけの500 ms debounce、挿入・抜去・再挿入を追加しました。I-cache/D-cacheを有効のまま使い、RIF readback、raw read、FatFs roundtrip、2 task同時アクセス、IRQ/callback/転送block数を診断します。raw sector writeとformatは行いません。
 
 ## 対応ツールとプロジェクト
 
@@ -27,14 +27,15 @@ CubeIDE で `.ioc` を再生成すると `Core/Src/main.c`、`stm32n6xx_hal_msp.
 
 - USER CODE 内の `HAL_SD_Init` 遅延、pre-kernel RIF、`knl_start_mtkernel()` が残る。
 - SDMMC2 global interrupt が enabled、preemption priority 5、subpriority 0。
+- PN12 `SD_DETECT` がpull-up、rising/falling EXTI12、preemption priority 6、subpriority 0。
 - SDMMC2 は Appli、4-bit、RIF CID1。
-- linked resource、include path、source exclude、3 個の `MTFS_*` define が残り、絶対パスが混入しない。
+- `mtfs_core`、`mtfs_os`を含むlinked resource/include path、source exclude、`MTFS_*` defineが残り、絶対パスが混入しない。
 
 ## IDMA / polling 選択
 
 Appli Debug/Release の C compiler define `MTFS_STM32_SD_USE_IDMA` で切り替えます。
 
-- `1`（既定）: IDMA+IRQ。GPDMA/HPDMA channel は不要で、必要な IRQ は SDMMC2 global interrupt だけです。
+- `1`（既定）: IDMA+IRQ。GPDMA/HPDMA channel は不要です。data pathはSDMMC2 global interrupt、Card Detectは独立したEXTI12を使います。
 - `0`: polling fallback。同じ Block Device/FatFs/test API を使いますが、複数 sector の要求を 1 sector ずつの HAL polling 転送へ分割します。SDMMC hardware flow control もこの経路だけ有効にし、速度より確実性を優先します。IDMA 固有の診断 assertion は省略します。
 
 変更後は clean build してください。実機合格は両設定で別々に確認します。
@@ -46,6 +47,26 @@ Appli Debug/Release の C compiler define `MTFS_STM32_SD_USE_IDMA` で切り替�
 IDMA buffer は `mtfs_stm32_sdmmc_context_t` 内の aligned 4096-byte bounce buffer です。Debug map では context が `0x34081480`、buffer が `0x34081520`、linker RAM は `0x34080000` から `0x341fffff` で、32-byte alignment と内部 RAM 配置を満たします。map 値は build ごとに再確認してください。
 
 HAL timeout は microT-Kernel cyclic handler が更新する HAL tick を使います。FatFs は `FF_FS_REENTRANT=1` と microT-Kernel mutex adapter を使用します。lock 順序は FatFs volume mutex が外側、SDMMC port mutex が内側です。
+
+## Card Detect構成
+
+socketの`SD_DETECT`はPN12へ接続し、このtargetではLowを挿入、Highを抜去として扱います。
+Cube設定はpull-up付き両edge EXTI12です。2026-08-14の実機edgeログで、カードなしHigh、
+挿入Low、抜去Highとなるactive-low動作を確認しました。
+
+EXTI12は`tk_def_int(TA_HLNG)`で登録します。ISRはpending clear、raw level、edge/IRQ counter、
+共通media serviceとSDMMC portのevent flag通知だけを行います。500 ms後の再読出しと
+`INSERTED`/`REMOVED` callbackは静的2048-byte user stackのworker task文脈です。
+SDMMC2 IRQ priority 5とEXTI12 priority 6は別handler・別counterです。
+
+既定500 msはSTM32Cube N6のSTM32N6570-DK FileX挿抜例と同じ安定待ちです。実機では1回の
+挿入操作で多数の両edgeが観測されることがあるため、各edgeから期限を再設定します。
+必要ならAppli compiler define `MTFS_STM32N6_CD_DEBOUNCE_MS=<ms>`で変更できます。
+
+通常runnerでもCard Detect IRQ/serviceは標準で有効です。Appli Debug/Releaseの既定は
+normal profile／hotplug offです。対話的挿抜試験時だけ`MTFS_STM32N6570_TEST_PROFILE=1`と
+`MTFS_STM32N6570_HOTPLUG_TEST=1`をcompiler defineへ追加します。起動bannerの
+`hotplug=on/off`で使用設定を確認できます。
 
 ## 実機接続と起動
 
@@ -60,24 +81,69 @@ HAL timeout は microT-Kernel cyclic handler が更新する HAL tick を使い�
 
 ## 実機試験
 
-媒体上の既存ファイルは維持しますが、runner は `mtfs_phase3.bin` と task 別の一時ファイルを作成・検証・削除します。書込み可能な FAT12/16/32 microSD を使用し、必要なデータは事前に backup してください。hot-plug は対象外なので、挿抜のたびに reset します。
+媒体上の既存ファイルは維持しますが、runnerは`mtfs_phase3.bin`とtask別の一時ファイルを
+作成・検証・削除します。書込み可能なFAT12/16/32 microSDを使用し、必要なdataは事前に
+backupしてください。mkfsとraw sector writeは行いません。
 
-1. カード未挿入で smoke profile（`MTFS_STM32N6570_TEST_PROFILE=1`）を起動し、SD init が有限時間で FAIL して system が hang しないことを確認します。
-2. カードを挿入して reset し、IDMA=1 / smoke で `cache I=enabled D=enabled`、`RIF ready=1`、geometry、raw read PASS、各 test PASS、最終 `PHASE 3 RUN PASS` を確認します。
-3. 診断値で IRQ/Rx/Tx が 1 以上、error/timeout が 0、read single/multi と write multi が 1 以上、read/write max が 2 以上であることを確認します。
-4. normal profile（既定、10 rounds）、stress profile（`MTFS_STM32N6570_TEST_PROFILE=3`、100 rounds）を実行し、全 round PASS、mount/unmount、2 task 同時 read/write、remount 後 compare が継続することを確認します。
-5. `MTFS_STM32_SD_USE_IDMA=0` へ切り替えて clean build し、カード未挿入 smoke、カード挿入 smoke/normal/stress を同様に実行します。IRQ 診断 assertion がないこと、read/write の `multi=0` と `max=1`、filesystem の結果が IDMA と同じことを確認します。
-6. 各構成で複数回 power-cycle し、再起動後も mount と test が成功することを確認します。
+### Phase 3.1回帰
 
-IDMA 経路を debugger でも追う場合は、`mtfs_stm32_sd_irq_handler()`、`HAL_SD_RxCpltCallback()`、`HAL_SD_TxCpltCallback()`、`HAL_SD_ErrorCallback()` に breakpoint を置きます。正常時は Rx/Tx に到達し、Error には到達しません。次も watch してください。
+1. IDMA=1でsmoke、normal、stressを実行し、cache/RIF、geometry、raw read、FatFs、
+   concurrent、remount、SDMMC2 IRQ/Rx/Tx診断がPASSすることを確認します。
+2. `MTFS_STM32_SD_USE_IDMA=0`へ切り替えてclean buildし、同じprofileを実行します。
+   pollingではread/writeの`multi=0`、`max=1`、filesystem結果がIDMAと同じことを確認します。
+3. 各構成でpower-cycleし、再起動後もmountとtestが成功することを確認します。
 
-- `sd_context.diagnostics`: IRQ/Rx/Tx と single/multi/max、error/timeout/abort
-- `sd_context.bounce_buffer`: アドレス下位 5 bit が 0、領域が `0x34080000..0x341fffff`
-- `RIFSC->RIMC_ATTRx[3]`: MCID=1、MSEC=1、MPRIV=1
-- `RIFSC->RISC_SECCFGRx[1]` / `RISC_PRIVCFGRx[1]`: bit 22 が 1
-- `SCB->CCR`: `IC` と `DC` bit がともに 1
-- `uwTick`: T-Kernel 起動後も増加する
+### Phase 3.2挿抜
 
-timeout/abort 復旧を意図的に試す場合は媒体を取り外した状態でのみ行い、挿入済み媒体への転送中に breakpoint を長時間止めないでください。停止時間が 5 秒を超えると timeout が期待どおり発生します。
+Appli Debugへ`MTFS_STM32N6570_TEST_PROFILE=1`と
+`MTFS_STM32N6570_HOTPLUG_TEST=1`を一時的に追加し、まずIDMA=1でclean buildします。
+起動bannerが`profile=smoke rounds=1 ... hotplug=on`であることを確認します。試験後は
+両defineを外し、既定の`profile=normal ... hotplug=off`へ戻します。
 
-Phase 3 完了条件は、両転送経路で上記実機試験がすべて成功し、host regression と CubeIDE build が成功することです。実機ログなしに Phase 3 完了とは判定しません。
+1. カードなしで起動します。`CD raw=1 active=low`相当でABSENTとなり、runnerが
+   `initial ABSENT status PASS`（NO_MEDIA、MEDIA_PRESENT clear）と`card absent: insert`を
+   表示してevent待ちになることを確認します。
+2. カードを挿入します。EXTI12 falling edge、最後のedgeから500 ms debounce後に`media INSERTED`が1回だけ
+   出て、initialize/registerと通常roundtripが成功することを確認します。
+3. runnerが`files are closed/synced; remove card while I/O is idle`を表示するまで待ちます。
+   ここより前、特にwrite中には抜去しません。
+4. mount中かつI/O停止中に抜去します。EXTI12 rising edge、`media REMOVED`、status/readの
+   `MTFS_ERROR_NO_MEDIA`、MEDIA_PRESENT clear、unmount/unregisterを確認します。
+5. 再挿入します。`INSERTED`後に明示HAL DeInit/Init、registry再登録、
+   `fatfs_roundtrip_after_reinsert`がPASSすることを確認します。
+6. cleanup後にEXTI12登録、worker task、service/application event flag、SDMMC2 IRQ/objectが
+   削除され、次roundまたは再起動で再生成できることを確認します。
+7. `MTFS_STM32_SD_USE_IDMA=0`へ切り替え、同じidle挿抜を繰り返してpolling fallbackの
+   復旧を確認します。
+
+active read中の抜去は任意試験です。媒体破損riskを了承した専用backup媒体だけを使い、
+write、mkfs、raw write中には実施しません。IDMAではremoval eventが転送待ちを起こし、
+通常I/O文脈でHAL abortします。polling同期HAL呼出し中は即時abortできず、HAL timeoutが
+停止時間の上限です。
+
+期待する診断logはraw CD level、active level、EXTI12 IRQ/rising/falling、debounce start/recheck、
+INSERTED/REMOVED/ERROR、media state、mtfs/T-Kernel/HAL error、abort、media wait wakeup、
+reinitialize結果です。debuggerでは次をwatchします。
+
+- `cd_diagnostics`: EXTI12 entry、rising/falling、raw level、service/port notify error
+- `media_context.state`と`media_context.diagnostics`: debounce、event count
+- `sd_context.diagnostics`: SDMMC2 IRQ/Rx/Tx、media removal hint/wakeup、timeout/abort
+- `sd_context.initialized`、`media_removal_pending`、`last_error`、HAL status/error
+- `sd_context.bounce_buffer`: 32-byte alignmentと内部RAM配置
+- RIFSC SDMMC2設定、`SCB->CCR`のI/D cache bit、増加中の`uwTick`
+
+### 実機結果（2026-08-14）
+
+STM32N6570-DK、Appli Debug、smoke、IDMA+IRQ、hotplug有効、500 ms debounceで次を確認しました。
+
+- カードなし起動で`MTFS_ERROR_NO_MEDIA`、MEDIA_PRESENT clear。
+- PN12/EXTI12で挿入・抜去・再挿入を検出し、active-lowと両edgeを確認。
+- INSERTED 2回、REMOVED 1回、ERROR 0回。bounce中のraw edgeは最終levelへ収束。
+- 初回initializeと再挿入後の明示initializeが成功。geometryは7,829,504 sector、512 byte。
+- raw read、FatFs roundtrip、2-task concurrent、再挿入後roundtripがすべてPASS。
+- SDMMC2 IDMA診断はIRQ 102、Rx 61、Tx 41、HAL error/abort/timeout 0。
+- idle抜去後のstatus/readがNO_MEDIAとなり、unmount/unregister、service/IRQ/kernel object cleanupが成功。
+- I/D cache有効、RIF ready、32-byte aligned内部RAM bounce bufferを維持。
+
+この結果はidle挿抜のIDMA経路に限定します。polling fallback、active read中の抜去、write中の
+抜去は未確認です。write中の物理抜去は必須試験に含めません。

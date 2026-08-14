@@ -12,6 +12,7 @@
 #include "mtfs_test.h"
 #include "test_fatfs_concurrent.h"
 #include "test_fatfs_roundtrip.h"
+#include "test_media_lifecycle.h"
 
 #define MTFS_HOST_IMAGE_SIZE (16L * 1024L * 1024L)
 #define MTFS_HOST_SECTOR_SIZE MTFS_HOST_BLOCK_FILE_DEFAULT_SECTOR_SIZE
@@ -101,6 +102,10 @@ int main(void)
     memset(sector_buffer, 0xA5, sizeof(sector_buffer));
     mtfs_test_begin(&test, "host block device and FatFs concurrency",
         mtfs_host_reporter, NULL);
+
+    if (test_media_lifecycle(&test) != 0) {
+        goto cleanup;
+    }
 
     if (!MTFS_TEST_CHECK(&test,
             mtfs_block_registry_register(0U, NULL) == MTFS_ERROR_INVALID_ARGUMENT,

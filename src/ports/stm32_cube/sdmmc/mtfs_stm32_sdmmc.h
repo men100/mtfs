@@ -52,8 +52,11 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
     uint32_t read_max_blocks;
     uint32_t write_max_blocks;
     uint32_t aborts;
+    uint32_t media_removal_notifications;
+    uint32_t media_wait_wakeups;
     uint32_t completion_timeouts;
     uint32_t card_state_timeouts;
+    uint32_t last_clkcr;
 } mtfs_stm32_sdmmc_diagnostics_t;
 
 /* Concrete by design: applications statically allocate this object. */
@@ -66,6 +69,7 @@ typedef struct mtfs_stm32_sdmmc_context
     ID transfer_event_flag_id;
     volatile uint32_t transfer_hal_error;
     volatile uint8_t transfer_active;
+    volatile uint8_t media_removal_pending;
     HAL_StatusTypeDef last_hal_status;
     uint32_t last_hal_error;
     ER last_kernel_error;
@@ -75,7 +79,7 @@ typedef struct mtfs_stm32_sdmmc_context
     uint8_t irq_registered;
     uint8_t timebase_acquired;
     uint8_t hal_initialized;
-    uint8_t initialized;
+    volatile uint8_t initialized;
     uint8_t bounce_buffer[MTFS_STM32_SDMMC_BOUNCE_SIZE]
         __attribute__((aligned(MTFS_STM32_SDMMC_CACHE_LINE_SIZE)));
 } mtfs_stm32_sdmmc_context_t;
@@ -89,6 +93,14 @@ mtfs_block_device_t *mtfs_stm32_sdmmc_block_device(
     mtfs_stm32_sdmmc_context_t *context);
 void mtfs_stm32_sdmmc_diagnostics_reset(
     mtfs_stm32_sdmmc_context_t *context);
+
+/*
+ * ISR-safe removal hint.  It only invalidates lightweight state and wakes an
+ * IDMA waiter. HAL_SD_Abort()/DeInit() remain deferred to normal I/O context.
+ * A present notification never restores initialized state.
+ */
+mtfs_error_t mtfs_stm32_sdmmc_media_changed_isr(
+    mtfs_stm32_sdmmc_context_t *context, int present);
 
 /* Global STM32 HAL callbacks; dispatch is restricted to the configured handle. */
 void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hal_sd);
