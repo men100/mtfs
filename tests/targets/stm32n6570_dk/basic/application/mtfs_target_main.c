@@ -287,7 +287,7 @@ static void target_coordinator(INT start_code, void *opaque)
             }
             tm_printf((UB *)"[mtfs] initial ABSENT status PASS: mtfs=%d flags=0x%08x\n",
                 absent_error, absent_status);
-            tm_printf((UB *)"[mtfs] card absent: insert within %u ms\n",
+            tm_printf((UB *)"[mtfs] ACTION REQUIRED: INSERT card now; waiting up to %u ms\n",
                 MTFS_TARGET_HOTPLUG_WAIT_MS);
             if (!target_wait_media_event(MTFS_TARGET_MEDIA_INSERTED,
                     "initial INSERTED")) {
@@ -366,7 +366,8 @@ static void target_coordinator(INT start_code, void *opaque)
         target_print_diagnostics(&sd_context);
 
 #if MTFS_STM32N6570_HOTPLUG_TEST
-        tm_printf((UB *)"[mtfs] HOTPLUG: files are closed/synced; remove card while I/O is idle\n");
+        tm_printf((UB *)"[mtfs] ACTION REQUIRED: REMOVE card now; I/O is idle and files are closed/synced; waiting up to %u ms\n",
+            MTFS_TARGET_HOTPLUG_WAIT_MS);
         if (!target_wait_media_event(MTFS_TARGET_MEDIA_REMOVED, "REMOVED")) {
             round_failure = 1;
             goto round_done;
@@ -392,7 +393,9 @@ static void target_coordinator(INT start_code, void *opaque)
             goto round_done;
         }
         registered = 0;
-        tm_printf((UB *)"[mtfs] HOTPLUG: removal contract PASS; reinsert card\n");
+        tm_printf((UB *)"[mtfs] HOTPLUG: removal contract PASS\n");
+        tm_printf((UB *)"[mtfs] ACTION REQUIRED: REINSERT card now; waiting up to %u ms\n",
+            MTFS_TARGET_HOTPLUG_WAIT_MS);
         if (!target_wait_media_event(MTFS_TARGET_MEDIA_INSERTED, "re-INSERTED")) {
             round_failure = 1;
             goto round_done;
