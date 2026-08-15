@@ -83,6 +83,8 @@ RA baselineの取得前に `bench-smoke` が `SUITE END status=PASS`、6つの `
 
 Phase 3.4aではSD data token/write ready待ちのpoll単位task delayを除去し、`tk_get_otm()`の実時間deadlineへ変更しています。benchmark終了時に表示される`[mtfs] wait token ...`、`[mtfs] wait ready ...`、`[mtfs] init ...`も保存し、timeoutとmonotonic clock errorが0であることを確認してください。kernel tickは引き続き10 ms、SPI data clockは4 MHzで、Phase 3.4のprofileや非破壊条件は変更していません。
 
+CMD0前にはSD power-up条件を満たすsettle待ちを入れ、無応答`0xFF`だけを1秒の実時間deadline内で再試行します。`[mtfs] init stage=... cmd0_attempts=... no_response=... timeouts=...`を出力するため、再現性の低い初期化失敗でもstageを特定できます。正常終了は`stage=complete`かつ`timeouts=0`です。
+
 ### 反復profileとfallback
 
 既定はnormal 10周です。e² studioの **C/C++ Build > Settings > GNU Arm Cross C

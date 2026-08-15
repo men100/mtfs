@@ -22,6 +22,8 @@
 #define MTFS_SD_EVENT_REMOVED       (UINT32_C(1) << 1)
 #define MTFS_SD_COMMAND_POLLS       (8U)
 #define MTFS_SD_ERASE_BLOCK_SECTORS (1U)
+#define MTFS_SD_POWER_UP_SETTLE_MS  (1U)
+#define MTFS_SD_CMD0_RETRY_DELAY_MS (1U)
 #define MTFS_SD_ACMD41_RETRY_DELAY_MS (1U)
 
 static mtfs_error_t mtfs_sd_initialize(void *opaque);
@@ -644,6 +646,7 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     uint8_t csd[16];
     uint32_t index;
     int expired;
+    mtfs_ra_sd_spi_deadline_t cmd0_deadline;
     mtfs_ra_sd_spi_deadline_t initialization_deadline;
     int version2 = 0;
     int first_acmd41 = 1;
@@ -654,6 +657,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         return mtfs_sd_no_media(context);
     }
     context->media_removal_pending = 0U;
+    context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_SPI_OPEN;
     result = mtfs_sd_kernel_error(context,
         tk_clr_flg(context->transfer_event_flag_id, 0U));
     if (result != MTFS_OK) {
@@ -674,6 +679,18 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     if (result != MTFS_OK) {
         return result;
     }
+    context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_POWER_UP;
+    result = mtfs_sd_deadline_start(context,
+        context->config.initialization_timeout_ms, &cmd0_deadline);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    result = mtfs_sd_kernel_error(context,
+        tk_dly_tsk(MTFS_SD_POWER_UP_SETTLE_MS));
+    if (result != MTFS_OK) {
+        return result;
+    }
     result = mtfs_sd_cs(context, BSP_IO_LEVEL_HIGH);
     if (result != MTFS_OK) {
         return result;
@@ -685,20 +702,60 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         }
     }
 
-    result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
-    if (result == MTFS_OK) {
-        result = mtfs_sd_command(context, MTFS_SD_CMD0, 0U, &r1);
-    }
-    {
-        mtfs_error_t end_result = mtfs_sd_end_transaction(context);
+    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CMD0;
+    for (;;) {
+        ER command_kernel_error = E_OK;
+        fsp_err_t command_fsp_error = FSP_SUCCESS;
+        mtfs_error_t end_result;
+        int command_called = 0;
+
+        result = mtfs_sd_deadline_expired(context, &cmd0_deadline, &expired);
+        if (result != MTFS_OK) {
+            return result;
+        }
+        if (expired) {
+            mtfs_sd_diagnostic_increment(&context->diagnostics.cmd0_timeouts);
+            return MTFS_ERROR_NOT_READY;
+        }
+        mtfs_sd_diagnostic_increment(&context->diagnostics.cmd0_attempts);
+        r1 = 0xFFU;
+        result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
+        if (result == MTFS_OK) {
+            command_called = 1;
+            result = mtfs_sd_command(context, MTFS_SD_CMD0, 0U, &r1);
+            command_kernel_error = context->last_kernel_error;
+            command_fsp_error = context->last_fsp_error;
+        }
+        end_result = mtfs_sd_end_transaction(context);
         if (result == MTFS_OK) {
             result = end_result;
         }
-    }
-    if ((result != MTFS_OK) || (r1 != MTFS_SD_R1_IDLE)) {
-        return (result != MTFS_OK) ? result : MTFS_ERROR_NO_MEDIA;
+        if (result == MTFS_OK) {
+            if (r1 == MTFS_SD_R1_IDLE) {
+                break;
+            }
+            return MTFS_ERROR_NO_MEDIA;
+        }
+        if (!command_called || (end_result != MTFS_OK) ||
+            (result != MTFS_ERROR_NOT_READY) ||
+            (command_kernel_error != E_OK) ||
+            (command_fsp_error != FSP_SUCCESS) ||
+            (r1 != 0xFFU)) {
+            if (command_called && (end_result == MTFS_OK)) {
+                context->last_kernel_error = command_kernel_error;
+                context->last_fsp_error = command_fsp_error;
+            }
+            return result;
+        }
+        mtfs_sd_diagnostic_increment(&context->diagnostics.cmd0_no_response);
+        result = mtfs_sd_kernel_error(context,
+            tk_dly_tsk(MTFS_SD_CMD0_RETRY_DELAY_MS));
+        if (result != MTFS_OK) {
+            return result;
+        }
     }
 
+    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CMD8;
     result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
     if (result == MTFS_OK) {
         result = mtfs_sd_command(context, MTFS_SD_CMD8, UINT32_C(0x1AA), &r1);
@@ -727,6 +784,7 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         return result;
     }
 
+    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_ACMD41;
     result = mtfs_sd_deadline_start(context,
         context->config.initialization_timeout_ms, &initialization_deadline);
     if (result != MTFS_OK) {
@@ -787,6 +845,7 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         }
     }
 
+    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CMD58;
     result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
     if (result == MTFS_OK) {
         result = mtfs_sd_command(context, MTFS_SD_CMD58, 0U, &r1);
@@ -808,15 +867,20 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     context->card_type = (version2 && ((response[0] & 0x40U) != 0U))
         ? MTFS_RA_SD_CARD_SDHC_SDXC : MTFS_RA_SD_CARD_SDSC;
 
+    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CSD;
     result = mtfs_sd_read_register(context, MTFS_SD_CMD9, csd, sizeof(csd));
     if (result == MTFS_OK) {
         result = mtfs_sd_decode_capacity(csd, &context->sector_count);
     }
     if (result == MTFS_OK) {
+        context->diagnostics.initialization_stage =
+            MTFS_RA_SD_SPI_INIT_DATA_RATE;
         result = mtfs_sd_set_bitrate(context, context->config.data_bitrate_hz);
     }
     if (result == MTFS_OK) {
         context->initialized = 1U;
+        context->diagnostics.initialization_stage =
+            MTFS_RA_SD_SPI_INIT_COMPLETE;
     }
     return result;
 }

@@ -29,6 +29,20 @@ typedef enum mtfs_ra_sd_card_type
     MTFS_RA_SD_CARD_SDHC_SDXC
 } mtfs_ra_sd_card_type_t;
 
+typedef enum mtfs_ra_sd_spi_init_stage
+{
+    MTFS_RA_SD_SPI_INIT_NONE = 0,
+    MTFS_RA_SD_SPI_INIT_SPI_OPEN,
+    MTFS_RA_SD_SPI_INIT_POWER_UP,
+    MTFS_RA_SD_SPI_INIT_CMD0,
+    MTFS_RA_SD_SPI_INIT_CMD8,
+    MTFS_RA_SD_SPI_INIT_ACMD41,
+    MTFS_RA_SD_SPI_INIT_CMD58,
+    MTFS_RA_SD_SPI_INIT_CSD,
+    MTFS_RA_SD_SPI_INIT_DATA_RATE,
+    MTFS_RA_SD_SPI_INIT_COMPLETE
+} mtfs_ra_sd_spi_init_stage_t;
+
 typedef struct mtfs_ra_sd_spi_config
 {
     const char *device_name;
@@ -62,6 +76,10 @@ typedef struct mtfs_ra_sd_spi_diagnostics
     uint32_t ready_timeouts;
     uint32_t acmd41_retries;
     uint32_t monotonic_clock_errors;
+    uint32_t cmd0_attempts;
+    uint32_t cmd0_no_response;
+    uint32_t cmd0_timeouts;
+    mtfs_ra_sd_spi_init_stage_t initialization_stage;
 } mtfs_ra_sd_spi_diagnostics_t;
 
 /*

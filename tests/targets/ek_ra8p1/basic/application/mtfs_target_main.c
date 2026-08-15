@@ -399,7 +399,38 @@ static int target_check_spi_diagnostics(
         "SD ready waits did not time out");
     (void)MTFS_TEST_CHECK(test, diagnostics->monotonic_clock_errors == 0U,
         "monotonic clock reads did not fail");
+    (void)MTFS_TEST_CHECK(test, diagnostics->cmd0_timeouts == 0U,
+        "CMD0 initialization did not time out");
     return test->failures == 0U ? 0 : 1;
+}
+
+static const char *target_sd_init_stage_name(
+    mtfs_ra_sd_spi_init_stage_t stage)
+{
+    switch (stage) {
+    case MTFS_RA_SD_SPI_INIT_NONE:
+        return "none";
+    case MTFS_RA_SD_SPI_INIT_SPI_OPEN:
+        return "spi-open";
+    case MTFS_RA_SD_SPI_INIT_POWER_UP:
+        return "power-up";
+    case MTFS_RA_SD_SPI_INIT_CMD0:
+        return "cmd0";
+    case MTFS_RA_SD_SPI_INIT_CMD8:
+        return "cmd8";
+    case MTFS_RA_SD_SPI_INIT_ACMD41:
+        return "acmd41";
+    case MTFS_RA_SD_SPI_INIT_CMD58:
+        return "cmd58";
+    case MTFS_RA_SD_SPI_INIT_CSD:
+        return "csd";
+    case MTFS_RA_SD_SPI_INIT_DATA_RATE:
+        return "data-rate";
+    case MTFS_RA_SD_SPI_INIT_COMPLETE:
+        return "complete";
+    default:
+        return "unknown";
+    }
 }
 
 static void target_print_diagnostics(
@@ -426,6 +457,11 @@ static void target_print_diagnostics(
         diagnostics->ready_poll_bytes,
         diagnostics->ready_max_polls,
         diagnostics->ready_timeouts);
+    tm_printf((UB *)"[mtfs] init stage=%s cmd0_attempts=%u no_response=%u timeouts=%u\n",
+        (UB *)target_sd_init_stage_name(diagnostics->initialization_stage),
+        diagnostics->cmd0_attempts,
+        diagnostics->cmd0_no_response,
+        diagnostics->cmd0_timeouts);
     tm_printf((UB *)"[mtfs] init acmd41_retries=%u monotonic_clock_errors=%u\n",
         diagnostics->acmd41_retries,
         diagnostics->monotonic_clock_errors);
