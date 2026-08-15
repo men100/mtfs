@@ -237,6 +237,13 @@ void mtfs_rtc_set_app_feed(mtfs_rtc_set_app_t *app, char character)
     if (app == NULL) {
         return;
     }
+
+    if ((character == '\n') && app->ignore_next_lf) {
+        app->ignore_next_lf = 0;
+        return;
+    }
+    app->ignore_next_lf = character == '\r';
+
     if ((character == '\r') || (character == '\n')) {
         if (app->length != 0U) {
             app->line[app->length] = '\0';

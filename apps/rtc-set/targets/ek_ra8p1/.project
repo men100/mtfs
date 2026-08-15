@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>mtfs_ek_ra8p1_basic</name>
-	<comment>microT-FS Phase 3.3 EK-RA8P1 RTC, SD SPI, and Card Detect test</comment>
+	<name>mtfs_ek_ra8p1_rtc_set</name>
+	<comment>microT-FS standalone EK-RA8P1 RTC setting console</comment>
 	<projects></projects>
 	<buildSpec>
 		<buildCommand><name>com.renesas.cdt.ddsc.contentgen.ddscBuilder</name><arguments></arguments></buildCommand>
@@ -20,13 +20,9 @@
 	</natures>
 	<linkedResources>
 		<link><name>mtfs_src</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src</locationURI></link>
-		<link><name>FatFs</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/fatfs</locationURI></link>
-		<link><name>mtfs_block</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/block</locationURI></link>
-		<link><name>mtfs_os</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/os/microtkernel</locationURI></link>
+		<link><name>mtfs_core</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/core</locationURI></link>
+		<link><name>mtfs_ra_rtc</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/ports/ra_fsp/rtc</locationURI></link>
 		<link><name>mtfs_rtc_set_app</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/apps/rtc-set/common</locationURI></link>
-		<link><name>mtfs_sd_spi</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/ports/ra_fsp/sd_spi</locationURI></link>
-		<link><name>mtfs_test_framework</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/framework</locationURI></link>
-		<link><name>mtfs_test_cases</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/cases</locationURI></link>
 		<link><name>mtk3_bsp2</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/mtk3_bsp2</locationURI></link>
 	</linkedResources>
 </projectDescription>

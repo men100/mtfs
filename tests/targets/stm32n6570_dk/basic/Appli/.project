@@ -177,7 +177,7 @@
 		<link><name>mtfs_stm32_common</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/common</locationURI></link>
 		<link><name>mtfs_stm32_sdmmc</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/sdmmc</locationURI></link>
 		<link><name>mtfs_stm32_rtc</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/rtc</locationURI></link>
-		<link><name>mtfs_rtc_set_app</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/apps/rtc-set</locationURI></link>
+		<link><name>mtfs_rtc_set_app</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/apps/rtc-set/common</locationURI></link>
 		<link><name>mtfs_test_framework</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/tests/common/framework</locationURI></link>
 		<link><name>mtfs_test_cases</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/tests/common/cases</locationURI></link>
 		<link><name>mtfs_test_microtkernel</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/tests/common/microtkernel</locationURI></link>

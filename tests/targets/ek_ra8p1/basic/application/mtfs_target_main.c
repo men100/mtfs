@@ -27,6 +27,7 @@
 #endif
 #if !MTFS_FF_FS_NORTC && MTFS_TARGET_RTC_CONSOLE
 #include "mtfs_rtc_set_app.h"
+#include "mtfs_rtc_set_tmonitor.h"
 #include "test_fatfs_timestamp.h"
 #define MTFS_TARGET_RTC_CONSOLE_ACTIVE (1)
 #else
@@ -91,23 +92,18 @@ static void target_rtc_unlock(void *opaque)
 #endif
 
 #if MTFS_TARGET_RTC_CONSOLE_ACTIVE
-static void target_rtc_write(void *opaque, const char *text)
-{
-    (void)opaque;
-    (void)tm_putstring((const UB *)text);
-}
-
 static int target_rtc_command(void *opaque, const char *line);
 
 static void target_rtc_console(void)
 {
     mtfs_rtc_set_app_t app;
-    mtfs_rtc_set_app_init(&app, target_rtc_write, NULL);
+    mtfs_rtc_set_app_init(&app, mtfs_rtc_set_tmonitor_write, NULL);
     mtfs_rtc_set_app_set_extension(&app, target_rtc_command, NULL,
         "test-fatfs-time           verify FatFs timestamp against RTC\r\n");
     mtfs_rtc_set_app_banner(&app);
     for (;;) {
-        mtfs_rtc_set_app_feed(&app, (char)tm_getchar(1));
+        mtfs_rtc_set_app_feed(&app,
+            (char)mtfs_rtc_set_tmonitor_getchar());
     }
 }
 #endif

@@ -23,6 +23,11 @@ Keep this directory out of the production library. Link it only into diagnostic
 or provisioning firmware and run its character loop in a normal task, never an
 ISR.
 
+`targets/ek_ra8p1/` is a standalone e² studio firmware project. It boots
+directly into this console without running the SD/FatFs test runner. The
+T-Monitor adapter sends the parser's CR/LF bytes through `tm_snd_dat()` without
+the newline rewriting performed by `tm_putchar()`.
+
 A target can install one synchronous extension callback with
 `mtfs_rtc_set_app_set_extension()`. The core parser remains independent of
 FatFs and board drivers; the target owns the command, help line, resource

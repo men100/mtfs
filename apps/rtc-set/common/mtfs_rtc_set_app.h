@@ -16,6 +16,7 @@ typedef struct mtfs_rtc_set_app
     const char *command_help;
     char line[64];
     size_t length;
+    int ignore_next_lf;
 } mtfs_rtc_set_app_t;
 
 void mtfs_rtc_set_app_init(
