@@ -27,8 +27,8 @@ The standalone target firmware projects boot directly into this console without
 running the SD/FatFs test runner:
 
 - `targets/ek_ra8p1/`: e² studio / FSP project
-- `targets/stm32n6570_dk/`: STM32CubeIDE secure LRUN application using the
-  shared `boards/stm32n6570_dk/FSBL`
+- `targets/stm32n6570_dk/`: STM32CubeIDE secure LRUN application with its
+  own thin FSBL project/launch wrapper over shared `boards/stm32n6570_dk/` sources
 
 The T-Monitor adapter sends the parser's CR/LF bytes through `tm_snd_dat()`
 without the newline rewriting performed by `tm_putchar()`.

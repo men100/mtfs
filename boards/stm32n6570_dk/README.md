@@ -2,21 +2,23 @@
 
 STM32N6570-DK向けアプリケーションで共用するSTM32Cube生成資産です。
 
-- `FSBL/`: 共通First Stage Boot Loaderプロジェクト
+- `FSBL/`: First Stage Boot Loaderの共通Core、startup、linker script
 - `Drivers/`: STM32Cube FW_N6 HAL/CMSIS
 - `Middlewares/`: FSBLが使用するSTM32 ExtMem Manager
 - `Secure_nsclib/`: Secure application用interface library
 
-FSBLはアプリケーションごとに複製しません。現在、次のCubeIDE Appliがこのディレクトリを
-linked resource/include pathで参照します。
+このディレクトリはソース資産であり、CubeIDEへ直接importするプロジェクトではありません。
+各consumerは自身の親ディレクトリに薄い`FSBL/`プロジェクトを持ち、ここをlinked resourceと
+include pathで参照します。
 
-- `tests/targets/stm32n6570_dk/basic/Appli`: SDMMC/FatFs実機runner
-- `apps/rtc-set/targets/stm32n6570_dk/Appli`: RTC設定専用firmware
+- `tests/targets/stm32n6570_dk/basic/FSBL`: basic test専用wrapper/launch
+- `apps/rtc-set/targets/stm32n6570_dk/FSBL`: rtc-set専用wrapper/launch
+
+この構成ではFSBL実装を一か所で保ちつつ、Appliごとのproject名、build output、load image、
+debug launch設定をconsumer側へ閉じ込めます。
 
 使用ツールはSTM32CubeIDE 2.1.1、STM32CubeMX 6.17系、STM32Cube FW_N6 V1.3.0です。
-CubeIDEへは`FSBL/`を既存プロジェクトとして直接importし、`Copy projects into workspace`を
-無効にします。プロジェクト名は`mtfs_stm32n6570_dk_FSBL`です。
-
-`tests/targets/stm32n6570_dk/basic/mtfs_stm32n6570_dk.ioc`を再生成すると、test target側へ
-`Drivers`、`Middlewares`、`Secure_nsclib`、`FSBL`が再作成される場合があります。その場合は
-生成差分をこの共通ディレクトリへ反映し、test target側に複製を残さないでください。
+`tests/targets/stm32n6570_dk/basic/mtfs_stm32n6570_dk_test_basic.ioc`を再生成すると、
+test target側へ`Drivers`、`Middlewares`、`Secure_nsclib`、FSBLソースが再作成される
+場合があります。その場合は必要な生成差分をこの共通ディレクトリへ反映し、consumer側には
+薄いEclipse wrapper以外の複製を残さないでください。
