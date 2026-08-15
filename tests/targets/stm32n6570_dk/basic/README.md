@@ -9,21 +9,21 @@ STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 
 - STM32Cube FW_N6 V1.3.0
 - μT-Kernel BSP2 submodule v1.00.04
 - `mtfs_stm32n6570_dk.ioc`
-- `FSBL`: First Stage Boot Loader
+- `boards/stm32n6570_dk/FSBL`: 複数Appliで共用するFirst Stage Boot Loader
 - `Appli`: secure LRUN application（microT-Kernel と microT-FS はここへリンク）
 
-Cube の HAL/CMSIS/ExtMem ソースは生成プロジェクトの管理対象です。microT-FS、target application、common test、`mtk3_bsp2` は `.project` の相対 linked resource で参照し、コピーを置きません。`Debug/`、`Release/`、workspace metadata、`.elf/.bin/.map` は生成物で Git 管理外です。
+CubeのHAL/CMSIS/ExtMemソースとFSBLは`boards/stm32n6570_dk/`で共通管理します。microT-FS、target application、common test、`mtk3_bsp2`、共通Cube資産は`.project`の相対linked resourceで参照し、Appliごとのコピーを置きません。`Debug/`、`Release/`、workspace metadata、`.elf/.bin/.map`は生成物でGit管理外です。
 
 `mtk3_bsp2` v1.00.04 の Armv8-M `interrupt.c` には STM32N657 build typo と RAM vector cache coherence の不足があるため、Appli はその 1 ファイルだけ build exclude し、`application/mtfs_stm32n6570_interrupt_override.c` を使います。submodule 本体や RA target は変更しません。
 
 ## CubeIDE import / build
 
 1. repository を submodule 込みで checkout し、`git submodule status` が `1ab52cc5a9f59450e62ab78e76de11f4dd89eb15` であることを確認します。
-2. CubeIDE の `File > Import > General > Existing Projects into Workspace` で `basic` を root に選び、root、FSBL、Appli を import します。`Copy projects into workspace` は無効にします。
+2. CubeIDEの`File > Import > General > Existing Projects into Workspace`で、`tests/targets/stm32n6570_dk/basic/Appli`と`boards/stm32n6570_dk/FSBL`をそれぞれimportします。`Copy projects into workspace`は無効にします。
 3. `mtfs_stm32n6570_dk_Appli` の Debug、次に `mtfs_stm32n6570_dk_FSBL` の Debug を build します。両方が error/warning 0 であることを確認します。
 4. FSBL の Debug Configuration を作り、Startup/Load images で Appli の `Debug/mtfs_stm32n6570_dk_Appli.elf` を download + symbols 対象として追加します。Appli を先に SRAM へ load し、FSBL を load/start する構成にします。
 
-CubeIDE で `.ioc` を再生成すると `Core/Src/main.c`、`stm32n6xx_hal_msp.c`、`stm32n6xx_it.c`、`.project/.cproject` が更新され得ます。再生成前後の diff で次を確認してください。
+CubeIDEで`.ioc`を再生成すると`Core/Src/main.c`、`stm32n6xx_hal_msp.c`、`stm32n6xx_it.c`、`.project/.cproject`が更新され得ます。またtest target側に`Drivers`、`Middlewares`、`Secure_nsclib`、`FSBL`が再作成された場合は、必要な生成差分を`boards/stm32n6570_dk/`へ反映し、複製を残さないでください。再生成前後のdiffで次を確認してください。
 
 - USER CODE 内の `HAL_SD_Init` 遅延、pre-kernel RIF、`knl_start_mtkernel()` が残る。
 - SDMMC2 global interrupt が enabled、preemption priority 5、subpriority 0。

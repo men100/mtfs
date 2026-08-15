@@ -64,8 +64,10 @@ doxygen-output/
 .e2studio-workspace-phase3*/
 tests/targets/stm32n6570_dk/basic/Appli/Debug/
 tests/targets/stm32n6570_dk/basic/Appli/Release/
-tests/targets/stm32n6570_dk/basic/FSBL/Debug/
-tests/targets/stm32n6570_dk/basic/FSBL/Release/
+boards/stm32n6570_dk/FSBL/Debug/
+boards/stm32n6570_dk/FSBL/Release/
+apps/rtc-set/targets/stm32n6570_dk/Appli/Debug/
+apps/rtc-set/targets/stm32n6570_dk/Appli/Release/
 
 # 子プロジェクト配下を含む .settings は原則無視
 **/.settings/*
