@@ -66,6 +66,18 @@ int test_rtc_set_app(mtfs_test_t *test)
     mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
     mtfs_rtc_set_app_set_extension(
         &app, fixture_command, &fixture, NULL);
+    fixture_feed(&app, "\r\n");
+    if (!MTFS_TEST_CHECK(test,
+            fixture.command_count == 0U &&
+                strcmp(fixture.output, "\r\n> ") == 0,
+            "RTC console starts a new line for an empty command")) {
+        return 1;
+    }
+
+    memset(&fixture, 0, sizeof(fixture));
+    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
+    mtfs_rtc_set_app_set_extension(
+        &app, fixture_command, &fixture, NULL);
     fixture_feed(&app, "abc\b\r");
     if (!MTFS_TEST_CHECK(test,
             fixture.command_count == 1U &&
