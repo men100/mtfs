@@ -30,9 +30,9 @@
 #include "mtfs_rtc_set_app.h"
 #include "mtfs_rtc_set_tmonitor.h"
 #include "test_fatfs_timestamp.h"
-#define MTFS_TARGET_RTC_CONSOLE_ACTIVE (1)
+#define MTFS_TARGET_COMMAND_CONSOLE_ACTIVE (1)
 #else
-#define MTFS_TARGET_RTC_CONSOLE_ACTIVE (0)
+#define MTFS_TARGET_COMMAND_CONSOLE_ACTIVE (0)
 #endif
 
 EXPORT INT usermain(void);
@@ -77,7 +77,7 @@ static volatile uint32_t media_reinitialize_count;
 static ID media_application_event_flag_id;
 static uint8_t sector_zero_single[MTFS_RA_SD_SPI_SECTOR_SIZE];
 static uint8_t sector_zero_multi[MTFS_RA_SD_SPI_SECTOR_SIZE * 2U];
-#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
 static uint8_t benchmark_buffer[MTFS_BENCHMARK_BUFFER_BYTES];
 #endif
 static void target_media_event(void *opaque, mtfs_media_event_t event,
@@ -101,8 +101,8 @@ static void target_rtc_unlock(void *opaque)
 }
 #endif
 
-#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
-static int target_rtc_command(void *opaque, const char *line);
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
+static int target_console_command(void *opaque, const char *line);
 
 static void target_benchmark_log(void *opaque, const char *line)
 {
@@ -207,16 +207,20 @@ cleanup:
     return failure;
 }
 
-static void target_rtc_console(void)
+static void target_command_console(void)
 {
     mtfs_rtc_set_app_t app;
     mtfs_rtc_set_app_init(&app, mtfs_rtc_set_tmonitor_write, NULL);
-    mtfs_rtc_set_app_set_extension(&app, target_rtc_command, NULL,
+    mtfs_rtc_set_app_set_extension(&app, target_console_command, NULL,
         "test-fatfs-time           verify FatFs timestamp against RTC\r\n"
         "bench-info                print RA benchmark conditions\r\n"
         "bench-smoke               run short non-destructive benchmark\r\n"
         "bench-normal              run 1 MiB baseline benchmark\r\n");
-    mtfs_rtc_set_app_banner(&app);
+    mtfs_rtc_set_tmonitor_write(NULL,
+        "microT-FS EK-RA8P1 command console\r\n"
+        "Commands: RTC, FatFs timestamp test, and storage benchmark.\r\n"
+        "RTC set uses local time; no timezone/DST conversion.\r\n"
+        "Type help for commands.\r\n> ");
     for (;;) {
         mtfs_rtc_set_app_feed(&app,
             (char)mtfs_rtc_set_tmonitor_getchar());
@@ -431,7 +435,7 @@ static void target_print_diagnostics(
         context->current_bitrate_hz);
 }
 
-#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
 static void target_print_timestamp_datetime(
     const char *label, const mtfs_datetime_t *datetime)
 {
@@ -526,7 +530,7 @@ cleanup:
     return test_failure ? 1 : 0;
 }
 
-static int target_rtc_command(void *opaque, const char *line)
+static int target_console_command(void *opaque, const char *line)
 {
     (void)opaque;
     if (strcmp(line, "test-fatfs-time") == 0) {
@@ -868,10 +872,10 @@ round_done:
         media_application_event_flag_id = 0;
     }
 #endif
-#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
     if (rtc_error == MTFS_OK) {
-        tm_printf((UB *)"[mtfs] RTC console ready after test run\n");
-        target_rtc_console();
+        tm_printf((UB *)"[mtfs] command console ready after test run\n");
+        target_command_console();
     }
 #endif
     tk_exd_tsk();

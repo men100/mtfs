@@ -120,7 +120,7 @@ mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件�
 
 ### RTC設定とFatFs timestamp確認
 
-通常テスト終了後、RTC consoleが同じDebug Virtual Console上で起動します。
+通常テスト終了後、RTC設定、FatFs timestamp検証、storage benchmarkを受け付けるcommand consoleが同じDebug Virtual Console上で起動します。`apps/rtc-set`のstandalone RTC consoleとは別のrunner用consoleです。
 
 ```text
 status
@@ -169,7 +169,9 @@ software reset後は`status: VALID`のまま時刻が進むことを確認して
 [TEST] fatfs_roundtrip_after_reinsert: PASS (...)
 [mtfs] round 1/1 PASS
 [mtfs] PHASE 3.3 RUN PASS
-[mtfs] RTC console ready after test run
+[mtfs] command console ready after test run
+microT-FS EK-RA8P1 command console
+Commands: RTC, FatFs timestamp test, and storage benchmark.
 ```
 
 失敗時はテスト名、source line、check内容に加え、SD初期化では最後のmtfs/microT-Kernel/FSP errorとR1 responseを表示します。`FR_NO_FILESYSTEM`相当のmount失敗ならカード形式を確認してください。
