@@ -43,4 +43,14 @@ target側のP409 IRQ callbackはraw levelの記録とmedia/transfer event flag�
 
 初期化はCS Highで80 dummy clocks、CMD0、CMD8、CMD55/ACMD41（v2ではHCS）、CMD58、CMD9の順です。SDSCはbyte addressing、SDHC/SDXCはblock addressingへ変換します。読み書きは512 byte固定で、複数sector要求をCMD17/CMD24の反復として処理します。書込みbusy解除まで待つため `sync` は成功を返します。
 
+### wait / timeout（Phase 3.4a）
+
+data token待ちは1 byteずつdummy `0xFF`を送信し、`0xFE`を成功、`0xFF`を待機継続、それ以外をprotocol errorとして扱います。write ready待ちも1 byteずつpollし、受信が`0xFF`になれば成功、それ以外はbusy継続です。どちらもpollごとの`tk_dly_tsk()`は行いません。DMA、FIFO、multi-byte polling、CMD18/CMD25はこの変更の対象外です。
+
+待機期限はRTCやbenchmark時計ではなく、microT-Kernelの64-bit monotonic operating time (`tk_get_otm`) から求めます。開始時刻とのunsigned差分で判定するため、deadline加算overflowと64-bit counter wrapに依存しません。設定値の単位はmsです。現在のkernel tickは10 msなので期限判定の分解能は10 ms、実際の終了は最大で概ね1 tickと処理中の1 byte転送分だけ遅れる可能性があります。monotonic時計を取得できない場合はkernel errorを通常の`mtfs_error_t`へ変換して待機を中止します。
+
+ACMD41は同じmonotonic deadlineで初期化全体の再試行期限を判定し、各失敗attemptの間に1 msを要求する`tk_dly_tsk()`を残します。この要求は10 ms tickへ切り上げられますが、retry回数をtimeout時間とみなさないため、tick変更でtimeoutが10倍になることはありません。SPI transfer callback用event flagの`transfer_timeout_ms`は独立した転送停止検出として従来どおり維持します。
+
+`mtfs_ra_sd_spi_diagnostics_t`にはtoken/readyのwait回数、総poll byte数、1回あたり最大poll数、timeout回数、ACMD41 attempt数、monotonic clock error数を記録します。Phase 3.4aで追加したcounterは`UINT32_MAX`で飽和し、既存counterは従来どおり32-bit wrapです。公開context構造体へfieldを追加したため、この版へ更新する利用側はportとapplicationを一緒に再buildしてください。
+
 `trim` は未対応です。CSDのERASE_BLK_EN/SECTOR_SIZEをまだ解釈しないため、FatFsへ返すerase block sizeは安全な暫定値1 sectorです。CMD18/CMD25、ACMD23、CSDからのerase granularity取得、CRC16検証、write protectは今後の改善項目です。物理抜去後の未保存dataやopen中のFILは救済・再開しません。

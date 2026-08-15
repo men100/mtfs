@@ -82,6 +82,8 @@ static uint8_t benchmark_buffer[MTFS_BENCHMARK_BUFFER_BYTES];
 #endif
 static void target_media_event(void *opaque, mtfs_media_event_t event,
     mtfs_media_state_t state);
+static void target_print_diagnostics(
+    const mtfs_ra_sd_spi_context_t *context);
 #if !MTFS_FF_FS_NORTC
 static mtfs_ra_rtc_context_t rtc_context;
 static ID rtc_mutex_id;
@@ -184,6 +186,9 @@ static int target_run_benchmark(
         : mtfs_benchmark_run(&benchmark, profile);
 
 cleanup:
+    if (context_ready) {
+        target_print_diagnostics(&sd_context);
+    }
     if (media_ready && (mtfs_ra8p1_card_detect_stop() != MTFS_OK)) {
         tm_printf((UB *)"[BENCH] cleanup stage=card_detect status=FAIL\n");
         failure = 1;
@@ -384,6 +389,12 @@ static int target_check_spi_diagnostics(
         "SD SPI sector reads completed");
     (void)MTFS_TEST_CHECK(test, diagnostics->write_sectors > 0U,
         "SD SPI sector writes completed");
+    (void)MTFS_TEST_CHECK(test, diagnostics->token_timeouts == 0U,
+        "SD data-token waits did not time out");
+    (void)MTFS_TEST_CHECK(test, diagnostics->ready_timeouts == 0U,
+        "SD ready waits did not time out");
+    (void)MTFS_TEST_CHECK(test, diagnostics->monotonic_clock_errors == 0U,
+        "monotonic clock reads did not fail");
     return test->failures == 0U ? 0 : 1;
 }
 
@@ -401,6 +412,19 @@ static void target_print_diagnostics(
     tm_printf((UB *)"[mtfs] media removal hints=%u wait wakeups=%u\n",
         diagnostics->media_removal_notifications,
         diagnostics->media_wait_wakeups);
+    tm_printf((UB *)"[mtfs] wait token calls=%u polls=%u max=%u timeouts=%u\n",
+        diagnostics->token_wait_calls,
+        diagnostics->token_poll_bytes,
+        diagnostics->token_max_polls,
+        diagnostics->token_timeouts);
+    tm_printf((UB *)"[mtfs] wait ready calls=%u polls=%u max=%u timeouts=%u\n",
+        diagnostics->ready_wait_calls,
+        diagnostics->ready_poll_bytes,
+        diagnostics->ready_max_polls,
+        diagnostics->ready_timeouts);
+    tm_printf((UB *)"[mtfs] init acmd41_retries=%u monotonic_clock_errors=%u\n",
+        diagnostics->acmd41_retries,
+        diagnostics->monotonic_clock_errors);
     tm_printf((UB *)"[mtfs] last mtfs=%d tk=%d fsp=%d r1=0x%02x bitrate=%u\n",
         context->last_error, context->last_kernel_error,
         context->last_fsp_error, context->last_r1,

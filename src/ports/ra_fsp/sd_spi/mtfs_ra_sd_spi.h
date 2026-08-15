@@ -52,6 +52,16 @@ typedef struct mtfs_ra_sd_spi_diagnostics
     uint32_t media_wait_wakeups;
     uint32_t read_sectors;
     uint32_t write_sectors;
+    uint32_t token_wait_calls;
+    uint32_t token_poll_bytes;
+    uint32_t token_max_polls;
+    uint32_t token_timeouts;
+    uint32_t ready_wait_calls;
+    uint32_t ready_poll_bytes;
+    uint32_t ready_max_polls;
+    uint32_t ready_timeouts;
+    uint32_t acmd41_retries;
+    uint32_t monotonic_clock_errors;
 } mtfs_ra_sd_spi_diagnostics_t;
 
 /*

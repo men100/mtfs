@@ -14,6 +14,7 @@
 #include "test_fatfs_roundtrip.h"
 #include "test_fatfs_timestamp.h"
 #include "test_media_lifecycle.h"
+#include "test_ra_sd_spi_deadline.h"
 #include "test_benchmark.h"
 #include "test_rtc_set_app.h"
 #include "test_time_provider.h"
@@ -155,6 +156,9 @@ int main(void)
         mtfs_host_reporter, NULL);
 
     if (test_time_provider(&test) != 0) {
+        goto cleanup;
+    }
+    if (test_ra_sd_spi_deadline(&test) != 0) {
         goto cleanup;
     }
     if (test_rtc_set_app(&test) != 0) {

@@ -81,6 +81,8 @@ Release buildを書き込み、既存test run後のconsoleで `bench-info`、`be
 
 RA baselineの取得前に `bench-smoke` が `SUITE END status=PASS`、6つの `cleanup file_removed=yes`、最後の `COMMAND status=PASS` を出すことを確認してください。その後、同じカードとbuildのまま `bench-normal` を1回実行し、console出力全体を保存します。
 
+Phase 3.4aではSD data token/write ready待ちのpoll単位task delayを除去し、`tk_get_otm()`の実時間deadlineへ変更しています。benchmark終了時に表示される`[mtfs] wait token ...`、`[mtfs] wait ready ...`、`[mtfs] init ...`も保存し、timeoutとmonotonic clock errorが0であることを確認してください。kernel tickは引き続き10 ms、SPI data clockは4 MHzで、Phase 3.4のprofileや非破壊条件は変更していません。
+
 ### 反復profileとfallback
 
 既定はnormal 10周です。e² studioの **C/C++ Build > Settings > GNU Arm Cross C

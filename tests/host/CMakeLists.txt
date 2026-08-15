@@ -12,6 +12,7 @@ add_executable(mtfs_host_tests
     main.c
     test_benchmark.c
     test_media_lifecycle.c
+    test_ra_sd_spi_deadline.c
     test_rtc_set_app.c
     test_time_provider.c
     ../common/framework/mtfs_test.c
@@ -30,6 +31,7 @@ add_executable(mtfs_host_tests
     ../../src/os/host/mtfs_fatfs_mutex_posix.c
     ../../src/os/microtkernel/mtfs_fatfs_mutex.c
     ../../src/ports/host/mtfs_host_block_file.c
+    ../../src/ports/ra_fsp/sd_spi/mtfs_ra_sd_spi_deadline.c
 )
 
 target_include_directories(mtfs_host_tests PRIVATE
@@ -40,6 +42,7 @@ target_include_directories(mtfs_host_tests PRIVATE
     ../../src/os/host
     ../../src/os/microtkernel
     ../../src/ports/host
+    ../../src/ports/ra_fsp/sd_spi
     ../../apps/rtc-set/common
     ../common/framework
     ../common/benchmarks

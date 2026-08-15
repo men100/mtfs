@@ -1,4 +1,5 @@
 #include "mtfs_ra_sd_spi.h"
+#include "mtfs_ra_sd_spi_deadline.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -21,6 +22,7 @@
 #define MTFS_SD_EVENT_REMOVED       (UINT32_C(1) << 1)
 #define MTFS_SD_COMMAND_POLLS       (8U)
 #define MTFS_SD_ERASE_BLOCK_SECTORS (1U)
+#define MTFS_SD_ACMD41_RETRY_DELAY_MS (1U)
 
 static mtfs_error_t mtfs_sd_initialize(void *opaque);
 static mtfs_error_t mtfs_sd_status(void *opaque, mtfs_block_status_t *status);
@@ -90,6 +92,64 @@ static mtfs_error_t mtfs_sd_kernel_error(mtfs_ra_sd_spi_context_t *context, ER e
     default:
         return mtfs_sd_set_error(context, MTFS_ERROR_IO);
     }
+}
+
+static void mtfs_sd_diagnostic_increment(uint32_t *counter)
+{
+    if (*counter != UINT32_MAX) {
+        ++*counter;
+    }
+}
+
+static void mtfs_sd_diagnostic_record_polls(
+    uint32_t *maximum, uint32_t poll_count)
+{
+    if (poll_count > *maximum) {
+        *maximum = poll_count;
+    }
+}
+
+static mtfs_error_t mtfs_sd_monotonic_ms(
+    mtfs_ra_sd_spi_context_t *context, uint64_t *milliseconds)
+{
+    SYSTIM time;
+    ER result = tk_get_otm(&time);
+
+    if (result < E_OK) {
+        mtfs_sd_diagnostic_increment(
+            &context->diagnostics.monotonic_clock_errors);
+        return mtfs_sd_kernel_error(context, result);
+    }
+    *milliseconds = ((uint64_t)(uint32_t)time.hi << 32U) | time.lo;
+    return MTFS_OK;
+}
+
+static mtfs_error_t mtfs_sd_deadline_start(
+    mtfs_ra_sd_spi_context_t *context,
+    uint32_t timeout_ms,
+    mtfs_ra_sd_spi_deadline_t *deadline)
+{
+    uint64_t now_ms = 0U;
+    mtfs_error_t result = mtfs_sd_monotonic_ms(context, &now_ms);
+
+    if (result == MTFS_OK) {
+        mtfs_ra_sd_spi_deadline_start(deadline, now_ms, timeout_ms);
+    }
+    return result;
+}
+
+static mtfs_error_t mtfs_sd_deadline_expired(
+    mtfs_ra_sd_spi_context_t *context,
+    const mtfs_ra_sd_spi_deadline_t *deadline,
+    int *expired)
+{
+    uint64_t now_ms = 0U;
+    mtfs_error_t result = mtfs_sd_monotonic_ms(context, &now_ms);
+
+    if (result == MTFS_OK) {
+        *expired = mtfs_ra_sd_spi_deadline_expired(deadline, now_ms);
+    }
+    return result;
 }
 
 static mtfs_error_t mtfs_sd_fsp_error(mtfs_ra_sd_spi_context_t *context, fsp_err_t error)
@@ -378,44 +438,92 @@ static mtfs_error_t mtfs_sd_read_bytes(
 static mtfs_error_t mtfs_sd_wait_token(mtfs_ra_sd_spi_context_t *context)
 {
     uint8_t token;
-    uint32_t elapsed = 0U;
+    uint32_t polls = 0U;
+    int expired;
+    mtfs_ra_sd_spi_deadline_t deadline;
     mtfs_error_t result;
 
-    while (elapsed < context->config.transfer_timeout_ms) {
-        result = mtfs_sd_exchange(context, 0xFFU, &token);
+    mtfs_sd_diagnostic_increment(&context->diagnostics.token_wait_calls);
+    result = mtfs_sd_deadline_start(context,
+        context->config.transfer_timeout_ms, &deadline);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    for (;;) {
+        result = mtfs_sd_deadline_expired(context, &deadline, &expired);
         if (result != MTFS_OK) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls);
+            return result;
+        }
+        if (expired) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls);
+            mtfs_sd_diagnostic_increment(&context->diagnostics.token_timeouts);
+            return MTFS_ERROR_NOT_READY;
+        }
+        result = mtfs_sd_exchange(context, 0xFFU, &token);
+        ++polls;
+        mtfs_sd_diagnostic_increment(&context->diagnostics.token_poll_bytes);
+        if (result != MTFS_OK) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls);
             return result;
         }
         if (token == MTFS_SD_DATA_TOKEN) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls);
             return MTFS_OK;
         }
         if (token != 0xFFU) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls);
             return MTFS_ERROR_IO;
         }
-        (void)tk_dly_tsk(1U);
-        ++elapsed;
     }
-    return MTFS_ERROR_NOT_READY;
 }
 
 static mtfs_error_t mtfs_sd_wait_ready(mtfs_ra_sd_spi_context_t *context)
 {
     uint8_t value;
-    uint32_t elapsed = 0U;
+    uint32_t polls = 0U;
+    int expired;
+    mtfs_ra_sd_spi_deadline_t deadline;
     mtfs_error_t result;
 
-    while (elapsed < context->config.transfer_timeout_ms) {
-        result = mtfs_sd_exchange(context, 0xFFU, &value);
+    mtfs_sd_diagnostic_increment(&context->diagnostics.ready_wait_calls);
+    result = mtfs_sd_deadline_start(context,
+        context->config.transfer_timeout_ms, &deadline);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    for (;;) {
+        result = mtfs_sd_deadline_expired(context, &deadline, &expired);
         if (result != MTFS_OK) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls);
+            return result;
+        }
+        if (expired) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls);
+            mtfs_sd_diagnostic_increment(&context->diagnostics.ready_timeouts);
+            return MTFS_ERROR_NOT_READY;
+        }
+        result = mtfs_sd_exchange(context, 0xFFU, &value);
+        ++polls;
+        mtfs_sd_diagnostic_increment(&context->diagnostics.ready_poll_bytes);
+        if (result != MTFS_OK) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls);
             return result;
         }
         if (value == 0xFFU) {
+            mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls);
             return MTFS_OK;
         }
-        (void)tk_dly_tsk(1U);
-        ++elapsed;
     }
-    return MTFS_ERROR_NOT_READY;
 }
 
 static mtfs_error_t mtfs_sd_set_bitrate(
@@ -534,8 +642,11 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     uint8_t r1 = 0xFFU;
     uint8_t response[4];
     uint8_t csd[16];
-    uint32_t elapsed;
+    uint32_t index;
+    int expired;
+    mtfs_ra_sd_spi_deadline_t initialization_deadline;
     int version2 = 0;
+    int first_acmd41 = 1;
     mtfs_error_t result;
 
     mtfs_sd_invalidate_media(context);
@@ -567,7 +678,7 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     if (result != MTFS_OK) {
         return result;
     }
-    for (elapsed = 0U; elapsed < 10U; ++elapsed) {
+    for (index = 0U; index < 10U; ++index) {
         result = mtfs_sd_exchange(context, 0xFFU, NULL);
         if (result != MTFS_OK) {
             return result;
@@ -616,7 +727,20 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         return result;
     }
 
-    for (elapsed = 0U; elapsed < context->config.initialization_timeout_ms; ++elapsed) {
+    result = mtfs_sd_deadline_start(context,
+        context->config.initialization_timeout_ms, &initialization_deadline);
+    if (result != MTFS_OK) {
+        return result;
+    }
+    for (;;) {
+        result = mtfs_sd_deadline_expired(context,
+            &initialization_deadline, &expired);
+        if (result != MTFS_OK) {
+            return result;
+        }
+        if (expired) {
+            return MTFS_ERROR_NOT_READY;
+        }
         result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
         if (result == MTFS_OK) {
             result = mtfs_sd_command(context, MTFS_SD_CMD55, 0U, &r1);
@@ -625,6 +749,11 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
             result = MTFS_ERROR_IO;
         }
         if (result == MTFS_OK) {
+            if (!first_acmd41) {
+                mtfs_sd_diagnostic_increment(
+                    &context->diagnostics.acmd41_retries);
+            }
+            first_acmd41 = 0;
             result = mtfs_sd_command(context, MTFS_SD_ACMD41,
                 version2 ? UINT32_C(0x40000000) : 0U, &r1);
         }
@@ -637,16 +766,25 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         if (result != MTFS_OK) {
             return result;
         }
+        result = mtfs_sd_deadline_expired(context,
+            &initialization_deadline, &expired);
+        if (result != MTFS_OK) {
+            return result;
+        }
+        if (expired) {
+            return MTFS_ERROR_NOT_READY;
+        }
         if (r1 == 0U) {
             break;
         }
         if (r1 != MTFS_SD_R1_IDLE) {
             return MTFS_ERROR_IO;
         }
-        (void)tk_dly_tsk(1U);
-    }
-    if (r1 != 0U) {
-        return MTFS_ERROR_NOT_READY;
+        result = mtfs_sd_kernel_error(context,
+            tk_dly_tsk(MTFS_SD_ACMD41_RETRY_DELAY_MS));
+        if (result != MTFS_OK) {
+            return result;
+        }
     }
 
     result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
@@ -978,12 +1116,19 @@ mtfs_error_t mtfs_ra_sd_spi_context_init(
     driver.devatr = TDK_UNDEF;
     driver.nsub = 0;
     driver.blksz = 1;
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
     driver.openfn = (FP)mtfs_sd_driver_open;
     driver.closefn = (FP)mtfs_sd_driver_close;
     driver.execfn = (FP)mtfs_sd_driver_execute;
     driver.waitfn = (FP)mtfs_sd_driver_wait;
     driver.abortfn = (FP)mtfs_sd_driver_abort;
     driver.eventfn = (FP)mtfs_sd_driver_event;
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
     result = tk_def_dev((const UB *)context->config.device_name, &driver, &initial_device);
     if (result <= 0) {
         (void)tk_del_mtx(context->access_mutex_id);

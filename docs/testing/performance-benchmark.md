@@ -47,6 +47,8 @@ bench-normal
 
 まず `bench-smoke` の全case、pattern検証、6回の `cleanup file_removed=yes`、`SUITE END status=PASS` を確認してから `bench-normal` を実行してください。RAはSCI_B SPI 4 MHz、1-bit、blocking IRQ completionです。複数sector requestもport内部でCMD17/CMD24のsingle-sector反復になるため、その条件をtarget logへ出します。
 
+Phase 3.4a以降は各benchmark commandの終了時にRA SPI wait診断も表示します。正常なbaselineでは`token_timeouts=0`、`ready_timeouts=0`、`monotonic_clock_errors=0`を確認し、token/readyの`calls`、`polls`、`max`と`acmd41_retries`もconsole logへ残してください。
+
 計測時計はmicroT-Kernelの64-bit monotonic operating timeとSysTickの現在値を組み合わせます。kernel tickは10 msですが、timestamp分解能はcore cycle相当です。RTCやwall-clock変更の影響を受けず、長いI/Oの経過時間は64-bit operating timeが保持するため32-bit cycle counter wrapには依存しません。
 
 比較用にconsole logを加工せず保存し、次も一緒に記録してください。
@@ -58,11 +60,12 @@ bench-normal
 
 ## Baseline
 
-実測値はまだ未記入です。測定後、同じカードとnormal profileのログから次を埋めます。
+Phase 3.4の測定はPhase 3.4aのRA SPI wait/timeout修正の間だけ中断しました。修正前Debug buildでは、EK-RA8P1 / SPI 4 MHzのraw 4 KiB request、1 MiB readが122,873,697 us、8.3 KiB/s、2.0 IOPS、平均latency 479,904 usでPASSしました。これはpollごとの10 ms delayを含む原因確認用referenceであり、Release baselineには採用しません。
+
+EK-RA8P1の実測baselineは2026-08-16にPhase 3.4a修正済みRelease (`build=optimized`) で取得しました。SDHC/SDXC、FAT32、4 KiB cluster、SPI 4 MHz、cache有効、warm-upなし、各case 1 runです。throughputはrequest size 512 B / 4 KiB / 32 KiBの順に記載します。
 
 | target/path | raw read | FatFs write/read | request-sync | error/abort/timeout | verification/cleanup |
 |---|---|---|---|---|---|
-| EK-RA8P1 / SPI 4 MHz | pending | pending | pending | pending | pending |
+| EK-RA8P1 / SPI 4 MHz | 273.6 / 273.6 / 273.4 KiB/s | end-sync write 82.6 / 87.4 / 82.8 KiB/s; read 281.4 / 281.4 / 281.2 KiB/s | write 32.7 / 58.2 / 92.4 KiB/s; read 277.3 / 275.0 / 275.7 KiB/s | SPI 0; token timeout 0; ready timeout 0; clock error 0 | all cases PASS; checksum PASS; cleanup 6/6 |
 | STM32N6570-DK / polling | pending | pending | pending | pending | pending |
 | STM32N6570-DK / IDMA + IRQ | pending | pending | pending | pending | pending |
-
