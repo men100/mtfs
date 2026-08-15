@@ -14,6 +14,7 @@
 #include "test_fatfs_roundtrip.h"
 #include "test_fatfs_timestamp.h"
 #include "test_media_lifecycle.h"
+#include "test_benchmark.h"
 #include "test_rtc_set_app.h"
 #include "test_time_provider.h"
 
@@ -275,6 +276,9 @@ int main(void)
     }
     concurrent_result = test_fatfs_concurrent(&test, "0:");
     if (concurrent_result != 0) {
+        goto cleanup;
+    }
+    if (test_benchmark(&test, &device, "0:") != 0) {
         goto cleanup;
     }
 

@@ -75,6 +75,12 @@ FatFs設定はcompile definitionと `src/mtfs_config.h` により、read/write�
 Debug build確認値はtext 90,840 bytes、BSS 54,204 bytesです。coordinatorと並行test workerに
 加え、明示的に組み込んだmedia serviceの2 KiB static stackを含みます。
 
+## Phase 3.4 performance benchmark
+
+Release buildを書き込み、既存test run後のconsoleで `bench-info`、`bench-smoke`、`bench-normal` を実行できます。benchmarkはraw readだけを行い、FatFsでは8.3名の `MTFSBEN.TMP` だけを `FA_CREATE_NEW` で作成します。同名ファイルがあれば中止し、formatは行いません。詳細なprofile条件、指標、ログ保存項目は `../../../../docs/testing/performance-benchmark.md` を参照してください。
+
+RA baselineの取得前に `bench-smoke` が `SUITE END status=PASS`、6つの `cleanup file_removed=yes`、最後の `COMMAND status=PASS` を出すことを確認してください。その後、同じカードとbuildのまま `bench-normal` を1回実行し、console出力全体を保存します。
+
 ### 反復profileとfallback
 
 既定はnormal 10周です。e² studioの **C/C++ Build > Settings > GNU Arm Cross C

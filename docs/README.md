@@ -9,3 +9,4 @@
 - `porting/microtkernel-integration.md`: mutex、IRQ、event flag、HAL timebase、task寿命
 - `porting/dma-cache-coherency.md`: DMA buffer、cache、barrier、RIFの確認項目
 - `porting/testing-a-new-port.md`: 新規target runnerの構成、試験順序、checklist
+- `testing/performance-benchmark.md`: Phase 3.4非破壊benchmarkの条件、指標、再現手順、baseline表

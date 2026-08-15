@@ -27,6 +27,7 @@
 		<link><name>mtfs_sd_spi</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/ports/ra_fsp/sd_spi</locationURI></link>
 		<link><name>mtfs_test_framework</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/framework</locationURI></link>
 		<link><name>mtfs_test_cases</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/cases</locationURI></link>
+		<link><name>mtfs_benchmarks</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/benchmarks</locationURI></link>
 		<link><name>mtk3_bsp2</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/mtk3_bsp2</locationURI></link>
 	</linkedResources>
 </projectDescription>

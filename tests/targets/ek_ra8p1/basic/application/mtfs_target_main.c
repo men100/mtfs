@@ -12,6 +12,7 @@
 #include "mtfs_media_service.h"
 #include "mtfs_ra_sd_spi.h"
 #include "mtfs_test.h"
+#include "mtfs_benchmark.h"
 #include "test_fatfs_roundtrip.h"
 #include "mtfs_ra8p1_platform.h"
 #include "mtfs_ra8p1_vector_cache.h"
@@ -33,6 +34,8 @@
 #else
 #define MTFS_TARGET_RTC_CONSOLE_ACTIVE (0)
 #endif
+
+EXPORT INT usermain(void);
 
 #define MTFS_TEST_PROFILE_SMOKE  (1)
 #define MTFS_TEST_PROFILE_NORMAL (2)
@@ -74,6 +77,11 @@ static volatile uint32_t media_reinitialize_count;
 static ID media_application_event_flag_id;
 static uint8_t sector_zero_single[MTFS_RA_SD_SPI_SECTOR_SIZE];
 static uint8_t sector_zero_multi[MTFS_RA_SD_SPI_SECTOR_SIZE * 2U];
+#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+static uint8_t benchmark_buffer[MTFS_BENCHMARK_BUFFER_BYTES];
+#endif
+static void target_media_event(void *opaque, mtfs_media_event_t event,
+    mtfs_media_state_t state);
 #if !MTFS_FF_FS_NORTC
 static mtfs_ra_rtc_context_t rtc_context;
 static ID rtc_mutex_id;
@@ -94,12 +102,115 @@ static void target_rtc_unlock(void *opaque)
 #if MTFS_TARGET_RTC_CONSOLE_ACTIVE
 static int target_rtc_command(void *opaque, const char *line);
 
+static void target_benchmark_log(void *opaque, const char *line)
+{
+    (void)opaque;
+    tm_printf((UB *)"%s\n", (UB *)line);
+}
+
+static void target_benchmark_info(void *opaque,
+    mtfs_benchmark_log_fn log, void *log_context)
+{
+    const mtfs_ra_sd_spi_context_t *context =
+        (const mtfs_ra_sd_spi_context_t *)opaque;
+    (void)log;
+    (void)log_context;
+    tm_printf((UB *)"[BENCH] target card=%s transport=SPI bus_width=1 clock_hz=%u mode=blocking_irq\n",
+        context->card_type == MTFS_RA_SD_CARD_SDHC_SDXC
+            ? (UB *)"SDHC/SDXC" : (UB *)"SDSC",
+        context->current_bitrate_hz);
+    tm_printf((UB *)"[BENCH] target block_mapping=CMD17/CMD24-per-sector multi_request=split cache_i=%s cache_d=%s\n",
+        (SCB->CCR & SCB_CCR_IC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
+        (SCB->CCR & SCB_CCR_DC_Msk) ? (UB *)"enabled" : (UB *)"disabled");
+    tm_printf((UB *)"[BENCH] clock source=microtkernel_uptime+systick resolution=core_cycle tick_ms=10 monotonic=yes\n");
+}
+
+static int target_run_benchmark(
+    mtfs_benchmark_profile_t profile, int info_only)
+{
+    mtfs_ra_sd_spi_config_t sd_config;
+    mtfs_benchmark_config_t benchmark;
+    mtfs_block_device_t *device = NULL;
+    mtfs_error_t error;
+    int failure = 1;
+    int registered = 0;
+    int context_ready = 0;
+    int media_ready = 0;
+
+    mtfs_ra8p1_sd_spi_config(&sd_config);
+    error = mtfs_ra_sd_spi_context_init(&sd_context, &sd_config);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=context_init error=%d\n", error);
+        goto cleanup;
+    }
+    context_ready = 1;
+    error = mtfs_ra8p1_card_detect_start(&media_context,
+        &media_service, &sd_context, target_media_event, NULL);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=card_detect error=%d\n", error);
+        goto cleanup;
+    }
+    media_ready = 1;
+    device = mtfs_ra_sd_spi_block_device(&sd_context);
+    error = mtfs_block_initialize(device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=initialize error=%d\n", error);
+        goto cleanup;
+    }
+    error = mtfs_block_registry_register(0U, device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=register error=%d\n", error);
+        goto cleanup;
+    }
+    registered = 1;
+
+    memset(&benchmark, 0, sizeof(benchmark));
+    benchmark.device = device;
+    benchmark.volume_path = "0:";
+    benchmark.board_name = "EK-RA8P1";
+#ifdef __OPTIMIZE__
+    benchmark.build_name = "optimized";
+#else
+    benchmark.build_name = "debug";
+#endif
+    benchmark.clock_us = mtfs_ra8p1_benchmark_clock_us;
+    benchmark.log = target_benchmark_log;
+    benchmark.target_info = target_benchmark_info;
+    benchmark.target_info_context = &sd_context;
+    benchmark.buffer = benchmark_buffer;
+    benchmark.buffer_size = sizeof(benchmark_buffer);
+    failure = info_only
+        ? mtfs_benchmark_print_info(&benchmark, profile)
+        : mtfs_benchmark_run(&benchmark, profile);
+
+cleanup:
+    if (media_ready && (mtfs_ra8p1_card_detect_stop() != MTFS_OK)) {
+        tm_printf((UB *)"[BENCH] cleanup stage=card_detect status=FAIL\n");
+        failure = 1;
+    }
+    if (registered && (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
+        tm_printf((UB *)"[BENCH] cleanup stage=registry status=FAIL\n");
+        failure = 1;
+    }
+    if (context_ready &&
+        (mtfs_ra_sd_spi_context_deinit(&sd_context) != MTFS_OK)) {
+        tm_printf((UB *)"[BENCH] cleanup stage=context status=FAIL\n");
+        failure = 1;
+    }
+    tm_printf((UB *)"[BENCH] COMMAND status=%s\n",
+        failure ? (UB *)"FAIL" : (UB *)"PASS");
+    return failure;
+}
+
 static void target_rtc_console(void)
 {
     mtfs_rtc_set_app_t app;
     mtfs_rtc_set_app_init(&app, mtfs_rtc_set_tmonitor_write, NULL);
     mtfs_rtc_set_app_set_extension(&app, target_rtc_command, NULL,
-        "test-fatfs-time           verify FatFs timestamp against RTC\r\n");
+        "test-fatfs-time           verify FatFs timestamp against RTC\r\n"
+        "bench-info                print RA benchmark conditions\r\n"
+        "bench-smoke               run short non-destructive benchmark\r\n"
+        "bench-normal              run 1 MiB baseline benchmark\r\n");
     mtfs_rtc_set_app_banner(&app);
     for (;;) {
         mtfs_rtc_set_app_feed(&app,
@@ -394,11 +505,23 @@ cleanup:
 static int target_rtc_command(void *opaque, const char *line)
 {
     (void)opaque;
-    if (strcmp(line, "test-fatfs-time") != 0) {
-        return 0;
+    if (strcmp(line, "test-fatfs-time") == 0) {
+        (void)target_run_fatfs_time_test();
+        return 1;
     }
-    (void)target_run_fatfs_time_test();
-    return 1;
+    if (strcmp(line, "bench-info") == 0) {
+        (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_NORMAL, 1);
+        return 1;
+    }
+    if (strcmp(line, "bench-smoke") == 0) {
+        (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_SMOKE, 0);
+        return 1;
+    }
+    if (strcmp(line, "bench-normal") == 0) {
+        (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_NORMAL, 0);
+        return 1;
+    }
+    return 0;
 }
 #endif
 

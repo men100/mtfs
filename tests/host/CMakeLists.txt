@@ -10,10 +10,12 @@ find_package(Threads REQUIRED)
 
 add_executable(mtfs_host_tests
     main.c
+    test_benchmark.c
     test_media_lifecycle.c
     test_rtc_set_app.c
     test_time_provider.c
     ../common/framework/mtfs_test.c
+    ../common/benchmarks/mtfs_benchmark.c
     ../common/cases/test_fatfs_concurrent.c
     ../common/cases/test_fatfs_roundtrip.c
     ../common/cases/test_fatfs_timestamp.c
@@ -40,6 +42,7 @@ target_include_directories(mtfs_host_tests PRIVATE
     ../../src/ports/host
     ../../apps/rtc-set/common
     ../common/framework
+    ../common/benchmarks
     ../common/cases
 )
 

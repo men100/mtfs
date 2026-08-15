@@ -49,6 +49,41 @@ static uint32_t mtfs_ra8p1_now_ms(void *opaque)
     return time.lo;
 }
 
+uint64_t mtfs_ra8p1_benchmark_clock_us(void *context)
+{
+    SYSTIM before = {0};
+    SYSTIM after = {0};
+    uint32_t reload;
+    uint32_t current = 0U;
+    uint32_t attempt;
+    uint64_t milliseconds;
+    uint64_t phase_us = 0U;
+    (void)context;
+
+    reload = SysTick->LOAD + 1U;
+    for (attempt = 0U; attempt < 4U; ++attempt) {
+        (void)tk_get_otm(&before);
+        current = SysTick->VAL;
+        (void)tk_get_otm(&after);
+        if ((before.hi == after.hi) && (before.lo == after.lo) &&
+            ((SCB->ICSR & SCB_ICSR_PENDSTSET_Msk) == 0U)) {
+            break;
+        }
+    }
+    milliseconds = ((uint64_t)(uint32_t)after.hi << 32U) | after.lo;
+    if ((attempt < 4U) && (reload != 0U) && (SystemCoreClock != 0U)) {
+        if (current > reload) {
+            current = reload;
+        }
+        phase_us = ((uint64_t)(reload - current) * UINT64_C(1000000)) /
+            SystemCoreClock;
+        if (phase_us >= UINT64_C(10000)) {
+            phase_us = UINT64_C(9999);
+        }
+    }
+    return milliseconds * UINT64_C(1000) + phase_us;
+}
+
 void mtfs_ra8p1_sd_spi_config(mtfs_ra_sd_spi_config_t *config)
 {
     if (config == NULL) {
