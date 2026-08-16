@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(mtfs_host_tests C)
+project(mtfs_host_tests C CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "microT-FS host tests support Linux and WSL2 only")
@@ -11,6 +11,7 @@ find_package(Threads REQUIRED)
 add_executable(mtfs_host_tests
     main.c
     test_benchmark.c
+    test_block_diagnostics.c
     test_media_lifecycle.c
     test_ra_sd_spi_deadline.c
     test_rtc_set_app.c
@@ -22,6 +23,7 @@ add_executable(mtfs_host_tests
     ../common/cases/test_fatfs_timestamp.c
     ../../apps/rtc-set/common/mtfs_rtc_set_app.c
     ../../src/block/mtfs_block_device.c
+    ../../src/block/mtfs_block_diagnostics.c
     ../../src/block/mtfs_block_registry.c
     ../../src/core/mtfs_media.c
     ../../src/core/mtfs_time.c
@@ -33,6 +35,13 @@ add_executable(mtfs_host_tests
     ../../src/ports/host/mtfs_host_block_file.c
     ../../src/ports/ra_fsp/sd_spi/mtfs_ra_sd_spi_deadline.c
 )
+
+add_library(mtfs_public_headers_cpp_compile OBJECT test_public_headers.cpp)
+target_include_directories(mtfs_public_headers_cpp_compile PRIVATE ../../src)
+set_target_properties(mtfs_public_headers_cpp_compile PROPERTIES
+    CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES)
+target_compile_options(mtfs_public_headers_cpp_compile PRIVATE
+    -Wall -Wextra -Wpedantic)
 
 target_include_directories(mtfs_host_tests PRIVATE
     ../../src
@@ -85,6 +94,19 @@ add_library(mtfs_fatfs_nonreentrant_compile OBJECT
 add_library(mtfs_fattime_disabled_compile OBJECT
     ../../src/fatfs/mtfs_fattime.c
 )
+
+add_library(mtfs_diagnostics_disabled_compile OBJECT
+    ../../src/block/mtfs_block_device.c
+    ../../src/block/mtfs_block_diagnostics.c
+    ../../src/core/mtfs_media.c
+    ../../src/ports/host/mtfs_host_block_file.c
+)
+target_include_directories(mtfs_diagnostics_disabled_compile PRIVATE
+    ../../src ../../src/block ../../src/core ../../src/ports/host)
+target_compile_definitions(mtfs_diagnostics_disabled_compile PRIVATE
+    MTFS_ENABLE_DIAGNOSTICS=0)
+target_compile_options(mtfs_diagnostics_disabled_compile PRIVATE
+    -Wall -Wextra -Wpedantic)
 target_include_directories(mtfs_fattime_disabled_compile PRIVATE
     ../../src
     ../../src/core

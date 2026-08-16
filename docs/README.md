@@ -10,3 +10,4 @@
 - `porting/dma-cache-coherency.md`: DMA buffer、cache、barrier、RIFの確認項目
 - `porting/testing-a-new-port.md`: 新規target runnerの構成、試験順序、checklist
 - `testing/performance-benchmark.md`: Phase 3.4非破壊benchmarkの条件、指標、再現手順、baseline表
+- `diagnostics.md`: Phase 3.5 structured diagnostics snapshot、reset、整合性、AI telemetry契約

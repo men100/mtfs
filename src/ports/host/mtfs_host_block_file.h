@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "../../block/mtfs_block_device.h"
+#include "../../block/mtfs_block_diagnostics.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,6 +20,9 @@ typedef struct mtfs_host_block_file
     int is_open;
     int initialized;
     int read_only;
+#if MTFS_ENABLE_DIAGNOSTICS
+    mtfs_block_diagnostics_state_t block_diagnostics;
+#endif
 } mtfs_host_block_file_t;
 
 mtfs_error_t mtfs_host_block_file_open(

@@ -55,6 +55,6 @@ data token待ちは1 byteずつdummy `0xFF`を送信し、`0xFE`を成功、`0xF
 
 ACMD41は同じmonotonic deadlineで初期化全体の再試行期限を判定し、各失敗attemptの間に1 msを要求する`tk_dly_tsk()`を残します。この要求は10 ms tickへ切り上げられますが、retry回数をtimeout時間とみなさないため、tick変更でtimeoutが10倍になることはありません。SPI transfer callback用event flagの`transfer_timeout_ms`は独立した転送停止検出として従来どおり維持します。
 
-`mtfs_ra_sd_spi_diagnostics_t`にはtoken/readyのwait回数、総poll byte数、1回あたり最大poll数、timeout回数、ACMD41 attempt数、monotonic clock error数を記録します。Phase 3.4aで追加したcounterは`UINT32_MAX`で飽和し、既存counterは従来どおり32-bit wrapです。公開context構造体へfieldを追加したため、この版へ更新する利用側はportとapplicationを一緒に再buildしてください。
+`mtfs_ra_sd_spi_diagnostics_t`にはversion、size、validity、reset epoch、初期化段階、card種別、bitrate、token/readyのwait回数、総poll byte数、1回あたり最大poll数、timeout回数、ACMD41 attempt数、monotonic clock error数などを記録します。`mtfs_ra_sd_spi_diagnostics_get()`で一貫したsnapshotを取得し、`mtfs_ra_sd_spi_diagnostics_reset()`で累積counterをresetできます。累積counterはすべて`UINT32_MAX`で飽和し、最大値fieldは観測最大値を保持します。公開context構造体へfieldを追加したため、この版へ更新する利用側はportとapplicationを一緒に再buildしてください。
 
 `trim` は未対応です。CSDのERASE_BLK_EN/SECTOR_SIZEをまだ解釈しないため、FatFsへ返すerase block sizeは安全な暫定値1 sectorです。CMD18/CMD25、ACMD23、CSDからのerase granularity取得、CRC16検証、write protectは今後の改善項目です。物理抜去後の未保存dataやopen中のFILは救済・再開しません。

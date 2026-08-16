@@ -67,6 +67,7 @@ int test_media_lifecycle(mtfs_test_t *test)
     mtfs_media_context_t media;
     fake_media_t fake;
     mtfs_media_config_t config;
+    mtfs_media_diagnostics_t diagnostics;
     uint32_t wait_ms;
 
     (void)memset(&fake, 0, sizeof(fake));
@@ -76,6 +77,15 @@ int test_media_lifecycle(mtfs_test_t *test)
             mtfs_media_state(&media) == MTFS_MEDIA_STATE_ABSENT &&
             fake.inserted == 0U && fake.removed == 0U,
             "media starts ABSENT without synthesizing an edge")) {
+        return 1;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_media_diagnostics_get(&media, &diagnostics) == MTFS_OK &&
+            diagnostics.api_version == MTFS_MEDIA_DIAGNOSTICS_API_VERSION &&
+            diagnostics.struct_size == sizeof(diagnostics) &&
+            diagnostics.media_generation == 0U &&
+            diagnostics.state == MTFS_MEDIA_STATE_ABSENT,
+            "media snapshot is versioned and starts at generation zero")) {
         return 1;
     }
 
@@ -149,8 +159,9 @@ int test_media_lifecycle(mtfs_test_t *test)
     (void)mtfs_media_notify(&media);
     (void)mtfs_media_process(&media, 400U, &wait_ms);
     (void)mtfs_media_process(&media, 425U, &wait_ms);
+    (void)mtfs_media_diagnostics_get(&media, &diagnostics);
     if (!MTFS_TEST_CHECK(test,
-            fake.removed == 2U && media.diagnostics.manual_notifications == 1U,
+            fake.removed == 2U && diagnostics.manual_notifications == 1U,
             "manual notification uses the same debounce path")) {
         return 1;
     }
@@ -158,9 +169,25 @@ int test_media_lifecycle(mtfs_test_t *test)
     fake.raw_level = 1;
     (void)mtfs_media_poll(&media, 500U, &wait_ms);
     (void)mtfs_media_poll(&media, 525U, &wait_ms);
+    (void)mtfs_media_diagnostics_get(&media, &diagnostics);
     if (!MTFS_TEST_CHECK(test,
-            fake.inserted == 3U && media.diagnostics.poll_checks == 2U,
-            "explicit poll fallback detects a state change")) {
+            fake.inserted == 3U && diagnostics.poll_checks == 2U &&
+            diagnostics.media_generation == 5U &&
+            diagnostics.irq_notifications > 0U &&
+            diagnostics.debounce_starts > 0U &&
+            diagnostics.debounce_rechecks > 0U &&
+            diagnostics.inserted_events == 3U &&
+            diagnostics.removed_events == 2U,
+            "snapshot reports IRQ, debounce, event, and generation counters")) {
+        return 1;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_media_diagnostics_reset(&media) == MTFS_OK &&
+            mtfs_media_diagnostics_get(&media, &diagnostics) == MTFS_OK &&
+            diagnostics.reset_epoch == 1U && diagnostics.poll_checks == 0U &&
+            diagnostics.media_generation == 5U &&
+            diagnostics.stable_present == 1U,
+            "media reset preserves generation and current state")) {
         return 1;
     }
 
@@ -186,7 +213,10 @@ int test_media_lifecycle(mtfs_test_t *test)
     fake.read_error = 1;
     if (!MTFS_TEST_CHECK(test,
             mtfs_media_notify(&media) == MTFS_ERROR_IO &&
-            fake.errors == 1U && fake.callback_in_isr == 0U,
+            mtfs_media_diagnostics_get(&media, &diagnostics) == MTFS_OK &&
+            fake.errors == 1U && fake.callback_in_isr == 0U &&
+            diagnostics.error_events == 1U &&
+            diagnostics.media_generation == 1U,
             "signal errors notify once from task context")) {
         return 1;
     }

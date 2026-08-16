@@ -1,4 +1,5 @@
 #include "mtfs_host_block_file.h"
+#include "../../block/mtfs_block_diagnostics_internal.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -101,6 +102,9 @@ mtfs_error_t mtfs_host_block_file_open(
     device->ops = &mtfs_host_block_ops;
     device->context = context;
     device->capabilities = read_only ? MTFS_BLOCK_CAPABILITY_READ_ONLY : 0U;
+#if MTFS_ENABLE_DIAGNOSTICS
+    (void)mtfs_block_diagnostics_attach(device, &context->block_diagnostics);
+#endif
     return MTFS_OK;
 }
 

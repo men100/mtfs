@@ -81,3 +81,9 @@ STM32N6570-DKのIDMA+IRQ baselineも2026-08-16にRelease (`build=optimized`) で
 | EK-RA8P1 / SPI 4 MHz | 273.6 / 273.6 / 273.4 KiB/s | end-sync write 82.6 / 87.4 / 82.8 KiB/s; read 281.4 / 281.4 / 281.2 KiB/s | write 32.7 / 58.2 / 92.4 KiB/s; read 277.3 / 275.0 / 275.7 KiB/s | SPI 0; token timeout 0; ready timeout 0; clock error 0 | all cases PASS; checksum PASS; cleanup 6/6 |
 | STM32N6570-DK / polling | 826.0 / 825.3 / 815.3 KiB/s | end-sync write 102.8 / 103.5 / 111.4 KiB/s; read 911.9 / 911.1 / 857.3 KiB/s | write 50.9 / 35.2 / 121.4 KiB/s; read 881.2 / 871.6 / 832.9 KiB/s | HAL error 0; abort 0; completion/card-state timeout 0/0 | all cases PASS; checksum PASS; cleanup 6/6; multi-block 0/max 1 |
 | STM32N6570-DK / IDMA + IRQ | 826.4 / 4044.0 / 3844.1 KiB/s | end-sync write 111.4 / 199.9 / 186.9 KiB/s; read 906.6 / 4273.6 / 3651.1 KiB/s | write 31.8 / 184.2 / 179.7 KiB/s; read 874.0 / 3934.5 / 3472.7 KiB/s | HAL error 0; abort 0; completion/card-state timeout 0/0 | all cases PASS; checksum PASS; cleanup 6/6; multi-block max 8 |
+
+### Phase 3.5 diagnostics enabledでのRA退行確認
+
+2026-08-16にEK-RA8P1 Release、SPI 4 MHz、diagnostics enabledで`bench-smoke`と`bench-normal`を実機実行し、全case、pattern検証、cleanupがPASSしました。`bench-normal`のraw readは512 B / 4 KiB / 32 KiB requestで273.8 / 273.7 / 273.5 KiB/sでした。Phase 3.4 baselineの273.6 / 273.6 / 273.4 KiB/sとの差は+0.2 / +0.1 / +0.1 KiB/sで、代表値の4 KiBは約+0.04%です。1 run同士の比較ですが、少なくともdiagnostics追加による重大なread性能退行は観測されていません。
+
+同じrunの診断ではcommon read/write completed sectorが12,838 / 6,866、RA typed read/write sectorも12,838 / 6,866で一致しました。SPI transfer starts/completionsは11,616,428で一致し、transfer error、token/ready timeout、monotonic clock error、共通read/write/sync failureはすべて0でした。

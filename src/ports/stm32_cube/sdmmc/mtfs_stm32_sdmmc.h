@@ -11,6 +11,7 @@
 #include MTFS_STM32_HAL_HEADER
 
 #include "../../../block/mtfs_block_device.h"
+#include "../../../block/mtfs_block_diagnostics.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,8 @@ extern "C" {
     (MTFS_STM32_SDMMC_SECTOR_SIZE * MTFS_STM32_SDMMC_BOUNCE_SECTORS)
 #define MTFS_STM32_SDMMC_CACHE_LINE_SIZE      (32U)
 #define MTFS_STM32_SDMMC_DEFAULT_TIMEOUT_MS   (5000U)
+#define MTFS_STM32_SDMMC_DIAGNOSTICS_API_VERSION (UINT16_C(1))
+#define MTFS_STM32_SDMMC_DIAGNOSTICS_VALID_ALL (UINT32_MAX)
 
 typedef int (*mtfs_stm32_sdmmc_signal_fn)(void *opaque);
 
@@ -41,6 +44,10 @@ typedef struct mtfs_stm32_sdmmc_config
 
 typedef struct mtfs_stm32_sdmmc_diagnostics
 {
+    uint16_t api_version;
+    uint16_t struct_size;
+    uint32_t validity_mask;
+    uint32_t reset_epoch;
     uint32_t irq_entries;
     uint32_t rx_complete_callbacks;
     uint32_t tx_complete_callbacks;
@@ -57,6 +64,20 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
     uint32_t completion_timeouts;
     uint32_t card_state_timeouts;
     uint32_t last_clkcr;
+    int32_t last_hal_status;
+    uint32_t last_hal_error;
+    uint32_t transfer_hal_error;
+    int32_t last_kernel_error;
+    int32_t last_error;
+    uint64_t sector_count;
+    uint32_t sector_size;
+    uint32_t erase_block_size;
+    uint32_t bounce_buffer_size;
+    uint32_t cache_line_size;
+    uint8_t use_idma;
+    uint8_t initialized;
+    uint8_t hal_initialized;
+    uint8_t transfer_active;
 } mtfs_stm32_sdmmc_diagnostics_t;
 
 /* Concrete by design: applications statically allocate this object. */
@@ -74,7 +95,10 @@ typedef struct mtfs_stm32_sdmmc_context
     uint32_t last_hal_error;
     ER last_kernel_error;
     mtfs_error_t last_error;
+#if MTFS_ENABLE_DIAGNOSTICS
     mtfs_stm32_sdmmc_diagnostics_t diagnostics;
+    mtfs_block_diagnostics_state_t block_diagnostics;
+#endif
     uint8_t objects_ready;
     uint8_t irq_registered;
     uint8_t timebase_acquired;
@@ -91,7 +115,10 @@ mtfs_error_t mtfs_stm32_sdmmc_context_deinit(
     mtfs_stm32_sdmmc_context_t *context);
 mtfs_block_device_t *mtfs_stm32_sdmmc_block_device(
     mtfs_stm32_sdmmc_context_t *context);
-void mtfs_stm32_sdmmc_diagnostics_reset(
+mtfs_error_t mtfs_stm32_sdmmc_diagnostics_get(
+    mtfs_stm32_sdmmc_context_t *context,
+    mtfs_stm32_sdmmc_diagnostics_t *snapshot);
+mtfs_error_t mtfs_stm32_sdmmc_diagnostics_reset(
     mtfs_stm32_sdmmc_context_t *context);
 
 /*

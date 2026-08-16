@@ -217,11 +217,12 @@ write、mkfs、raw write中には実施しません。IDMAではremoval eventが
 
 期待する診断logはraw CD level、active level、EXTI12 IRQ/rising/falling、debounce start/recheck、
 INSERTED/REMOVED/ERROR、media state、mtfs/T-Kernel/HAL error、abort、media wait wakeup、
-reinitialize結果です。debuggerでは次をwatchします。
+reinitialize結果です。consoleの`diag`でcommon/media/typed snapshotを取得し、`diag-reset`で
+counterだけをresetできます。debuggerではsnapshot取得後に次をwatchします。
 
 - `cd_diagnostics`: EXTI12 entry、rising/falling、raw level、service/port notify error
-- `media_context.state`と`media_context.diagnostics`: debounce、event count
-- `sd_context.diagnostics`: SDMMC2 IRQ/Rx/Tx、media removal hint/wakeup、timeout/abort
+- `mtfs_media_diagnostics_get()`のsnapshot: debounce、event count、media generation
+- `mtfs_stm32_sdmmc_diagnostics_get()`のsnapshot: SDMMC2 IRQ/Rx/Tx、media removal hint/wakeup、timeout/abort
 - `sd_context.initialized`、`media_removal_pending`、`last_error`、HAL status/error
 - `sd_context.bounce_buffer`: 32-byte alignmentと内部RAM配置
 - RIFSC SDMMC2設定、`SCB->CCR`のI/D cache bit、増加中の`uwTick`

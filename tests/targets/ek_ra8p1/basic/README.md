@@ -196,6 +196,7 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 
 ## 現時点の制限
 
+- consoleの`diag`でcommon/media/RA SD SPI typed snapshotを取得し、`diag-reset`でcounterだけをresetできます。applicationはcontext内部の診断fieldを直接参照しません。
 - write protect入力は未接続です。
 - P409 Card Detectは実機でactive-lowとIRQ6到達を確認済みです。P000 IRQ6-DSは同じ内部IRQ6との競合防止のため無効化します。
 - cache coherencyはtarget linker wrapによる互換策です。BSP2側へ同等修正が入ったらADR記載の範囲を削除します。
@@ -210,4 +211,5 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 - J36は未実装のため、外部VBATTなしの完全な電源断ではRTC/validity marker保持を期待できません。
 - 2026-08-12にcache有効、全面無効化fallback offで実機normal 10周を全周完走し、`PHASE 2.1 PASS`を確認しました。Host側もCTest 1/1と並行テスト62 checksがPASSしています。
 - 2026-08-14にPhase 3.2 RA Debug build（FSP 6.5.0、Arm GCC 13.2.1）が警告なしで成功しました。実機smokeで未挿入起動、P409/IRQ6挿入、FatFs/並行access、idle抜去後NO_MEDIA、再挿入後の明示initialize/roundtrip、cleanupがPASSしました。
+- 2026-08-16にPhase 3.5 RA ReleaseでFatFs roundtrip、`bench-smoke`、`bench-normal`がPASSしました。raw 4 KiB readは273.7 KiB/sでPhase 3.4 baseline 273.6 KiB/sと同等、commonとRA typedのread/write sector数は一致し、SPI error、token/ready timeout、monotonic clock errorは0でした。`diag-reset`後はcounterが0、epochが1となり、initialized/media/geometry/generation/initialization stage/error/bitrateは維持されました。reset後I/OとPhase 3.5でのidle挿抜は未確認です。
 - stress 100周は未実施です。今回はPhase 3.2の完了判定に含めません。

@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 
+#include "../mtfs_config.h"
 #include "../mtfs_error.h"
 
 #ifdef __cplusplus
@@ -11,6 +12,11 @@ extern "C" {
 #endif
 
 #define MTFS_MEDIA_WAIT_FOREVER (UINT32_MAX)
+#define MTFS_MEDIA_DIAGNOSTICS_API_VERSION (UINT16_C(1))
+#define MTFS_MEDIA_DIAGNOSTICS_VALID_STATE (UINT32_C(1) << 0)
+#define MTFS_MEDIA_DIAGNOSTICS_VALID_STABLE_PRESENT (UINT32_C(1) << 1)
+#define MTFS_MEDIA_DIAGNOSTICS_VALID_NOTIFICATION_SEQUENCE (UINT32_C(1) << 2)
+#define MTFS_MEDIA_DIAGNOSTICS_VALID_MEDIA_GENERATION (UINT32_C(1) << 3)
 
 typedef enum mtfs_media_state
 {
@@ -51,6 +57,15 @@ typedef struct mtfs_media_config
 
 typedef struct mtfs_media_diagnostics
 {
+    uint16_t api_version;
+    uint16_t struct_size;
+    uint32_t validity_mask;
+    uint32_t reset_epoch;
+    uint32_t media_generation;
+    uint32_t notification_sequence;
+    uint32_t state;
+    uint8_t stable_present;
+    uint8_t reserved[3];
     uint32_t irq_notifications;
     uint32_t manual_notifications;
     uint32_t poll_checks;
@@ -71,7 +86,10 @@ typedef struct mtfs_media_context
     uint32_t observed_sequence;
     uint32_t debounce_deadline_ms;
     mtfs_media_state_t state;
+#if MTFS_ENABLE_DIAGNOSTICS
     mtfs_media_diagnostics_t diagnostics;
+    uint32_t media_generation;
+#endif
     uint8_t stable_present;
     uint8_t candidate_present;
     uint8_t last_polled_raw_level;
@@ -111,6 +129,11 @@ mtfs_error_t mtfs_media_poll(
 
 mtfs_media_state_t mtfs_media_state(const mtfs_media_context_t *context);
 int mtfs_media_is_present(const mtfs_media_context_t *context);
+/* Task-context, cached-state-only diagnostics. */
+mtfs_error_t mtfs_media_diagnostics_get(
+    const mtfs_media_context_t *context,
+    mtfs_media_diagnostics_t *snapshot);
+mtfs_error_t mtfs_media_diagnostics_reset(mtfs_media_context_t *context);
 
 #ifdef __cplusplus
 }

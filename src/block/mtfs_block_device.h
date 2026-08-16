@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 
+#include "../mtfs_config.h"
 #include "../mtfs_error.h"
 #include "../mtfs_types.h"
 
@@ -20,6 +21,7 @@ typedef uint32_t mtfs_block_capabilities_t;
 
 #define MTFS_BLOCK_CAPABILITY_READ_ONLY    (UINT32_C(1) << 0)
 #define MTFS_BLOCK_CAPABILITY_TRIM         (UINT32_C(1) << 1)
+#define MTFS_BLOCK_CAPABILITY_DIAGNOSTICS  (UINT32_C(1) << 2)
 
 typedef struct mtfs_block_geometry
 {
@@ -44,6 +46,9 @@ struct mtfs_block_device
     const mtfs_block_device_ops_t *ops;
     void *context;
     mtfs_block_capabilities_t capabilities;
+#if MTFS_ENABLE_DIAGNOSTICS
+    struct mtfs_block_diagnostics_state *diagnostics;
+#endif
 };
 
 int mtfs_block_device_is_valid(const mtfs_block_device_t *device);

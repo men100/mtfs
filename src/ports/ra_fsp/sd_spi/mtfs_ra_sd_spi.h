@@ -9,6 +9,7 @@
 #include "r_sci_b_spi.h"
 
 #include "../../../block/mtfs_block_device.h"
+#include "../../../block/mtfs_block_diagnostics.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,6 +20,8 @@ extern "C" {
 #define MTFS_RA_SD_SPI_DEFAULT_DATA_HZ   (4000000U)
 #define MTFS_RA_SD_SPI_DEFAULT_TIMEOUT_MS (1000U)
 #define MTFS_RA_SD_SPI_DUMMY_SIZE        (514U)
+#define MTFS_RA_SD_SPI_DIAGNOSTICS_API_VERSION (UINT16_C(1))
+#define MTFS_RA_SD_SPI_DIAGNOSTICS_VALID_ALL (UINT32_MAX)
 
 typedef int (*mtfs_ra_sd_spi_signal_fn)(void *opaque);
 
@@ -59,6 +62,10 @@ typedef struct mtfs_ra_sd_spi_config
 
 typedef struct mtfs_ra_sd_spi_diagnostics
 {
+    uint16_t api_version;
+    uint16_t struct_size;
+    uint32_t validity_mask;
+    uint32_t reset_epoch;
     uint32_t transfer_starts;
     uint32_t transfer_completions;
     uint32_t transfer_errors;
@@ -79,7 +86,16 @@ typedef struct mtfs_ra_sd_spi_diagnostics
     uint32_t cmd0_attempts;
     uint32_t cmd0_no_response;
     uint32_t cmd0_timeouts;
-    mtfs_ra_sd_spi_init_stage_t initialization_stage;
+    uint32_t initialization_stage;
+    uint32_t card_type;
+    uint32_t current_bitrate_hz;
+    int32_t last_fsp_error;
+    int32_t last_kernel_error;
+    int32_t last_error;
+    uint8_t last_r1;
+    uint8_t initialized;
+    uint8_t fsp_open;
+    uint8_t media_removal_pending;
 } mtfs_ra_sd_spi_diagnostics_t;
 
 /*
@@ -108,7 +124,10 @@ typedef struct mtfs_ra_sd_spi_context
     mtfs_ra_sd_card_type_t card_type;
     mtfs_lba_t sector_count;
     uint32_t current_bitrate_hz;
+#if MTFS_ENABLE_DIAGNOSTICS
     mtfs_ra_sd_spi_diagnostics_t diagnostics;
+    mtfs_block_diagnostics_state_t block_diagnostics;
+#endif
 
     uint8_t dummy_tx[MTFS_RA_SD_SPI_DUMMY_SIZE];
     uint8_t registered;
@@ -126,6 +145,11 @@ mtfs_error_t mtfs_ra_sd_spi_context_init(
 mtfs_error_t mtfs_ra_sd_spi_context_deinit(mtfs_ra_sd_spi_context_t *context);
 
 mtfs_block_device_t *mtfs_ra_sd_spi_block_device(mtfs_ra_sd_spi_context_t *context);
+mtfs_error_t mtfs_ra_sd_spi_diagnostics_get(
+    mtfs_ra_sd_spi_context_t *context,
+    mtfs_ra_sd_spi_diagnostics_t *snapshot);
+mtfs_error_t mtfs_ra_sd_spi_diagnostics_reset(
+    mtfs_ra_sd_spi_context_t *context);
 
 /*
  * ISR-safe removal hint.  It only invalidates lightweight state and wakes a

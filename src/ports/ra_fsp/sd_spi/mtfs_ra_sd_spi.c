@@ -1,4 +1,5 @@
 #include "mtfs_ra_sd_spi.h"
+#include "../../../block/mtfs_block_diagnostics_internal.h"
 #include "mtfs_ra_sd_spi_deadline.h"
 
 #include <stddef.h>
@@ -25,6 +26,12 @@
 #define MTFS_SD_POWER_UP_SETTLE_MS  (1U)
 #define MTFS_SD_CMD0_RETRY_DELAY_MS (1U)
 #define MTFS_SD_ACMD41_RETRY_DELAY_MS (1U)
+
+#if MTFS_ENABLE_DIAGNOSTICS
+#define MTFS_RA_DIAGNOSTIC(...) do { __VA_ARGS__; } while (0)
+#else
+#define MTFS_RA_DIAGNOSTIC(...) do { } while (0)
+#endif
 
 static mtfs_error_t mtfs_sd_initialize(void *opaque);
 static mtfs_error_t mtfs_sd_status(void *opaque, mtfs_block_status_t *status);
@@ -96,13 +103,16 @@ static mtfs_error_t mtfs_sd_kernel_error(mtfs_ra_sd_spi_context_t *context, ER e
     }
 }
 
+#if MTFS_ENABLE_DIAGNOSTICS
 static void mtfs_sd_diagnostic_increment(uint32_t *counter)
 {
     if (*counter != UINT32_MAX) {
         ++*counter;
     }
 }
+#endif
 
+#if MTFS_ENABLE_DIAGNOSTICS
 static void mtfs_sd_diagnostic_record_polls(
     uint32_t *maximum, uint32_t poll_count)
 {
@@ -110,6 +120,7 @@ static void mtfs_sd_diagnostic_record_polls(
         *maximum = poll_count;
     }
 }
+#endif
 
 static mtfs_error_t mtfs_sd_monotonic_ms(
     mtfs_ra_sd_spi_context_t *context, uint64_t *milliseconds)
@@ -118,8 +129,8 @@ static mtfs_error_t mtfs_sd_monotonic_ms(
     ER result = tk_get_otm(&time);
 
     if (result < E_OK) {
-        mtfs_sd_diagnostic_increment(
-            &context->diagnostics.monotonic_clock_errors);
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.monotonic_clock_errors));
         return mtfs_sd_kernel_error(context, result);
     }
     *milliseconds = ((uint64_t)(uint32_t)time.hi << 32U) | time.lo;
@@ -270,9 +281,11 @@ void mtfs_ra_sd_spi_callback(spi_callback_args_t *args)
     context->transfer_result =
         (args->event == SPI_EVENT_TRANSFER_COMPLETE) ? E_OK : E_IO;
     if (context->transfer_result == E_OK) {
-        ++context->diagnostics.transfer_completions;
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.transfer_completions));
     } else {
-        ++context->diagnostics.transfer_errors;
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.transfer_errors));
     }
     (void)tk_set_flg(context->transfer_event_flag_id, MTFS_SD_EVENT_TRANSFER);
 }
@@ -325,7 +338,8 @@ static mtfs_error_t mtfs_sd_transfer(
         return mtfs_sd_kernel_error(context, kernel_result);
     }
     context->transfer_result = E_IO;
-    ++context->diagnostics.transfer_starts;
+    MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+        &context->diagnostics.transfer_starts));
     if ((transmit != NULL) && (receive != NULL)) {
         fsp_result = R_SCI_B_SPI_WriteRead(context->config.spi->p_ctrl,
             transmit, receive, length, SPI_BIT_WIDTH_8_BITS);
@@ -348,7 +362,8 @@ static mtfs_error_t mtfs_sd_transfer(
     }
     if (((flags & MTFS_SD_EVENT_REMOVED) != 0U) ||
         !mtfs_sd_card_present(context)) {
-        ++context->diagnostics.media_wait_wakeups;
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.media_wait_wakeups));
         if (context->fsp_open != 0U) {
             context->last_fsp_error =
                 R_SCI_B_SPI_Close(context->config.spi->p_ctrl);
@@ -445,7 +460,8 @@ static mtfs_error_t mtfs_sd_wait_token(mtfs_ra_sd_spi_context_t *context)
     mtfs_ra_sd_spi_deadline_t deadline;
     mtfs_error_t result;
 
-    mtfs_sd_diagnostic_increment(&context->diagnostics.token_wait_calls);
+    MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+        &context->diagnostics.token_wait_calls));
     result = mtfs_sd_deadline_start(context,
         context->config.transfer_timeout_ms, &deadline);
     if (result != MTFS_OK) {
@@ -454,32 +470,34 @@ static mtfs_error_t mtfs_sd_wait_token(mtfs_ra_sd_spi_context_t *context)
     for (;;) {
         result = mtfs_sd_deadline_expired(context, &deadline, &expired);
         if (result != MTFS_OK) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.token_max_polls, polls);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls));
             return result;
         }
         if (expired) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.token_max_polls, polls);
-            mtfs_sd_diagnostic_increment(&context->diagnostics.token_timeouts);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls));
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                &context->diagnostics.token_timeouts));
             return MTFS_ERROR_NOT_READY;
         }
         result = mtfs_sd_exchange(context, 0xFFU, &token);
         ++polls;
-        mtfs_sd_diagnostic_increment(&context->diagnostics.token_poll_bytes);
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.token_poll_bytes));
         if (result != MTFS_OK) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.token_max_polls, polls);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls));
             return result;
         }
         if (token == MTFS_SD_DATA_TOKEN) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.token_max_polls, polls);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls));
             return MTFS_OK;
         }
         if (token != 0xFFU) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.token_max_polls, polls);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.token_max_polls, polls));
             return MTFS_ERROR_IO;
         }
     }
@@ -493,7 +511,8 @@ static mtfs_error_t mtfs_sd_wait_ready(mtfs_ra_sd_spi_context_t *context)
     mtfs_ra_sd_spi_deadline_t deadline;
     mtfs_error_t result;
 
-    mtfs_sd_diagnostic_increment(&context->diagnostics.ready_wait_calls);
+    MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+        &context->diagnostics.ready_wait_calls));
     result = mtfs_sd_deadline_start(context,
         context->config.transfer_timeout_ms, &deadline);
     if (result != MTFS_OK) {
@@ -502,27 +521,29 @@ static mtfs_error_t mtfs_sd_wait_ready(mtfs_ra_sd_spi_context_t *context)
     for (;;) {
         result = mtfs_sd_deadline_expired(context, &deadline, &expired);
         if (result != MTFS_OK) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.ready_max_polls, polls);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls));
             return result;
         }
         if (expired) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.ready_max_polls, polls);
-            mtfs_sd_diagnostic_increment(&context->diagnostics.ready_timeouts);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls));
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                &context->diagnostics.ready_timeouts));
             return MTFS_ERROR_NOT_READY;
         }
         result = mtfs_sd_exchange(context, 0xFFU, &value);
         ++polls;
-        mtfs_sd_diagnostic_increment(&context->diagnostics.ready_poll_bytes);
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.ready_poll_bytes));
         if (result != MTFS_OK) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.ready_max_polls, polls);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls));
             return result;
         }
         if (value == 0xFFU) {
-            mtfs_sd_diagnostic_record_polls(
-                &context->diagnostics.ready_max_polls, polls);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_record_polls(
+                &context->diagnostics.ready_max_polls, polls));
             return MTFS_OK;
         }
     }
@@ -657,8 +678,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         return mtfs_sd_no_media(context);
     }
     context->media_removal_pending = 0U;
-    context->diagnostics.initialization_stage =
-        MTFS_RA_SD_SPI_INIT_SPI_OPEN;
+    MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_SPI_OPEN);
     result = mtfs_sd_kernel_error(context,
         tk_clr_flg(context->transfer_event_flag_id, 0U));
     if (result != MTFS_OK) {
@@ -679,8 +700,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     if (result != MTFS_OK) {
         return result;
     }
-    context->diagnostics.initialization_stage =
-        MTFS_RA_SD_SPI_INIT_POWER_UP;
+    MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_POWER_UP);
     result = mtfs_sd_deadline_start(context,
         context->config.initialization_timeout_ms, &cmd0_deadline);
     if (result != MTFS_OK) {
@@ -702,7 +723,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         }
     }
 
-    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CMD0;
+    MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_CMD0);
     for (;;) {
         ER command_kernel_error = E_OK;
         fsp_err_t command_fsp_error = FSP_SUCCESS;
@@ -714,10 +736,12 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
             return result;
         }
         if (expired) {
-            mtfs_sd_diagnostic_increment(&context->diagnostics.cmd0_timeouts);
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                &context->diagnostics.cmd0_timeouts));
             return MTFS_ERROR_NOT_READY;
         }
-        mtfs_sd_diagnostic_increment(&context->diagnostics.cmd0_attempts);
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.cmd0_attempts));
         r1 = 0xFFU;
         result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
         if (result == MTFS_OK) {
@@ -747,7 +771,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
             }
             return result;
         }
-        mtfs_sd_diagnostic_increment(&context->diagnostics.cmd0_no_response);
+        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+            &context->diagnostics.cmd0_no_response));
         result = mtfs_sd_kernel_error(context,
             tk_dly_tsk(MTFS_SD_CMD0_RETRY_DELAY_MS));
         if (result != MTFS_OK) {
@@ -755,7 +780,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         }
     }
 
-    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CMD8;
+    MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_CMD8);
     result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
     if (result == MTFS_OK) {
         result = mtfs_sd_command(context, MTFS_SD_CMD8, UINT32_C(0x1AA), &r1);
@@ -784,7 +810,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         return result;
     }
 
-    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_ACMD41;
+    MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_ACMD41);
     result = mtfs_sd_deadline_start(context,
         context->config.initialization_timeout_ms, &initialization_deadline);
     if (result != MTFS_OK) {
@@ -808,8 +835,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         }
         if (result == MTFS_OK) {
             if (!first_acmd41) {
-                mtfs_sd_diagnostic_increment(
-                    &context->diagnostics.acmd41_retries);
+                MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                    &context->diagnostics.acmd41_retries));
             }
             first_acmd41 = 0;
             result = mtfs_sd_command(context, MTFS_SD_ACMD41,
@@ -845,7 +872,8 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         }
     }
 
-    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CMD58;
+    MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_CMD58);
     result = mtfs_sd_cs(context, BSP_IO_LEVEL_LOW);
     if (result == MTFS_OK) {
         result = mtfs_sd_command(context, MTFS_SD_CMD58, 0U, &r1);
@@ -867,20 +895,21 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     context->card_type = (version2 && ((response[0] & 0x40U) != 0U))
         ? MTFS_RA_SD_CARD_SDHC_SDXC : MTFS_RA_SD_CARD_SDSC;
 
-    context->diagnostics.initialization_stage = MTFS_RA_SD_SPI_INIT_CSD;
+    MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+        MTFS_RA_SD_SPI_INIT_CSD);
     result = mtfs_sd_read_register(context, MTFS_SD_CMD9, csd, sizeof(csd));
     if (result == MTFS_OK) {
         result = mtfs_sd_decode_capacity(csd, &context->sector_count);
     }
     if (result == MTFS_OK) {
-        context->diagnostics.initialization_stage =
-            MTFS_RA_SD_SPI_INIT_DATA_RATE;
+        MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+            MTFS_RA_SD_SPI_INIT_DATA_RATE);
         result = mtfs_sd_set_bitrate(context, context->config.data_bitrate_hz);
     }
     if (result == MTFS_OK) {
         context->initialized = 1U;
-        context->diagnostics.initialization_stage =
-            MTFS_RA_SD_SPI_INIT_COMPLETE;
+        MTFS_RA_DIAGNOSTIC(context->diagnostics.initialization_stage =
+            MTFS_RA_SD_SPI_INIT_COMPLETE);
     }
     return result;
 }
@@ -1021,7 +1050,8 @@ static mtfs_error_t mtfs_sd_read(void *opaque, void *buffer, mtfs_lba_t lba, uin
         }
         result = mtfs_sd_read_one(context, cursor, lba + index);
         if (result == MTFS_OK) {
-            ++context->diagnostics.read_sectors;
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                &context->diagnostics.read_sectors));
             cursor += MTFS_RA_SD_SPI_SECTOR_SIZE;
         }
     }
@@ -1056,7 +1086,8 @@ static mtfs_error_t mtfs_sd_write(void *opaque, const void *buffer, mtfs_lba_t l
         }
         result = mtfs_sd_write_one(context, cursor, lba + index);
         if (result == MTFS_OK) {
-            ++context->diagnostics.write_sectors;
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                &context->diagnostics.write_sectors));
             cursor += MTFS_RA_SD_SPI_SECTOR_SIZE;
         }
     }
@@ -1154,6 +1185,12 @@ mtfs_error_t mtfs_ra_sd_spi_context_init(
     context->last_fsp_error = FSP_SUCCESS;
     context->last_kernel_error = E_OK;
     context->last_error = MTFS_OK;
+#if MTFS_ENABLE_DIAGNOSTICS
+    context->diagnostics.api_version = MTFS_RA_SD_SPI_DIAGNOSTICS_API_VERSION;
+    context->diagnostics.struct_size = (uint16_t)sizeof(context->diagnostics);
+    context->diagnostics.validity_mask =
+        MTFS_RA_SD_SPI_DIAGNOSTICS_VALID_ALL;
+#endif
     context->spi_config_ram = *config->spi->p_cfg;
     context->spi_extended_config_ram =
         *(const sci_b_spi_extended_cfg_t *)config->spi->p_cfg->p_extend;
@@ -1206,6 +1243,10 @@ mtfs_error_t mtfs_ra_sd_spi_context_init(
     context->block_device.ops = &mtfs_sd_ops;
     context->block_device.context = context;
     context->block_device.capabilities = 0U;
+#if MTFS_ENABLE_DIAGNOSTICS
+    (void)mtfs_block_diagnostics_attach(
+        &context->block_device, &context->block_diagnostics);
+#endif
     return MTFS_OK;
 }
 
@@ -1255,6 +1296,88 @@ mtfs_block_device_t *mtfs_ra_sd_spi_block_device(mtfs_ra_sd_spi_context_t *conte
     return (context == NULL) ? NULL : &context->block_device;
 }
 
+mtfs_error_t mtfs_ra_sd_spi_diagnostics_get(
+    mtfs_ra_sd_spi_context_t *context,
+    mtfs_ra_sd_spi_diagnostics_t *snapshot)
+{
+    mtfs_error_t result;
+    int locked = 0;
+    if ((context == NULL) || (snapshot == NULL)) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+#if MTFS_ENABLE_DIAGNOSTICS
+    if (context->diagnostics.api_version !=
+        MTFS_RA_SD_SPI_DIAGNOSTICS_API_VERSION) {
+        return MTFS_ERROR_NOT_READY;
+    }
+    if (context->access_mutex_id > 0) {
+        result = mtfs_sd_lock(context);
+        if (result != MTFS_OK) {
+            return result;
+        }
+        locked = 1;
+    }
+    *snapshot = context->diagnostics;
+    snapshot->card_type = (uint32_t)context->card_type;
+    snapshot->current_bitrate_hz = context->current_bitrate_hz;
+    snapshot->last_fsp_error = (int32_t)context->last_fsp_error;
+    snapshot->last_kernel_error = (int32_t)context->last_kernel_error;
+    snapshot->last_error = (int32_t)context->last_error;
+    snapshot->last_r1 = context->last_r1;
+    snapshot->initialized = context->initialized;
+    snapshot->fsp_open = context->fsp_open;
+    snapshot->media_removal_pending = context->media_removal_pending;
+    if (locked) mtfs_sd_unlock(context);
+    return MTFS_OK;
+#else
+    (void)result;
+    (void)locked;
+    return MTFS_ERROR_NOT_SUPPORTED;
+#endif
+}
+
+mtfs_error_t mtfs_ra_sd_spi_diagnostics_reset(
+    mtfs_ra_sd_spi_context_t *context)
+{
+    mtfs_error_t result;
+    uint32_t epoch;
+    uint32_t stage;
+    int locked = 0;
+    if (context == NULL) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+#if MTFS_ENABLE_DIAGNOSTICS
+    if (context->diagnostics.api_version !=
+        MTFS_RA_SD_SPI_DIAGNOSTICS_API_VERSION) {
+        return MTFS_ERROR_NOT_READY;
+    }
+    if (context->access_mutex_id > 0) {
+        result = mtfs_sd_lock(context);
+        if (result != MTFS_OK) {
+            return result;
+        }
+        locked = 1;
+    }
+    epoch = context->diagnostics.reset_epoch + 1U;
+    stage = context->diagnostics.initialization_stage;
+    (void)memset(&context->diagnostics, 0, sizeof(context->diagnostics));
+    context->diagnostics.api_version = MTFS_RA_SD_SPI_DIAGNOSTICS_API_VERSION;
+    context->diagnostics.struct_size = (uint16_t)sizeof(context->diagnostics);
+    context->diagnostics.validity_mask =
+        MTFS_RA_SD_SPI_DIAGNOSTICS_VALID_ALL;
+    context->diagnostics.reset_epoch = epoch;
+    context->diagnostics.initialization_stage = stage;
+    if (locked) mtfs_sd_unlock(context);
+    return MTFS_OK;
+#else
+    (void)result;
+    (void)epoch;
+    (void)stage;
+    (void)locked;
+    return MTFS_ERROR_NOT_SUPPORTED;
+#endif
+}
+
 mtfs_error_t mtfs_ra_sd_spi_media_changed_isr(
     mtfs_ra_sd_spi_context_t *context, int present)
 {
@@ -1270,7 +1393,8 @@ mtfs_error_t mtfs_ra_sd_spi_media_changed_isr(
 
     context->media_removal_pending = 1U;
     context->initialized = 0U;
-    ++context->diagnostics.media_removal_notifications;
+    MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+        &context->diagnostics.media_removal_notifications));
     result = tk_set_flg(context->transfer_event_flag_id,
         MTFS_SD_EVENT_REMOVED);
     if (result < E_OK) {

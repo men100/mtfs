@@ -179,12 +179,14 @@ static int benchmark_run_failure_case(mtfs_test_t *test,
     int result;
 
     memset(&proxy_context, 0, sizeof(proxy_context));
+    memset(&proxy_device, 0, sizeof(proxy_device));
     proxy_context.backing = backing;
     proxy_context.fail_write_call = fail_write_call;
     proxy_context.fail_sync_call = fail_sync_call;
     proxy_device.ops = &proxy_ops;
     proxy_device.context = &proxy_context;
-    proxy_device.capabilities = backing->capabilities;
+    proxy_device.capabilities = backing->capabilities &
+        ~MTFS_BLOCK_CAPABILITY_DIAGNOSTICS;
 
     if (!MTFS_TEST_CHECK(test,
             mtfs_block_registry_unregister(0U) == MTFS_OK,
@@ -349,11 +351,13 @@ int test_benchmark(mtfs_test_t *test, mtfs_block_device_t *device,
         benchmark_proxy_t proxy_context;
         mtfs_block_device_t proxy_device;
         memset(&proxy_context, 0, sizeof(proxy_context));
+        memset(&proxy_device, 0, sizeof(proxy_device));
         proxy_context.backing = device;
         proxy_context.fail_read_call = 1U;
         proxy_device.ops = &proxy_ops;
         proxy_device.context = &proxy_context;
-        proxy_device.capabilities = device->capabilities;
+        proxy_device.capabilities = device->capabilities &
+            ~MTFS_BLOCK_CAPABILITY_DIAGNOSTICS;
         benchmark_config_init(&config, &proxy_device, volume_path,
             &clock, &log, buffer);
         if (!MTFS_TEST_CHECK(test,

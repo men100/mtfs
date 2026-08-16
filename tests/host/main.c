@@ -16,6 +16,7 @@
 #include "test_media_lifecycle.h"
 #include "test_ra_sd_spi_deadline.h"
 #include "test_benchmark.h"
+#include "test_block_diagnostics.h"
 #include "test_rtc_set_app.h"
 #include "test_time_provider.h"
 
@@ -162,6 +163,9 @@ int main(void)
         goto cleanup;
     }
     if (test_rtc_set_app(&test) != 0) {
+        goto cleanup;
+    }
+    if (test_block_diagnostics(&test) != 0) {
         goto cleanup;
     }
     if (!MTFS_TEST_CHECK(&test,

@@ -6,7 +6,7 @@
 
 - `use_idma=1`: `HAL_SD_ReadBlocks_DMA()` / `HAL_SD_WriteBlocks_DMA()`、SDMMC IRQ、HAL 完了 callback、T-Kernel event flag で同期化する既定経路。
 - `use_idma=0`: 同じ API と mutex を保ち、`HAL_SD_ReadBlocks()` / `HAL_SD_WriteBlocks()` を 1 sector ずつ呼ぶ polling fallback。複数 sector の要求も単一 block command に分割し、速度より確実な復旧性を優先する。
-- 1 回の転送は最大 8 sector。単一・複数 block の開始回数、最大 block 数、IRQ/callback/timeout/abort は `diagnostics` で観測できる。
+- 1 回の転送は最大 8 sector。単一・複数 block の開始回数、最大 block 数、IRQ/callback/timeout/abort は `mtfs_stm32_sdmmc_diagnostics_get()` のtyped snapshotで観測でき、累積counterは`mtfs_stm32_sdmmc_diagnostics_reset()`でresetできる。HALから信頼できるnegotiated speed modeを取得できないため、`CLKCR`等からspeed modeを推測しない。
 
 IDMA では context 内の 4096-byte bounce buffer だけを DMA 対象にします。buffer は 32-byte aligned かつ cache-line 完結で、write は copy 後 clean、read は転送前 clean/invalidate、完了後 invalidate してから user buffer へ copy します。FatFs が未整列 buffer を渡しても隣接 cache line を破壊しません。実際の配置領域は linker map と実機ログの両方で確認してください。
 

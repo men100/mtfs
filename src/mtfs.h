@@ -9,6 +9,7 @@
 #include "mtfs_error.h"
 #include "mtfs_types.h"
 #include "block/mtfs_block_device.h"
+#include "block/mtfs_block_diagnostics.h"
 #include "block/mtfs_block_registry.h"
 #include "core/mtfs_media.h"
 #include "core/mtfs_time.h"

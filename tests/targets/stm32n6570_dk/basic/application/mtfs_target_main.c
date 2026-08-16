@@ -7,6 +7,7 @@
 #include "stm32n6xx.h"
 
 #include "mtfs_block_device.h"
+#include "mtfs_block_diagnostics.h"
 #include "mtfs_block_registry.h"
 #include "ff.h"
 #include "mtfs_stm32_sdmmc.h"
@@ -79,7 +80,7 @@ static uint8_t benchmark_buffer[MTFS_BENCHMARK_BUFFER_BYTES];
 static void target_media_event(void *opaque, mtfs_media_event_t event,
     mtfs_media_state_t state);
 static void target_print_diagnostics(
-    const mtfs_stm32_sdmmc_context_t *context);
+    mtfs_stm32_sdmmc_context_t *context);
 #if !MTFS_FF_FS_NORTC
 static mtfs_stm32_rtc_context_t rtc_context;
 static ID rtc_mutex_id;
@@ -226,7 +227,10 @@ static void target_command_console(void)
         "test-fatfs-time           verify FatFs timestamp against RTC\r\n"
         "bench-info                print ST benchmark conditions\r\n"
         "bench-smoke               run short non-destructive benchmark\r\n"
-        "bench-normal              run 1 MiB baseline benchmark\r\n");
+        "bench-normal              run 1 MiB baseline benchmark\r\n"
+        "diag                      print common/media/ST snapshots\r\n"
+        "diag-reset                reset diagnostic counters only\r\n"
+        "diag-help                 explain diagnostic commands\r\n");
     mtfs_rtc_set_tmonitor_write(NULL,
         "microT-FS STM32N6570-DK command console\r\n"
         "Commands: RTC, FatFs timestamp test, and storage benchmark.\r\n"
@@ -261,6 +265,7 @@ static void target_media_event(void *opaque, mtfs_media_event_t event,
     mtfs_media_state_t state)
 {
     mtfs_stm32n6570_dk_card_detect_diagnostics_t cd;
+    mtfs_media_diagnostics_t media_diagnostics;
     (void)opaque;
     if (event == MTFS_MEDIA_EVENT_INSERTED) {
         ++media_inserted_events;
@@ -287,11 +292,12 @@ static void target_media_event(void *opaque, mtfs_media_event_t event,
         }
     }
     mtfs_stm32n6570_dk_get_card_detect_diagnostics(&cd);
+    (void)mtfs_media_diagnostics_get(&media_context, &media_diagnostics);
     tm_printf((UB *)"[mtfs] CD raw=%u active=%s irq=%u rise=%u fall=%u debounce=%u/%u events=%u/%u/%u\n",
         cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
         cd.irq_entries, cd.rising_edges, cd.falling_edges,
-        media_context.diagnostics.debounce_starts,
-        media_context.diagnostics.debounce_rechecks,
+        media_diagnostics.debounce_starts,
+        media_diagnostics.debounce_rechecks,
         media_inserted_events, media_removed_events, media_error_events);
 }
 
@@ -312,10 +318,16 @@ static int target_wait_media_event(UINT expected, const char *operation)
 #endif
 
 static int target_check_idma_diagnostics(
-    mtfs_test_t *test, const mtfs_stm32_sdmmc_context_t *context)
+    mtfs_test_t *test, mtfs_stm32_sdmmc_context_t *context)
 {
-    const mtfs_stm32_sdmmc_diagnostics_t *diagnostics =
-        &context->diagnostics;
+    mtfs_stm32_sdmmc_diagnostics_t snapshot;
+    const mtfs_stm32_sdmmc_diagnostics_t *diagnostics = &snapshot;
+
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_sdmmc_diagnostics_get(context, &snapshot) == MTFS_OK,
+            "typed STM32 SDMMC diagnostics snapshot is available")) {
+        return 1;
+    }
 
     if (!context->config.use_idma) {
         return 0;
@@ -342,10 +354,40 @@ static int target_check_idma_diagnostics(
 }
 
 static void target_print_diagnostics(
-    const mtfs_stm32_sdmmc_context_t *context)
+    mtfs_stm32_sdmmc_context_t *context)
 {
-    const mtfs_stm32_sdmmc_diagnostics_t *diagnostics =
-        &context->diagnostics;
+    mtfs_stm32_sdmmc_diagnostics_t port_snapshot;
+    mtfs_block_diagnostics_t common;
+    mtfs_media_diagnostics_t media;
+    const mtfs_stm32_sdmmc_diagnostics_t *diagnostics = &port_snapshot;
+    if (mtfs_stm32_sdmmc_diagnostics_get(context, &port_snapshot) != MTFS_OK) {
+        tm_printf((UB *)"[diag] STM32 SDMMC snapshot unavailable\n");
+        return;
+    }
+    if (mtfs_block_diagnostics_get(
+            mtfs_stm32_sdmmc_block_device(context), &common) == MTFS_OK) {
+        tm_printf((UB *)"[diag] common v=%u size=%u epoch=%u op=%u error=%d status=0x%08x geometry=%u/0x%08x%08x/%u\n",
+            common.api_version, common.struct_size, common.reset_epoch,
+            common.last_operation, common.last_error, common.status,
+            common.sector_size, (UW)(common.sector_count >> 32U),
+            (UW)common.sector_count, common.erase_block_size);
+        tm_printf((UB *)"[diag] common calls init=%u read=%u/%u/%u write=%u/%u/%u sync=%u/%u/%u sectors=%u/%u/%u/%u\n",
+            common.initialize_calls, common.read_calls, common.read_successes,
+            common.read_failures, common.write_calls, common.write_successes,
+            common.write_failures, common.sync_calls, common.sync_successes,
+            common.sync_failures, common.read_sectors_requested,
+            common.read_sectors_completed, common.write_sectors_requested,
+            common.write_sectors_completed);
+    }
+    if (mtfs_media_diagnostics_get(&media_context, &media) == MTFS_OK) {
+        tm_printf((UB *)"[diag] media v=%u epoch=%u state=%u present=%u sequence=%u generation=%u irq=%u manual=%u poll=%u debounce=%u/%u events=%u/%u/%u\n",
+            media.api_version, media.reset_epoch, media.state,
+            media.stable_present, media.notification_sequence,
+            media.media_generation, media.irq_notifications,
+            media.manual_notifications, media.poll_checks,
+            media.debounce_starts, media.debounce_rechecks,
+            media.inserted_events, media.removed_events, media.error_events);
+    }
     tm_printf((UB *)"[mtfs] irq=%u rx=%u tx=%u err=%u abort=%u timeout=%u/%u\n",
         diagnostics->irq_entries,
         diagnostics->rx_complete_callbacks,
@@ -365,10 +407,10 @@ static void target_print_diagnostics(
         diagnostics->write_multi_starts,
         diagnostics->write_max_blocks);
     tm_printf((UB *)"[mtfs] last mtfs=%d tk=%d hal=%u/0x%08x clkcr(snapshot)=0x%08x hwfc=%u div=%u\n",
-        context->last_error,
-        context->last_kernel_error,
-        context->last_hal_status,
-        context->last_hal_error,
+        diagnostics->last_error,
+        diagnostics->last_kernel_error,
+        diagnostics->last_hal_status,
+        diagnostics->last_hal_error,
         diagnostics->last_clkcr,
         (diagnostics->last_clkcr & SDMMC_CLKCR_HWFC_EN) != 0U,
         diagnostics->last_clkcr & SDMMC_CLKCR_CLKDIV);
@@ -486,6 +528,23 @@ static int target_console_command(void *opaque, const char *line)
     }
     if (strcmp(line, "bench-normal") == 0) {
         (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_NORMAL, 0);
+        return 1;
+    }
+    if (strcmp(line, "diag") == 0) {
+        target_print_diagnostics(&sd_context);
+        return 1;
+    }
+    if (strcmp(line, "diag-reset") == 0) {
+        mtfs_error_t common = mtfs_block_diagnostics_reset(
+            mtfs_stm32_sdmmc_block_device(&sd_context));
+        mtfs_error_t media = mtfs_media_diagnostics_reset(&media_context);
+        mtfs_error_t port = mtfs_stm32_sdmmc_diagnostics_reset(&sd_context);
+        tm_printf((UB *)"[diag] reset common=%d media=%d st=%d (I/O/media state unchanged)\n",
+            common, media, port);
+        return 1;
+    }
+    if (strcmp(line, "diag-help") == 0) {
+        tm_printf((UB *)"[diag] diag reads cached numeric snapshots without media I/O; diag-reset clears counters and advances reset epochs only\n");
         return 1;
     }
     return 0;

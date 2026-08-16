@@ -2,6 +2,11 @@
 #ifndef MTFS_CONFIG_H
 #define MTFS_CONFIG_H
 
+/* Versioned diagnostic snapshots and counter collection. */
+#ifndef MTFS_ENABLE_DIAGNOSTICS
+#define MTFS_ENABLE_DIAGNOSTICS (1)
+#endif
+
 /* Maximum number of physical drives in the fixed block-device registry. */
 #ifndef MTFS_BLOCK_REGISTRY_SIZE
 #define MTFS_BLOCK_REGISTRY_SIZE (4U)
@@ -49,6 +54,10 @@
 
 #if (MTFS_FF_FS_REENTRANT != 0) && (MTFS_FF_FS_REENTRANT != 1)
 #error MTFS_FF_FS_REENTRANT must be 0 or 1
+#endif
+
+#if (MTFS_ENABLE_DIAGNOSTICS != 0) && (MTFS_ENABLE_DIAGNOSTICS != 1)
+#error MTFS_ENABLE_DIAGNOSTICS must be 0 or 1
 #endif
 
 #if (MTFS_FF_FS_NORTC != 0) && (MTFS_FF_FS_NORTC != 1)
