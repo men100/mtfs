@@ -1,6 +1,6 @@
 # STM32N6570-DK SDMMC2 runner
 
-STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。Phase 3.2ではPN12/EXTI12のCard Detect、edge後だけの500 ms debounce、挿入・抜去・再挿入を追加しました。I-cache/D-cacheを有効のまま使い、RIF readback、raw read、FatFs roundtrip、2 task同時アクセス、IRQ/callback/転送block数を診断します。Phase 3.4ではbasic test後のcommand consoleから非破壊performance benchmarkを実行できます。raw sector writeとformatは行いません。
+STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。Phase 3.2ではPN12/EXTI12のCard Detect、edge後だけの500 ms debounce、挿入・抜去・再挿入を追加しました。I-cache/D-cacheを有効のまま使い、RIF readback、raw read、FatFs roundtrip、optional LFN、2 task同時アクセス、IRQ/callback/転送block数を診断します。Phase 3.4ではbasic test後のcommand consoleから非破壊performance benchmarkを実行できます。raw sector writeとformatは行いません。
 
 ## 対応ツールとプロジェクト
 
@@ -47,6 +47,28 @@ Appli Debug/Release の C compiler define `MTFS_STM32_SD_USE_IDMA` で切り替�
 - `0`: polling fallback。同じ Block Device/FatFs/test API を使いますが、複数 sector の要求を 1 sector ずつの HAL polling 転送へ分割します。SDMMC hardware flow control もこの経路だけ有効にし、速度より確実性を優先します。IDMA 固有の診断 assertion は省略します。
 
 変更後は clean build してください。実機合格は両設定で別々に確認します。
+
+## Phase 3.6 optional LFN
+
+microT-FS共通のrepository既定は`MTFS_FF_USE_LFN=0`ですが、このPhase 3.6 test projectの
+Debug/Release既定は次のcompiler defineでASCII長名試験を有効にします。
+
+```text
+MTFS_FF_USE_LFN=2
+MTFS_FF_MAX_LFN=64
+```
+
+`mtfs_fatfs` source folderでは`ffunicode.c`を除外しません。LFN無効buildを確認する場合は
+`MTFS_FF_USE_LFN=0`へ変更してclean buildし、確認後は2へ戻します。mode 2は呼出しtaskの
+stackへLFN working bufferを置き、既定64では少なくとも130 byteを加えます。共通concurrent
+workerは従来の16 KiB stackを維持し、taskごとの長名と独立`FIL`で同時アクセスします。
+
+runnerは通常roundで`fatfs_lfn`、hotplug再挿入後に`fatfs_lfn_after_reinsert`を実行します。
+create/write/sync、rename/readdir、remount、long directory、最大長／異常系、SFN alias衝突、
+cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=932`も保存します。
+polling smokeは`MTFS_STM32_SD_USE_IDMA=0`とsmoke profileでclean buildし、同じLFN testとcleanupを
+確認します。APIは`FF_LFN_UNICODE=0`のANSI/OEM `char`であり、UTF-8や日本語filenameの実績を
+意味しません。CP932変換tableのROM影響はRelease map/sizeでLFN無効buildとの差を記録します。
 
 ## Performance benchmark（Phase 3.4）
 

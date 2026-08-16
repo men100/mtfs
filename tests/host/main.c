@@ -11,6 +11,7 @@
 #include "mtfs_host_block_file.h"
 #include "mtfs_test.h"
 #include "test_fatfs_concurrent.h"
+#include "test_fatfs_lfn.h"
 #include "test_fatfs_roundtrip.h"
 #include "test_fatfs_timestamp.h"
 #include "test_media_lifecycle.h"
@@ -138,6 +139,7 @@ int main(void)
     int registered = 0;
     int time_provider_registered = 0;
     int roundtrip_result = 1;
+    int lfn_result = 1;
     int concurrent_result = 1;
     int timestamp_result_code = 1;
     mtfs_datetime_t host_datetime = {2026U, 8U, 14U, 21U, 30U, 58U};
@@ -275,6 +277,10 @@ int main(void)
     }
     roundtrip_result = test_fatfs_roundtrip(&test, "0:");
     if (roundtrip_result != 0) {
+        goto cleanup;
+    }
+    lfn_result = test_fatfs_lfn(&test, "0:");
+    if (lfn_result != 0) {
         goto cleanup;
     }
     timestamp_result_code = test_fatfs_timestamp(

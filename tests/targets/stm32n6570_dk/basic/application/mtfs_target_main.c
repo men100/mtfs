@@ -13,6 +13,7 @@
 #include "mtfs_stm32_sdmmc.h"
 #include "mtfs_test.h"
 #include "mtfs_benchmark.h"
+#include "test_fatfs_lfn.h"
 #include "test_fatfs_roundtrip.h"
 #include "mtfs_stm32n6570_dk_platform.h"
 #include "mtfs_target_concurrent.h"
@@ -945,11 +946,12 @@ static void target_coordinator(INT start_code, void *opaque)
     }
 #endif
     mtfs_stm32n6570_dk_get_rif_diagnostics(&rif);
-    tm_printf((UB *)"\n[mtfs] STM32N6570-DK Phase 3.5: profile=%s rounds=%u path=%s hotplug=%s\n",
+    tm_printf((UB *)"\n[mtfs] STM32N6570-DK Phase 3.6: profile=%s rounds=%u path=%s hotplug=%s LFN=%u max=%u codepage=%u\n",
         (UB *)MTFS_STM32N6570_TEST_PROFILE_NAME,
         MTFS_STM32N6570_TEST_ROUNDS,
         config.use_idma ? (UB *)"IDMA+IRQ" : (UB *)"polling fallback",
-        MTFS_STM32N6570_HOTPLUG_TEST ? (UB *)"on" : (UB *)"off");
+        MTFS_STM32N6570_HOTPLUG_TEST ? (UB *)"on" : (UB *)"off",
+        FF_USE_LFN, FF_MAX_LFN, FF_CODE_PAGE);
     tm_printf((UB *)"[mtfs] cache I=%s D=%s CCR=0x%08x\n",
         (SCB->CCR & SCB_CCR_IC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
         (SCB->CCR & SCB_CCR_DC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
@@ -1078,6 +1080,13 @@ static void target_coordinator(INT start_code, void *opaque)
             round_failure = 1;
         }
 
+        mtfs_test_begin(&test, "fatfs_lfn", target_reporter, NULL);
+        case_result = test_fatfs_lfn(&test, "0:");
+        if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
+            target_print_diagnostics(&sd_context);
+            round_failure = 1;
+        }
+
         mtfs_test_begin(&test, "fatfs_concurrent_microtkernel",
             target_reporter, NULL);
         case_result = mtfs_target_run_concurrent(&test, "0:", round);
@@ -1144,6 +1153,12 @@ static void target_coordinator(INT start_code, void *opaque)
         if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
             round_failure = 1;
         }
+        mtfs_test_begin(&test, "fatfs_lfn_after_reinsert",
+            target_reporter, NULL);
+        case_result = test_fatfs_lfn(&test, "0:");
+        if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
+            round_failure = 1;
+        }
 #endif
 
 round_done:
@@ -1182,7 +1197,7 @@ round_done:
             overall_failure = 1;
         }
     }
-    tm_printf((UB *)"[mtfs] PHASE 3.5 RUN %s\n",
+    tm_printf((UB *)"[mtfs] PHASE 3.6 RUN %s\n",
         overall_failure ? (UB *)"FAIL" : (UB *)"PASS");
 #if MTFS_STM32N6570_HOTPLUG_TEST
     if (media_application_event_flag_id > 0) {

@@ -53,6 +53,8 @@
 									<listOptionValue builtIn="false" value="_STM32CUBE_DISCOVERY_N657_"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_REENTRANT=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
 									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
@@ -114,7 +116,7 @@
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Core"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_block"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_core"/>
-						<entry excluding="ffsystem.c|ffunicode.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_fatfs"/>
+						<entry excluding="ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_fatfs"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_os"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_common"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_sdmmc"/>
@@ -181,6 +183,8 @@
 									<listOptionValue builtIn="false" value="_STM32CUBE_DISCOVERY_N657_"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_REENTRANT=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
 									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
@@ -242,7 +246,7 @@
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Core"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_block"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_core"/>
-						<entry excluding="ffsystem.c|ffunicode.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_fatfs"/>
+						<entry excluding="ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_fatfs"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_os"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_common"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_sdmmc"/>

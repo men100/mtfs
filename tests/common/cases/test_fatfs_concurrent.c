@@ -11,7 +11,7 @@
 
 #include "ff.h"
 
-#define MTFS_CONCURRENT_PATH_SIZE  (64U)
+#define MTFS_CONCURRENT_PATH_SIZE  (96U)
 #define MTFS_CONCURRENT_CHUNK_SIZE (2048U)
 #define MTFS_CONCURRENT_ITERATIONS (64U)
 #define MTFS_CONCURRENT_WORKERS    (2U)
@@ -171,7 +171,12 @@ done:
 int test_fatfs_concurrent(mtfs_test_t *test, const char *volume_path)
 {
     static const char *const filenames[MTFS_CONCURRENT_WORKERS] = {
+#if MTFS_FF_USE_LFN == 2
+        "microtfs concurrent task alpha result.bin",
+        "microtfs concurrent task beta result.bin"
+#else
         "TASKA.BIN", "TASKB.BIN"
+#endif
     };
     static const unsigned int seeds[MTFS_CONCURRENT_WORKERS] = {0x31U, 0xA7U};
     char paths[MTFS_CONCURRENT_WORKERS][MTFS_CONCURRENT_PATH_SIZE];

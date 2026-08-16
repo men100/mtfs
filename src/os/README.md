@@ -10,4 +10,7 @@ Phase 1のmutex適合層は次のいずれかを `MTFS_FATFS_MUTEX_ADAPTER` に�
 
 選択値は単一のenum形式なのでPOSIX版とmicroT-Kernel版を同時に有効化できません。`src/` 全体をビルド対象へ加えても、非選択適合層のソースはOSヘッダや関数実体を生成しません。
 
-RTC適合はPhase 1の対象外です。既定の `MTFS_FF_FS_NORTC=1` ではFatFsの固定日時を使用します。
+RTCは共通timestamp providerとFatFs hookを`src/core`/`src/fatfs`に持ち、RA FSP RTC portと
+STM32Cube RTC portが実装済みです。両targetでsoftware reset後の保持とFatFs timestampを
+実機確認しています。既定の `MTFS_FF_FS_NORTC=1` では従来どおりFatFsの固定日時を使い、
+RTC構成だけがproviderとtarget portをbuild・registerします。

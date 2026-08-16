@@ -22,6 +22,29 @@
 #define MTFS_FF_FS_READONLY (0)
 #endif
 
+/*
+ * Optional FatFs long-file-name support. Only the no-LFN configuration and
+ * the per-caller stack working buffer are supported by microT-FS. The maximum
+ * is measured in FatFs UTF-16 code units even though the Phase 3.6 API remains
+ * ANSI/OEM char strings (not UTF-8).
+ */
+#ifndef MTFS_FF_USE_LFN
+#define MTFS_FF_USE_LFN (0)
+#endif
+
+#ifndef MTFS_FF_MAX_LFN
+#define MTFS_FF_MAX_LFN (64)
+#endif
+
+#ifndef MTFS_FF_LFN_UNICODE
+#define MTFS_FF_LFN_UNICODE (0)
+#endif
+
+#ifndef MTFS_FF_CODE_PAGE
+/* FatFs token-pastes fixed code-page values into conversion-table names. */
+#define MTFS_FF_CODE_PAGE 932
+#endif
+
 /* FatFs volume and timestamp defaults for targets without a calendar RTC. */
 #ifndef MTFS_FF_FS_NORTC
 #define MTFS_FF_FS_NORTC (1)
@@ -54,6 +77,34 @@
 
 #if (MTFS_FF_FS_REENTRANT != 0) && (MTFS_FF_FS_REENTRANT != 1)
 #error MTFS_FF_FS_REENTRANT must be 0 or 1
+#endif
+
+#if (MTFS_FF_USE_LFN != 0) && (MTFS_FF_USE_LFN != 2)
+#error MTFS_FF_USE_LFN must be 0 or 2
+#endif
+
+#if MTFS_FF_USE_LFN && \
+    ((MTFS_FF_MAX_LFN < 12) || (MTFS_FF_MAX_LFN > 255))
+#error MTFS_FF_MAX_LFN must be between 12 and 255 when LFN is enabled
+#endif
+
+#if MTFS_FF_LFN_UNICODE != 0
+#error MTFS_FF_LFN_UNICODE must be 0; UTF-8/UTF-16/UTF-32 APIs are unsupported
+#endif
+
+#if (MTFS_FF_CODE_PAGE != 0) && \
+    (MTFS_FF_CODE_PAGE != 437) && (MTFS_FF_CODE_PAGE != 720) && \
+    (MTFS_FF_CODE_PAGE != 737) && (MTFS_FF_CODE_PAGE != 771) && \
+    (MTFS_FF_CODE_PAGE != 775) && (MTFS_FF_CODE_PAGE != 850) && \
+    (MTFS_FF_CODE_PAGE != 852) && (MTFS_FF_CODE_PAGE != 855) && \
+    (MTFS_FF_CODE_PAGE != 857) && (MTFS_FF_CODE_PAGE != 860) && \
+    (MTFS_FF_CODE_PAGE != 861) && (MTFS_FF_CODE_PAGE != 862) && \
+    (MTFS_FF_CODE_PAGE != 863) && (MTFS_FF_CODE_PAGE != 864) && \
+    (MTFS_FF_CODE_PAGE != 865) && (MTFS_FF_CODE_PAGE != 866) && \
+    (MTFS_FF_CODE_PAGE != 869) && (MTFS_FF_CODE_PAGE != 932) && \
+    (MTFS_FF_CODE_PAGE != 936) && (MTFS_FF_CODE_PAGE != 949) && \
+    (MTFS_FF_CODE_PAGE != 950)
+#error MTFS_FF_CODE_PAGE is not supported by the bundled FatFs
 #endif
 
 #if (MTFS_ENABLE_DIAGNOSTICS != 0) && (MTFS_ENABLE_DIAGNOSTICS != 1)

@@ -8,6 +8,13 @@ endif()
 enable_testing()
 find_package(Threads REQUIRED)
 
+set(MTFS_HOST_FF_USE_LFN "2" CACHE STRING
+    "FatFs LFN mode for the host test executable (0 or 2)")
+set(MTFS_HOST_FF_MAX_LFN "64" CACHE STRING
+    "FatFs maximum LFN length in UTF-16 code units")
+set(MTFS_HOST_FF_CODE_PAGE "932" CACHE STRING
+    "FatFs OEM code page for host tests")
+
 add_executable(mtfs_host_tests
     main.c
     test_benchmark.c
@@ -19,6 +26,7 @@ add_executable(mtfs_host_tests
     ../common/framework/mtfs_test.c
     ../common/benchmarks/mtfs_benchmark.c
     ../common/cases/test_fatfs_concurrent.c
+    ../common/cases/test_fatfs_lfn.c
     ../common/cases/test_fatfs_roundtrip.c
     ../common/cases/test_fatfs_timestamp.c
     ../../apps/rtc-set/common/mtfs_rtc_set_app.c
@@ -28,6 +36,7 @@ add_executable(mtfs_host_tests
     ../../src/core/mtfs_media.c
     ../../src/core/mtfs_time.c
     ../../src/fatfs/ff.c
+    ../../src/fatfs/ffunicode.c
     ../../src/fatfs/mtfs_diskio.c
     ../../src/fatfs/mtfs_fattime.c
     ../../src/os/host/mtfs_fatfs_mutex_posix.c
@@ -60,6 +69,9 @@ target_include_directories(mtfs_host_tests PRIVATE
 
 target_compile_definitions(mtfs_host_tests PRIVATE
     MTFS_FF_USE_MKFS=1
+    MTFS_FF_USE_LFN=${MTFS_HOST_FF_USE_LFN}
+    MTFS_FF_MAX_LFN=${MTFS_HOST_FF_MAX_LFN}
+    MTFS_FF_CODE_PAGE=${MTFS_HOST_FF_CODE_PAGE}
     MTFS_FF_FS_NORTC=0
     MTFS_FF_FS_REENTRANT=1
     MTFS_FATFS_MUTEX_ADAPTER=MTFS_FATFS_MUTEX_ADAPTER_POSIX
@@ -86,6 +98,7 @@ target_compile_options(mtfs_diskio_readonly_compile PRIVATE
 
 add_library(mtfs_fatfs_nonreentrant_compile OBJECT
     ../../src/fatfs/ff.c
+    ../../src/fatfs/ffunicode.c
     ../../src/fatfs/mtfs_diskio.c
     ../../src/os/host/mtfs_fatfs_mutex_posix.c
     ../../src/os/microtkernel/mtfs_fatfs_mutex.c
