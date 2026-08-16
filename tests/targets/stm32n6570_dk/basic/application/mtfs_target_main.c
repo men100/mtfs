@@ -388,6 +388,23 @@ static void target_print_diagnostics(
             media.debounce_starts, media.debounce_rechecks,
             media.inserted_events, media.removed_events, media.error_events);
     }
+    tm_printf((UB *)"[diag] st v=%u size=%u epoch=%u validity=0x%08x mode=%s state=%u/%u/%u geometry=%u/0x%08x%08x/%u bounce=%u line=%u aligned=%u\n",
+        diagnostics->api_version,
+        diagnostics->struct_size,
+        diagnostics->reset_epoch,
+        diagnostics->validity_mask,
+        diagnostics->use_idma ? (UB *)"IDMA+IRQ" : (UB *)"polling",
+        diagnostics->initialized,
+        diagnostics->hal_initialized,
+        diagnostics->transfer_active,
+        diagnostics->sector_size,
+        (UW)(diagnostics->sector_count >> 32U),
+        (UW)diagnostics->sector_count,
+        diagnostics->erase_block_size,
+        diagnostics->bounce_buffer_size,
+        diagnostics->cache_line_size,
+        ((uintptr_t)context->bounce_buffer &
+            (diagnostics->cache_line_size - 1U)) == 0U);
     tm_printf((UB *)"[mtfs] irq=%u rx=%u tx=%u err=%u abort=%u timeout=%u/%u\n",
         diagnostics->irq_entries,
         diagnostics->rx_complete_callbacks,
@@ -406,11 +423,12 @@ static void target_print_diagnostics(
         diagnostics->write_single_starts,
         diagnostics->write_multi_starts,
         diagnostics->write_max_blocks);
-    tm_printf((UB *)"[mtfs] last mtfs=%d tk=%d hal=%u/0x%08x clkcr(snapshot)=0x%08x hwfc=%u div=%u\n",
+    tm_printf((UB *)"[mtfs] last mtfs=%d tk=%d hal=%u/0x%08x transfer-hal=0x%08x clkcr(snapshot)=0x%08x hwfc=%u div=%u\n",
         diagnostics->last_error,
         diagnostics->last_kernel_error,
         diagnostics->last_hal_status,
         diagnostics->last_hal_error,
+        diagnostics->transfer_hal_error,
         diagnostics->last_clkcr,
         (diagnostics->last_clkcr & SDMMC_CLKCR_HWFC_EN) != 0U,
         diagnostics->last_clkcr & SDMMC_CLKCR_CLKDIV);
@@ -605,7 +623,7 @@ static void target_coordinator(INT start_code, void *opaque)
     }
 #endif
     mtfs_stm32n6570_dk_get_rif_diagnostics(&rif);
-    tm_printf((UB *)"\n[mtfs] STM32N6570-DK Phase 3: profile=%s rounds=%u path=%s hotplug=%s\n",
+    tm_printf((UB *)"\n[mtfs] STM32N6570-DK Phase 3.5: profile=%s rounds=%u path=%s hotplug=%s\n",
         (UB *)MTFS_STM32N6570_TEST_PROFILE_NAME,
         MTFS_STM32N6570_TEST_ROUNDS,
         config.use_idma ? (UB *)"IDMA+IRQ" : (UB *)"polling fallback",
@@ -842,7 +860,7 @@ round_done:
             overall_failure = 1;
         }
     }
-    tm_printf((UB *)"[mtfs] PHASE 3 RUN %s\n",
+    tm_printf((UB *)"[mtfs] PHASE 3.5 RUN %s\n",
         overall_failure ? (UB *)"FAIL" : (UB *)"PASS");
 #if MTFS_STM32N6570_HOTPLUG_TEST
     if (media_application_event_flag_id > 0) {

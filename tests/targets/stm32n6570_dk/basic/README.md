@@ -134,7 +134,7 @@ source変更時はbackup domain/markerを明示的に無効化してください
 
 - `set 2026-08-14 21:30:00`後にsoftware system resetし、`status: VALID`を確認。
 - reset後の`get`は`21:30:59`、約65秒後は`21:32:04`で、calendar進行とmarker保持を確認。
-- `test-fatfs-time`のSTM32N6570-DK実機実行は未確認。
+- 2026-08-16にIDMA/polling両構成で`test-fatfs-time`を実行し、checks 12、failures 0でPASS。
 
 現在はFull Secure imageなのでRTC/TAMP secure aliasへ直接アクセスします。将来TrustZone化
 する場合は設定とmarker writeをSecure側へ残し、Non-Secure側には検証済みread serviceだけを
@@ -240,5 +240,32 @@ STM32N6570-DK、Appli Debug、smoke、IDMA+IRQ、hotplug有効、500 ms debounce
 - idle抜去後のstatus/readがNO_MEDIAとなり、unmount/unregister、service/IRQ/kernel object cleanupが成功。
 - I/D cache有効、RIF ready、32-byte aligned内部RAM bounce bufferを維持。
 
-この結果はidle挿抜のIDMA経路に限定します。polling fallback、active read中の抜去、write中の
-抜去は未確認です。write中の物理抜去は必須試験に含めません。
+この2026-08-14の結果はidle挿抜のIDMA経路に限定します。polling fallbackは下記のPhase 3.5
+実機結果で確認済みです。active read中とwrite中の抜去は未確認で、write中の物理抜去は必須試験に含めません。
+
+## Phase 3.5構造化diagnostics実機確認
+
+Phase 3.5ではcommon Block Device、removable media、STM32 SDMMC typed snapshotを`diag`で表示します。ST typed行にはversion/size/reset epoch/validity、IDMAまたはpolling、initialized/HAL initialized/transfer active、geometry、bounce buffer size、cache-line size/alignmentを出します。HALからcard negotiated speed modeを信頼できる形で取得できないため、`CLKCR`はperipheral register snapshotとしてのみ表示します。
+
+まず既定の`MTFS_STM32_SD_USE_IDMA=1`でRelease clean buildし、次を確認します。
+
+1. `MTFS_STM32N6570_TEST_PROFILE=1`と`MTFS_STM32N6570_HOTPLUG_TEST=1`を一時的に追加し、起動bannerが`Phase 3.5 ... path=IDMA+IRQ hotplug=on`になることを確認します。
+2. raw read、FatFs roundtrip、concurrent、`sdmmc_idma_diagnostics`をPASSさせます。typed snapshotではIRQ/RX/TX、read/write multi、最大block数が増え、error callback、abort、completion/card-state timeoutが0であることを確認します。
+3. idle removal/reinsertを行い、removal contractと`fatfs_roundtrip_after_reinsert`をPASSさせます。consoleで`diag`を実行し、`media_generation=3`、inserted/removed event、removal hintの増加を記録します。Card Detectのbounce回数と確定event数は一致しなくて構いません。
+4. `diag-reset`の戻り値がすべて0で、counterがclearされてもcached state、geometry、media generation、last error、CLKCRが維持されることを確認します。同一active contextでreset直後にI/Oを継続する厳密試験は今回の必須項目に含めません。
+5. `bench-smoke`、`bench-normal`、`test-fatfs-time`を実行し、4 KiB raw readをPhase 3.4 IDMA baseline 4044.0 KiB/sと比較します。
+
+次に`MTFS_STM32_SD_USE_IDMA=0`へ変更してRelease clean buildし、同じ試験を繰り返します。typed snapshotのmodeが`polling`、IRQ/RX/TX callbackとmulti-block counterが0、read/write最大block数が1、error/timeoutが0であることを確認します。4 KiB raw readの比較baselineは825.3 KiB/sです。試験後はhotplug/profile defineを外し、使用する既定modeへ戻してclean buildしてください。
+
+### Phase 3.5実機結果（2026-08-16）
+
+STM32N6570-DKのRelease clean buildでIDMA+IRQとpolling fallbackを個別に実行し、次を確認しました。
+
+- 両modeでsmoke、idle removal/reinsert、再挿入後roundtrip、`bench-smoke`、`bench-normal`、`test-fatfs-time`がPASS。
+- 両modeでHAL error、abort、completion/card-state timeoutは0。hotplug後は`media_generation=3`、inserted/removed/error eventは2/1/0。
+- 抜去後のNO_MEDIA確認により、IDMAはcommon read 75/74/1、requested/completed sector 80/79、pollingは77/76/1、82/81。各1件のfailureは意図した契約確認。
+- IDMA normalはIRQ/RX/TX 8,272/5,338/2,934、read/write最大block数8。raw readは512 B 826.5 KiB/s、4 KiB 4,047.3 KiB/s、32 KiB 3,837.0 KiB/s。
+- polling normalはIRQ/RX/TX 0/0/0、multi-block 0、read/write最大block数1。raw readは512 B 826.4 KiB/s、4 KiB 825.9 KiB/s、32 KiB 816.5 KiB/s。
+- 4 KiB raw readはPhase 3.4 baseline比でIDMA約+0.08%、polling約+0.07%で、diagnostics追加による重大な性能退行は観測されませんでした。IDMAはpollingの約4.9倍です。
+
+console commandは各実行の終了時に対象contextをdeinitします。したがって`test-fatfs-time`直後の`diag`ではST typedのstateが0/0/0となり、public geometry getterを呼んでいないcommon snapshotのgeometryが未設定になる場合があります。typedのcached geometryは512 byte、7,829,504 sector、erase block 1を維持しており、これはI/O異常ではありません。同一active contextで`diag-reset`直後にI/Oを継続する厳密試験は今回の必須項目から除外し、未実施です。

@@ -133,7 +133,7 @@ enabled buildのhot pathでは、各公開operation前後の共通bookkeepingと
 | ターゲット | 有効 | 無効 | 有効時のオーバーヘッド |
 |---|---:|---:|---:|
 | EK-RA8P1 | text 78,380 B; data 0 B; BSS 87,304 B | text 76,044 B; data 0 B; BSS 86,912 B | text 2,336 B; BSS 392 B |
-| STM32N6570-DK IDMA | text 79,056 B; data 3,412 B; BSS 90,804 B | text 77,404 B; data 3,412 B; BSS 90,420 B | text 1,652 B; BSS 384 B |
+| STM32N6570-DK IDMA | text 79,320 B; data 3,412 B; BSS 90,804 B | text 77,668 B; data 3,412 B; BSS 90,420 B | text 1,652 B; BSS 384 B |
 
 BSS差にはtarget storage context 1個とmedia context 1個が含まれます。32-bit ABI上のcontext差はmedia 64 B、RA 328 B、ST 320 Bです。診断storage単体ではcommon state 192 B、RA typed storage 120 B、ST typed storage 128 Bです。残りはoptionalなdevice pointerとalignment/paddingによるlayout差です。
 
@@ -170,4 +170,12 @@ consoleの`bench-smoke`と`test-fatfs-time`は実行ごとにSD/media contextを
 
 ### STM32N6570-DK
 
-polling/IDMAのPhase 3.5 buildはcompile/link済みです。Phase 3.5 diagnostics enabledでの実機機能試験と性能再計測は未実施です。
+2026-08-16にRelease buildのIDMA+IRQとpolling fallbackの両方で、smoke、idle hotplug、再挿入後FatFs roundtrip、`bench-smoke`、`bench-normal`、RTC/FatFs timestampを実行し、すべてPASSしました。HAL error、abort、completion/card-state timeoutはいずれも0でした。
+
+IDMAのnormal runではread/writeの最大要求block数が8、IRQ/RX/TXは8,272/5,338/2,934となり、multi-block転送が使用されました。raw readは512 B 826.5 KiB/s、4 KiB 4,047.3 KiB/s、32 KiB 3,837.0 KiB/sでした。Phase 3.4の4 KiB baseline 4,044.0 KiB/sとの差は約+0.08%で、重大な性能退行は観測されていません。
+
+pollingのnormal runではIRQ/RX/TXとmulti-block counterがすべて0、read/writeの最大要求block数が1でした。raw readは512 B 826.4 KiB/s、4 KiB 825.9 KiB/s、32 KiB 816.5 KiB/sでした。Phase 3.4の4 KiB baseline 825.3 KiB/sとの差は約+0.07%です。4 KiBではIDMAがpollingの約4.9倍となり、両modeの実装差がdiagnosticsと性能の両方に反映されています。
+
+hotplug後のsnapshotは、IDMAでcommon read 75/74/1、requested/completed sector 80/79、pollingで77/76/1、82/81でした。各1回のfailureと1 sectorの差は抜去後のNO_MEDIA確認readです。両modeとも`media_generation=3`、inserted/removed/error event 2/1/0となり、再初期化と再挿入後I/Oが成功しました。
+
+console commandは実行ごとにSD/media contextを新規初期化し、終了時にdeinitします。このため、`test-fatfs-time`直後のcommon geometryは、public geometry getterを呼んでいない新しいsnapshotでは未設定値を示し、ST typedのinitialized/HAL initialized/transfer activeは0になります。typed snapshotのcached geometryは維持されており、I/O異常ではありません。STで同一active contextの`diag-reset`直後にI/Oを継続する厳密試験は、今回の必須項目に含めず未実施です。
