@@ -11,6 +11,7 @@
 #include "ff.h"
 #include "mtfs_stm32_sdmmc.h"
 #include "mtfs_test.h"
+#include "mtfs_benchmark.h"
 #include "test_fatfs_roundtrip.h"
 #include "mtfs_stm32n6570_dk_platform.h"
 #include "mtfs_target_concurrent.h"
@@ -25,10 +26,11 @@
 #endif
 #if !MTFS_FF_FS_NORTC && MTFS_TARGET_RTC_CONSOLE
 #include "mtfs_rtc_set_app.h"
+#include "mtfs_rtc_set_tmonitor.h"
 #include "test_fatfs_timestamp.h"
-#define MTFS_TARGET_RTC_CONSOLE_ACTIVE (1)
+#define MTFS_TARGET_COMMAND_CONSOLE_ACTIVE (1)
 #else
-#define MTFS_TARGET_RTC_CONSOLE_ACTIVE (0)
+#define MTFS_TARGET_COMMAND_CONSOLE_ACTIVE (0)
 #endif
 
 #define MTFS_TEST_PROFILE_SMOKE   (1)
@@ -71,6 +73,13 @@ static volatile uint32_t media_reinitialize_count;
 static ID media_application_event_flag_id;
 static uint8_t sector_zero_single[MTFS_STM32_SDMMC_SECTOR_SIZE];
 static uint8_t sector_zero_multi[MTFS_STM32_SDMMC_SECTOR_SIZE * 2U];
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
+static uint8_t benchmark_buffer[MTFS_BENCHMARK_BUFFER_BYTES];
+#endif
+static void target_media_event(void *opaque, mtfs_media_event_t event,
+    mtfs_media_state_t state);
+static void target_print_diagnostics(
+    const mtfs_stm32_sdmmc_context_t *context);
 #if !MTFS_FF_FS_NORTC
 static mtfs_stm32_rtc_context_t rtc_context;
 static ID rtc_mutex_id;
@@ -88,24 +97,144 @@ static void target_rtc_unlock(void *opaque)
 }
 #endif
 
-#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
-static void target_rtc_write(void *opaque, const char *text)
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
+static int target_console_command(void *opaque, const char *line);
+
+static void target_benchmark_log(void *opaque, const char *line)
 {
     (void)opaque;
-    (void)tm_putstring((const UB *)text);
+    tm_printf((UB *)"%s\n", (UB *)line);
 }
 
-static int target_rtc_command(void *opaque, const char *line);
+static void target_benchmark_info(void *opaque,
+    mtfs_benchmark_log_fn log, void *log_context)
+{
+    const mtfs_stm32_sdmmc_context_t *context =
+        (const mtfs_stm32_sdmmc_context_t *)opaque;
+    const SD_HandleTypeDef *hal_sd = context->config.hal_sd;
+    uint32_t clkcr = hal_sd->Instance->CLKCR;
+    uint32_t bus_width = 1U;
+    (void)log;
+    (void)log_context;
 
-static void target_rtc_console(void)
+    if ((clkcr & SDMMC_CLKCR_WIDBUS) == SDMMC_BUS_WIDE_4B) {
+        bus_width = 4U;
+    } else if ((clkcr & SDMMC_CLKCR_WIDBUS) == SDMMC_BUS_WIDE_8B) {
+        bus_width = 8U;
+    }
+    tm_printf((UB *)"[BENCH] target card=%s transport=SDMMC2 bus_width=%u clock_hz=%u mode=%s\n",
+        hal_sd->SdCard.CardType == CARD_SDHC_SDXC
+            ? (UB *)"SDHC/SDXC" : (UB *)"SDSC",
+        bus_width, mtfs_stm32n6570_dk_sdmmc_clock_hz(),
+        context->config.use_idma ? (UB *)"idma_irq" : (UB *)"polling");
+    tm_printf((UB *)"[BENCH] target block_mapping=%s multi_request=%s cache_i=%s cache_d=%s\n",
+        context->config.use_idma
+            ? (UB *)"HAL_SD_ReadBlocks_DMA/HAL_SD_WriteBlocks_DMA"
+            : (UB *)"HAL_SD_ReadBlocks/HAL_SD_WriteBlocks-per-sector",
+        context->config.use_idma ? (UB *)"preserved" : (UB *)"split",
+        (SCB->CCR & SCB_CCR_IC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
+        (SCB->CCR & SCB_CCR_DC_Msk) ? (UB *)"enabled" : (UB *)"disabled");
+    tm_printf((UB *)"[BENCH] clock source=microtkernel_uptime+systick resolution=core_cycle tick_ms=10 monotonic=yes\n");
+}
+
+static int target_run_benchmark(
+    mtfs_benchmark_profile_t profile, int info_only)
+{
+    mtfs_stm32_sdmmc_config_t sd_config;
+    mtfs_benchmark_config_t benchmark;
+    mtfs_block_device_t *device = NULL;
+    mtfs_error_t error;
+    int failure = 1;
+    int registered = 0;
+    int context_ready = 0;
+    int media_ready = 0;
+
+    mtfs_stm32n6570_dk_sdmmc_config(&sd_config);
+    error = mtfs_stm32_sdmmc_context_init(&sd_context, &sd_config);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=context_init error=%d\n", error);
+        goto cleanup;
+    }
+    context_ready = 1;
+    error = mtfs_stm32n6570_dk_card_detect_start(&media_context,
+        &media_service, &sd_context, target_media_event, NULL);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=card_detect error=%d\n", error);
+        goto cleanup;
+    }
+    media_ready = 1;
+    device = mtfs_stm32_sdmmc_block_device(&sd_context);
+    error = mtfs_block_initialize(device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=initialize error=%d\n", error);
+        goto cleanup;
+    }
+    error = mtfs_block_registry_register(0U, device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[BENCH] setup stage=register error=%d\n", error);
+        goto cleanup;
+    }
+    registered = 1;
+
+    memset(&benchmark, 0, sizeof(benchmark));
+    benchmark.device = device;
+    benchmark.volume_path = "0:";
+    benchmark.board_name = "STM32N6570-DK";
+#ifdef __OPTIMIZE__
+    benchmark.build_name = "optimized";
+#else
+    benchmark.build_name = "debug";
+#endif
+    benchmark.clock_us = mtfs_stm32n6570_dk_benchmark_clock_us;
+    benchmark.log = target_benchmark_log;
+    benchmark.target_info = target_benchmark_info;
+    benchmark.target_info_context = &sd_context;
+    benchmark.buffer = benchmark_buffer;
+    benchmark.buffer_size = sizeof(benchmark_buffer);
+    failure = info_only
+        ? mtfs_benchmark_print_info(&benchmark, profile)
+        : mtfs_benchmark_run(&benchmark, profile);
+
+cleanup:
+    if (context_ready) {
+        target_print_diagnostics(&sd_context);
+    }
+    if (media_ready &&
+        (mtfs_stm32n6570_dk_card_detect_stop() != MTFS_OK)) {
+        tm_printf((UB *)"[BENCH] cleanup stage=card_detect status=FAIL\n");
+        failure = 1;
+    }
+    if (registered && (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
+        tm_printf((UB *)"[BENCH] cleanup stage=registry status=FAIL\n");
+        failure = 1;
+    }
+    if (context_ready &&
+        (mtfs_stm32_sdmmc_context_deinit(&sd_context) != MTFS_OK)) {
+        tm_printf((UB *)"[BENCH] cleanup stage=context status=FAIL\n");
+        failure = 1;
+    }
+    tm_printf((UB *)"[BENCH] COMMAND status=%s\n",
+        failure ? (UB *)"FAIL" : (UB *)"PASS");
+    return failure;
+}
+
+static void target_command_console(void)
 {
     mtfs_rtc_set_app_t app;
-    mtfs_rtc_set_app_init(&app, target_rtc_write, NULL);
-    mtfs_rtc_set_app_set_extension(&app, target_rtc_command, NULL,
-        "test-fatfs-time           verify FatFs timestamp against RTC\r\n");
-    mtfs_rtc_set_app_banner(&app);
+    mtfs_rtc_set_app_init(&app, mtfs_rtc_set_tmonitor_write, NULL);
+    mtfs_rtc_set_app_set_extension(&app, target_console_command, NULL,
+        "test-fatfs-time           verify FatFs timestamp against RTC\r\n"
+        "bench-info                print ST benchmark conditions\r\n"
+        "bench-smoke               run short non-destructive benchmark\r\n"
+        "bench-normal              run 1 MiB baseline benchmark\r\n");
+    mtfs_rtc_set_tmonitor_write(NULL,
+        "microT-FS STM32N6570-DK command console\r\n"
+        "Commands: RTC, FatFs timestamp test, and storage benchmark.\r\n"
+        "RTC set uses local time; no timezone/DST conversion.\r\n"
+        "Type help for commands.\r\n> ");
     for (;;) {
-        mtfs_rtc_set_app_feed(&app, (char)tm_getchar(1));
+        mtfs_rtc_set_app_feed(&app,
+            (char)mtfs_rtc_set_tmonitor_getchar());
     }
 }
 #endif
@@ -245,7 +374,7 @@ static void target_print_diagnostics(
         diagnostics->last_clkcr & SDMMC_CLKCR_CLKDIV);
 }
 
-#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
 static void target_print_timestamp_datetime(
     const char *label, const mtfs_datetime_t *datetime)
 {
@@ -340,14 +469,26 @@ cleanup:
     return test_failure ? 1 : 0;
 }
 
-static int target_rtc_command(void *opaque, const char *line)
+static int target_console_command(void *opaque, const char *line)
 {
     (void)opaque;
-    if (strcmp(line, "test-fatfs-time") != 0) {
-        return 0;
+    if (strcmp(line, "test-fatfs-time") == 0) {
+        (void)target_run_fatfs_time_test();
+        return 1;
     }
-    (void)target_run_fatfs_time_test();
-    return 1;
+    if (strcmp(line, "bench-info") == 0) {
+        (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_NORMAL, 1);
+        return 1;
+    }
+    if (strcmp(line, "bench-smoke") == 0) {
+        (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_SMOKE, 0);
+        return 1;
+    }
+    if (strcmp(line, "bench-normal") == 0) {
+        (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_NORMAL, 0);
+        return 1;
+    }
+    return 0;
 }
 #endif
 
@@ -650,10 +791,10 @@ round_done:
         media_application_event_flag_id = 0;
     }
 #endif
-#if MTFS_TARGET_RTC_CONSOLE_ACTIVE
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
     if (rtc_error == MTFS_OK) {
-        tm_printf((UB *)"[mtfs] RTC console ready after test run\n");
-        target_rtc_console();
+        tm_printf((UB *)"[mtfs] command console ready after test run\n");
+        target_command_console();
     }
 #endif
     tk_exd_tsk();

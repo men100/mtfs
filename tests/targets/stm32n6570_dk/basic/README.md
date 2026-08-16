@@ -1,6 +1,6 @@
 # STM32N6570-DK SDMMC2 runner
 
-STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。Phase 3.2ではPN12/EXTI12のCard Detect、edge後だけの500 ms debounce、挿入・抜去・再挿入を追加しました。I-cache/D-cacheを有効のまま使い、RIF readback、raw read、FatFs roundtrip、2 task同時アクセス、IRQ/callback/転送block数を診断します。raw sector writeとformatは行いません。
+STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。Phase 3.2ではPN12/EXTI12のCard Detect、edge後だけの500 ms debounce、挿入・抜去・再挿入を追加しました。I-cache/D-cacheを有効のまま使い、RIF readback、raw read、FatFs roundtrip、2 task同時アクセス、IRQ/callback/転送block数を診断します。Phase 3.4ではbasic test後のcommand consoleから非破壊performance benchmarkを実行できます。raw sector writeとformatは行いません。
 
 ## 対応ツールとプロジェクト
 
@@ -37,7 +37,7 @@ CubeIDEで`.ioc`を再生成すると`Core/Src/main.c`、`stm32n6xx_hal_msp.c`�
 - SDMMC2 global interrupt が enabled、preemption priority 5、subpriority 0。
 - PN12 `SD_DETECT` がpull-up、rising/falling EXTI12、preemption priority 6、subpriority 0。
 - SDMMC2 は Appli、4-bit、RIF CID1。
-- `mtfs_core`、`mtfs_os`を含むlinked resource/include path、source exclude、`MTFS_*` defineが残り、絶対パスが混入しない。
+- `mtfs_core`、`mtfs_os`、`mtfs_benchmarks`を含むlinked resource/include path、source exclude、`MTFS_*` defineが残り、絶対パスが混入しない。
 
 ## IDMA / polling 選択
 
@@ -47,6 +47,29 @@ Appli Debug/Release の C compiler define `MTFS_STM32_SD_USE_IDMA` で切り替�
 - `0`: polling fallback。同じ Block Device/FatFs/test API を使いますが、複数 sector の要求を 1 sector ずつの HAL polling 転送へ分割します。SDMMC hardware flow control もこの経路だけ有効にし、速度より確実性を優先します。IDMA 固有の診断 assertion は省略します。
 
 変更後は clean build してください。実機合格は両設定で別々に確認します。
+
+## Performance benchmark（Phase 3.4）
+
+通常のbasic testが完了してcommand consoleのpromptが表示された後、次を順に実行します。
+
+```text
+bench-info
+bench-smoke
+bench-normal
+```
+
+共通benchmark本体、profile、非破壊条件、ログ項目は
+`docs/testing/performance-benchmark.md`に従います。32 KiBの静的bufferを使用し、raw試験は
+read-onlyです。FatFs試験が作成・検証・削除するのは`MTFSBEN.TMP`だけで、同名ファイルが
+既にあれば上書きせず中止します。
+
+baselineはRelease buildで、IDMA+IRQとpollingをそれぞれclean buildして取得します。
+`bench-info`の`mode=idma_irq`または`mode=polling`、4-bit bus、実測SDMMC clock、cache状態を
+保存してください。IDMAでは複数block要求をHAL DMAへ保持し、pollingでは1 sectorずつへ分割
+するため、両者は別baselineとして扱います。まず`bench-smoke`の全case、pattern検証、6回の
+`cleanup file_removed=yes`、`SUITE END status=PASS`を確認してから`bench-normal`を実行します。
+各command後のSDMMC診断ではerror、abort、completion/card-state timeoutがすべて0であることも
+確認してください。
 
 ## RIF、cache、timebase
 
@@ -70,7 +93,7 @@ time/date設定、HAL readback一致確認、BKP29/30、最後にBKP28の順で�
 このportのset範囲は2000-2099年です。
 
 RTC/provider mutexはcoordinator task開始時に静的T-Kernel objectとして作成します。通常の
-FatFs試験完了後、同じtaskがUSART1 VCP（115200 8N1）でRTC consoleへ移行します。
+FatFs試験完了後、同じtaskがUSART1 VCP（115200 8N1）でcommand consoleへ移行します。
 `MTFS_TARGET_RTC_CONSOLE=1`はこの診断consoleだけを選択し、製品構成では0にできます。
 `MTFS_FF_FS_NORTC=1`ではconsole指定にかかわらずRTC初期化とconsoleをコンパイル対象の
 実行経路から外し、このtargetのHAL RTC moduleとSTM32 RTC port本体も無効になります。
@@ -80,6 +103,9 @@ status
 set 2026-08-14 21:30:00
 get
 test-fatfs-time
+bench-info
+bench-smoke
+bench-normal
 clear
 help
 ```

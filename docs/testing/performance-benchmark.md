@@ -51,6 +51,14 @@ Phase 3.4a以降は各benchmark commandの終了時にRA SPI wait診断も表示
 
 計測時計はmicroT-Kernelの64-bit monotonic operating timeとSysTickの現在値を組み合わせます。kernel tickは10 msですが、timestamp分解能はcore cycle相当です。RTCやwall-clock変更の影響を受けず、長いI/Oの経過時間は64-bit operating timeが保持するため32-bit cycle counter wrapには依存しません。
 
+## STM32N6570-DKでの実行
+
+CubeIDEで`tests/targets/stm32n6570_dk/basic/Appli`のReleaseと対応するFSBLをbuildして書き込みます。既存basic test完了後のcommand consoleで、RAと同じ順に`bench-info`、`bench-smoke`、`bench-normal`を実行します。
+
+既定の`MTFS_STM32_SD_USE_IDMA=1`はSDMMC2 4-bit IDMA+IRQで、複数block要求をHAL DMAへ保持します。比較用のpolling baselineはcompiler defineを0へ変更してclean buildし、同じカードと手順で測定します。polling portは複数sector要求を単一sector HAL callへ分割します。`bench-info`にはHALが初期化後に設定したCLKCRとSDMMC2 source clockから算出した実bus clockを出力します。
+
+各commandの終了時にSDMMC診断も表示します。正常なbaselineではHAL error callback、abort、completion timeout、card-state timeoutがすべて0であること、IDMAではIRQ/Rx/Tx callbackとmulti-block counterが増えることを確認してください。
+
 比較用にconsole logを加工せず保存し、次も一緒に記録してください。
 
 - SDカードのメーカー、型番、容量。同じカードをSTでも使ったか
@@ -64,8 +72,12 @@ Phase 3.4の測定はPhase 3.4aのRA SPI wait/timeout修正の間だけ中断し
 
 EK-RA8P1の実測baselineは2026-08-16にPhase 3.4a修正済みRelease (`build=optimized`) で取得しました。SDHC/SDXC、FAT32、4 KiB cluster、SPI 4 MHz、cache有効、warm-upなし、各case 1 runです。throughputはrequest size 512 B / 4 KiB / 32 KiBの順に記載します。
 
+STM32N6570-DKのIDMA+IRQ baselineも2026-08-16にRelease (`build=optimized`) で取得しました。SDHC/SDXC、FAT32、SDMMC2 4-bit 200 MHz、32 KiB cluster、cache有効、warm-upなし、各case 1 runです。IDMAは複数block要求を保持し、実測counterのread/write最大転送は8 blockでした。
+
+同日のpolling baselineは同じRelease条件で`MTFS_STM32_SD_USE_IDMA=0`へ切り替えて取得しました。portが全要求を1 sector HAL callへ分割するため、IRQ/Rx/Tx callbackとmulti-block counterは0、read/write最大転送は1 block、SDMMC hardware flow controlは有効でした。
+
 | target/path | raw read | FatFs write/read | request-sync | error/abort/timeout | verification/cleanup |
 |---|---|---|---|---|---|
 | EK-RA8P1 / SPI 4 MHz | 273.6 / 273.6 / 273.4 KiB/s | end-sync write 82.6 / 87.4 / 82.8 KiB/s; read 281.4 / 281.4 / 281.2 KiB/s | write 32.7 / 58.2 / 92.4 KiB/s; read 277.3 / 275.0 / 275.7 KiB/s | SPI 0; token timeout 0; ready timeout 0; clock error 0 | all cases PASS; checksum PASS; cleanup 6/6 |
-| STM32N6570-DK / polling | pending | pending | pending | pending | pending |
-| STM32N6570-DK / IDMA + IRQ | pending | pending | pending | pending | pending |
+| STM32N6570-DK / polling | 826.0 / 825.3 / 815.3 KiB/s | end-sync write 102.8 / 103.5 / 111.4 KiB/s; read 911.9 / 911.1 / 857.3 KiB/s | write 50.9 / 35.2 / 121.4 KiB/s; read 881.2 / 871.6 / 832.9 KiB/s | HAL error 0; abort 0; completion/card-state timeout 0/0 | all cases PASS; checksum PASS; cleanup 6/6; multi-block 0/max 1 |
+| STM32N6570-DK / IDMA + IRQ | 826.4 / 4044.0 / 3844.1 KiB/s | end-sync write 111.4 / 199.9 / 186.9 KiB/s; read 906.6 / 4273.6 / 3651.1 KiB/s | write 31.8 / 184.2 / 179.7 KiB/s; read 874.0 / 3934.5 / 3472.7 KiB/s | HAL error 0; abort 0; completion/card-state timeout 0/0 | all cases PASS; checksum PASS; cleanup 6/6; multi-block max 8 |

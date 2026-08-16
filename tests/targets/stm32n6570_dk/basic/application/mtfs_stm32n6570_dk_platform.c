@@ -88,6 +88,51 @@ static uint32_t mtfs_stm32n6570_dk_now_ms(void *opaque)
     return HAL_GetTick();
 }
 
+uint64_t mtfs_stm32n6570_dk_benchmark_clock_us(void *context)
+{
+    SYSTIM before = {0};
+    SYSTIM after = {0};
+    uint32_t reload;
+    uint32_t current = 0U;
+    uint32_t attempt;
+    uint64_t milliseconds;
+    uint64_t phase_us = 0U;
+    (void)context;
+
+    reload = SysTick->LOAD + 1U;
+    for (attempt = 0U; attempt < 4U; ++attempt) {
+        (void)tk_get_otm(&before);
+        current = SysTick->VAL;
+        (void)tk_get_otm(&after);
+        if ((before.hi == after.hi) && (before.lo == after.lo) &&
+            ((SCB->ICSR & SCB_ICSR_PENDSTSET_Msk) == 0U)) {
+            break;
+        }
+    }
+    milliseconds = ((uint64_t)(uint32_t)after.hi << 32U) | after.lo;
+    if ((attempt < 4U) && (reload != 0U) && (SystemCoreClock != 0U)) {
+        if (current > reload) {
+            current = reload;
+        }
+        phase_us = ((uint64_t)(reload - current) * UINT64_C(1000000)) /
+            SystemCoreClock;
+        if (phase_us >= UINT64_C(10000)) {
+            phase_us = UINT64_C(9999);
+        }
+    }
+    return milliseconds * UINT64_C(1000) + phase_us;
+}
+
+uint32_t mtfs_stm32n6570_dk_sdmmc_clock_hz(void)
+{
+    uint32_t source_hz =
+        HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_SDMMC2);
+    uint32_t divider =
+        (SDMMC2->CLKCR & SDMMC_CLKCR_CLKDIV) >> SDMMC_CLKCR_CLKDIV_Pos;
+
+    return divider == 0U ? source_hz : source_hz / (2U * divider);
+}
+
 static void mtfs_stm32n6570_dk_exti12_handler(UINT interrupt_number)
 {
     int rising = __HAL_GPIO_EXTI_GET_RISING_IT(SD_DETECT_Pin) != 0U;

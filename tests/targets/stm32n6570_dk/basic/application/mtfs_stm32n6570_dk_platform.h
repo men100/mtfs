@@ -30,6 +30,9 @@ typedef struct mtfs_stm32n6570_dk_card_detect_diagnostics
 /* Call after Cube peripheral setup and before starting microT-Kernel. */
 HAL_StatusTypeDef mtfs_stm32n6570_dk_pre_kernel_init(void);
 
+uint64_t mtfs_stm32n6570_dk_benchmark_clock_us(void *context);
+uint32_t mtfs_stm32n6570_dk_sdmmc_clock_hz(void);
+
 void mtfs_stm32n6570_dk_sdmmc_config(
     mtfs_stm32_sdmmc_config_t *config);
 void mtfs_stm32n6570_dk_get_rif_diagnostics(

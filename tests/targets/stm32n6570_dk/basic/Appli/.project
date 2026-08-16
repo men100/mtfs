@@ -180,6 +180,7 @@
 		<link><name>mtfs_rtc_set_app</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/apps/rtc-set/common</locationURI></link>
 		<link><name>mtfs_test_framework</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/tests/common/framework</locationURI></link>
 		<link><name>mtfs_test_cases</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/tests/common/cases</locationURI></link>
+		<link><name>mtfs_benchmarks</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/tests/common/benchmarks</locationURI></link>
 		<link><name>mtfs_test_microtkernel</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/tests/common/microtkernel</locationURI></link>
 		<link><name>mtk3_bsp2</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/mtk3_bsp2</locationURI></link>
 		<link><name>CubeDrivers</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/boards/stm32n6570_dk/Drivers</locationURI></link>
