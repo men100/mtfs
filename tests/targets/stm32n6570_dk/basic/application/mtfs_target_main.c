@@ -228,6 +228,7 @@ static void target_command_console(void)
         "bench-info                print ST benchmark conditions\r\n"
         "bench-smoke               run short non-destructive benchmark\r\n"
         "bench-normal              run 1 MiB baseline benchmark\r\n"
+        "test-diagnostics-reset    verify reset on one active context\r\n"
         "diag                      print common/media/ST snapshots\r\n"
         "diag-reset                reset diagnostic counters only\r\n"
         "diag-help                 explain diagnostic commands\r\n");
@@ -435,6 +436,323 @@ static void target_print_diagnostics(
 }
 
 #if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
+static int target_common_counters_are_clear(
+    const mtfs_block_diagnostics_t *diagnostics)
+{
+    return (diagnostics->initialize_calls == 0U) &&
+        (diagnostics->initialize_successes == 0U) &&
+        (diagnostics->initialize_failures == 0U) &&
+        (diagnostics->status_calls == 0U) &&
+        (diagnostics->status_failures == 0U) &&
+        (diagnostics->read_calls == 0U) &&
+        (diagnostics->read_successes == 0U) &&
+        (diagnostics->read_failures == 0U) &&
+        (diagnostics->write_calls == 0U) &&
+        (diagnostics->write_successes == 0U) &&
+        (diagnostics->write_failures == 0U) &&
+        (diagnostics->sync_calls == 0U) &&
+        (diagnostics->sync_successes == 0U) &&
+        (diagnostics->sync_failures == 0U) &&
+        (diagnostics->geometry_calls == 0U) &&
+        (diagnostics->geometry_failures == 0U) &&
+        (diagnostics->trim_calls == 0U) &&
+        (diagnostics->trim_successes == 0U) &&
+        (diagnostics->trim_failures == 0U) &&
+        (diagnostics->read_sectors_requested == 0U) &&
+        (diagnostics->read_sectors_completed == 0U) &&
+        (diagnostics->write_sectors_requested == 0U) &&
+        (diagnostics->write_sectors_completed == 0U) &&
+        (diagnostics->io_errors == 0U) &&
+        (diagnostics->not_ready_errors == 0U) &&
+        (diagnostics->no_media_errors == 0U) &&
+        (diagnostics->write_protected_errors == 0U) &&
+        (diagnostics->out_of_range_errors == 0U) &&
+        (diagnostics->timeout_errors == 0U) &&
+        (diagnostics->other_errors == 0U);
+}
+
+static int target_media_counters_are_clear(
+    const mtfs_media_diagnostics_t *diagnostics)
+{
+    return (diagnostics->irq_notifications == 0U) &&
+        (diagnostics->manual_notifications == 0U) &&
+        (diagnostics->poll_checks == 0U) &&
+        (diagnostics->debounce_starts == 0U) &&
+        (diagnostics->debounce_rechecks == 0U) &&
+        (diagnostics->inserted_events == 0U) &&
+        (diagnostics->removed_events == 0U) &&
+        (diagnostics->error_events == 0U);
+}
+
+static int target_st_counters_are_clear(
+    const mtfs_stm32_sdmmc_diagnostics_t *diagnostics)
+{
+    return (diagnostics->irq_entries == 0U) &&
+        (diagnostics->rx_complete_callbacks == 0U) &&
+        (diagnostics->tx_complete_callbacks == 0U) &&
+        (diagnostics->error_callbacks == 0U) &&
+        (diagnostics->read_single_starts == 0U) &&
+        (diagnostics->read_multi_starts == 0U) &&
+        (diagnostics->write_single_starts == 0U) &&
+        (diagnostics->write_multi_starts == 0U) &&
+        (diagnostics->read_max_blocks == 0U) &&
+        (diagnostics->write_max_blocks == 0U) &&
+        (diagnostics->aborts == 0U) &&
+        (diagnostics->media_removal_notifications == 0U) &&
+        (diagnostics->media_wait_wakeups == 0U) &&
+        (diagnostics->completion_timeouts == 0U) &&
+        (diagnostics->card_state_timeouts == 0U);
+}
+
+static int target_run_diagnostics_reset_test(void)
+{
+    mtfs_stm32_sdmmc_config_t config;
+    mtfs_block_device_t *device = NULL;
+    mtfs_block_geometry_t geometry;
+    mtfs_block_status_t status = 0U;
+    mtfs_block_diagnostics_t common_before;
+    mtfs_block_diagnostics_t common_reset;
+    mtfs_block_diagnostics_t common_after;
+    mtfs_media_diagnostics_t media_before;
+    mtfs_media_diagnostics_t media_reset;
+    mtfs_media_diagnostics_t media_after;
+    mtfs_stm32_sdmmc_diagnostics_t port_before;
+    mtfs_stm32_sdmmc_diagnostics_t port_reset;
+    mtfs_stm32_sdmmc_diagnostics_t port_after;
+    mtfs_test_t test;
+    mtfs_error_t error;
+    int registered = 0;
+    int context_ready = 0;
+    int media_ready = 0;
+    int failure;
+
+    mtfs_test_begin(&test, "diagnostics_reset_active_context",
+        target_reporter, NULL);
+    mtfs_stm32n6570_dk_sdmmc_config(&config);
+    error = mtfs_stm32_sdmmc_context_init(&sd_context, &config);
+    if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "ST context initialization succeeds")) goto cleanup;
+    context_ready = 1;
+
+    error = mtfs_stm32n6570_dk_card_detect_start(&media_context,
+        &media_service, &sd_context, target_media_event, NULL);
+    if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "media context starts")) goto cleanup;
+    media_ready = 1;
+    device = mtfs_stm32_sdmmc_block_device(&sd_context);
+    error = mtfs_block_initialize(device);
+    if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "block device initializes")) goto cleanup;
+    error = mtfs_block_registry_register(0U, device);
+    if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "block device registers")) goto cleanup;
+    registered = 1;
+    error = mtfs_block_get_geometry(device, &geometry);
+    if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "geometry query succeeds")) goto cleanup;
+    (void)MTFS_TEST_CHECK(&test,
+        (geometry.sector_size == MTFS_STM32_SDMMC_SECTOR_SIZE) &&
+            (geometry.sector_count > 0U),
+        "geometry is usable before reset");
+    error = mtfs_block_status(device, &status);
+    if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "status query succeeds")) goto cleanup;
+    (void)MTFS_TEST_CHECK(&test,
+        (status & (MTFS_BLOCK_STATUS_INITIALIZED |
+            MTFS_BLOCK_STATUS_MEDIA_PRESENT)) ==
+            (MTFS_BLOCK_STATUS_INITIALIZED |
+                MTFS_BLOCK_STATUS_MEDIA_PRESENT),
+        "status reports initialized media before reset");
+    error = mtfs_block_read(device, sector_zero_single, 0U, 1U);
+    if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "raw read succeeds before reset")) goto cleanup;
+
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_block_diagnostics_get(device, &common_before) == MTFS_OK,
+            "common snapshot is available before reset")) goto cleanup;
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_media_diagnostics_get(&media_context, &media_before) ==
+                MTFS_OK,
+            "media snapshot is available before reset")) goto cleanup;
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_stm32_sdmmc_diagnostics_get(&sd_context, &port_before) ==
+                MTFS_OK,
+            "ST snapshot is available before reset")) goto cleanup;
+    (void)MTFS_TEST_CHECK(&test,
+        (common_before.read_calls > 0U) &&
+            (common_before.read_sectors_completed > 0U) &&
+            ((port_before.read_single_starts +
+                port_before.read_multi_starts) > 0U),
+        "I/O counters increase before reset");
+
+    error = mtfs_block_diagnostics_reset(device);
+    (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,
+        "common diagnostics reset succeeds");
+    error = mtfs_media_diagnostics_reset(&media_context);
+    (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,
+        "media diagnostics reset succeeds");
+    error = mtfs_stm32_sdmmc_diagnostics_reset(&sd_context);
+    (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,
+        "ST diagnostics reset succeeds");
+
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_block_diagnostics_get(device, &common_reset) == MTFS_OK,
+            "common snapshot is available after reset")) goto cleanup;
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_media_diagnostics_get(&media_context, &media_reset) ==
+                MTFS_OK,
+            "media snapshot is available after reset")) goto cleanup;
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_stm32_sdmmc_diagnostics_get(&sd_context, &port_reset) ==
+                MTFS_OK,
+            "ST snapshot is available after reset")) goto cleanup;
+
+    (void)MTFS_TEST_CHECK(&test,
+        common_reset.reset_epoch == common_before.reset_epoch + 1U,
+        "common reset epoch advances");
+    (void)MTFS_TEST_CHECK(&test,
+        media_reset.reset_epoch == media_before.reset_epoch + 1U,
+        "media reset epoch advances");
+    (void)MTFS_TEST_CHECK(&test,
+        port_reset.reset_epoch == port_before.reset_epoch + 1U,
+        "ST reset epoch advances");
+    (void)MTFS_TEST_CHECK(&test,
+        target_common_counters_are_clear(&common_reset),
+        "all common counters clear");
+    (void)MTFS_TEST_CHECK(&test,
+        target_media_counters_are_clear(&media_reset),
+        "all media counters clear");
+    (void)MTFS_TEST_CHECK(&test,
+        target_st_counters_are_clear(&port_reset),
+        "all ST counters clear");
+    (void)MTFS_TEST_CHECK(&test,
+        (common_reset.validity_mask == common_before.validity_mask) &&
+            (common_reset.flags == common_before.flags) &&
+            (common_reset.capabilities == common_before.capabilities) &&
+            (common_reset.status == common_before.status) &&
+            (common_reset.sector_size == common_before.sector_size) &&
+            (common_reset.sector_count == common_before.sector_count) &&
+            (common_reset.erase_block_size ==
+                common_before.erase_block_size) &&
+            (common_reset.last_operation == common_before.last_operation) &&
+            (common_reset.last_error == common_before.last_error),
+        "common cached state is preserved");
+    (void)MTFS_TEST_CHECK(&test,
+        ((common_reset.status & (MTFS_BLOCK_STATUS_INITIALIZED |
+            MTFS_BLOCK_STATUS_MEDIA_PRESENT)) ==
+            (MTFS_BLOCK_STATUS_INITIALIZED |
+                MTFS_BLOCK_STATUS_MEDIA_PRESENT)) &&
+            ((common_reset.validity_mask &
+                MTFS_BLOCK_DIAGNOSTICS_VALID_GEOMETRY) != 0U),
+        "common active status and geometry remain valid");
+    (void)MTFS_TEST_CHECK(&test,
+        (media_reset.validity_mask == media_before.validity_mask) &&
+            (media_reset.media_generation == media_before.media_generation) &&
+            (media_reset.notification_sequence ==
+                media_before.notification_sequence) &&
+            (media_reset.state == media_before.state) &&
+            (media_reset.stable_present == media_before.stable_present) &&
+            (media_reset.state == MTFS_MEDIA_STATE_PRESENT) &&
+            (media_reset.stable_present != 0U),
+        "media state and generation are preserved");
+    (void)MTFS_TEST_CHECK(&test,
+        (port_reset.validity_mask == port_before.validity_mask) &&
+            (port_reset.last_clkcr == port_before.last_clkcr) &&
+            (port_reset.last_hal_status == port_before.last_hal_status) &&
+            (port_reset.last_hal_error == port_before.last_hal_error) &&
+            (port_reset.transfer_hal_error ==
+                port_before.transfer_hal_error) &&
+            (port_reset.last_kernel_error == port_before.last_kernel_error) &&
+            (port_reset.last_error == port_before.last_error) &&
+            (port_reset.sector_count == port_before.sector_count) &&
+            (port_reset.sector_size == port_before.sector_size) &&
+            (port_reset.erase_block_size == port_before.erase_block_size) &&
+            (port_reset.bounce_buffer_size ==
+                port_before.bounce_buffer_size) &&
+            (port_reset.cache_line_size == port_before.cache_line_size) &&
+            (port_reset.use_idma == port_before.use_idma) &&
+            (port_reset.initialized == port_before.initialized) &&
+            (port_reset.hal_initialized == port_before.hal_initialized) &&
+            (port_reset.transfer_active == port_before.transfer_active) &&
+            (port_reset.initialized != 0U) &&
+            (port_reset.hal_initialized != 0U) &&
+            (port_reset.transfer_active == 0U),
+        "ST cached and live state are preserved");
+
+    error = mtfs_block_read(device, sector_zero_multi, 0U, 1U);
+    (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,
+        "raw read succeeds on the same context after reset");
+    (void)MTFS_TEST_CHECK(&test,
+        memcmp(sector_zero_single, sector_zero_multi,
+            MTFS_STM32_SDMMC_SECTOR_SIZE) == 0,
+        "raw data is unchanged after reset");
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_block_diagnostics_get(device, &common_after) == MTFS_OK,
+            "common snapshot is available after post-reset I/O")) {
+        goto cleanup;
+    }
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_media_diagnostics_get(&media_context, &media_after) ==
+                MTFS_OK,
+            "media snapshot is available after post-reset I/O")) {
+        goto cleanup;
+    }
+    if (!MTFS_TEST_CHECK(&test,
+            mtfs_stm32_sdmmc_diagnostics_get(&sd_context, &port_after) ==
+                MTFS_OK,
+            "ST snapshot is available after post-reset I/O")) goto cleanup;
+    (void)MTFS_TEST_CHECK(&test,
+        (common_after.reset_epoch == common_reset.reset_epoch) &&
+            (common_after.read_calls == 1U) &&
+            (common_after.read_successes == 1U) &&
+            (common_after.read_failures == 0U) &&
+            (common_after.read_sectors_requested == 1U) &&
+            (common_after.read_sectors_completed == 1U),
+        "common read counters restart from zero");
+    (void)MTFS_TEST_CHECK(&test,
+        (media_after.reset_epoch == media_reset.reset_epoch) &&
+            (media_after.media_generation == media_reset.media_generation) &&
+            (media_after.state == MTFS_MEDIA_STATE_PRESENT) &&
+            (media_after.stable_present != 0U),
+        "media state remains active after post-reset I/O");
+    (void)MTFS_TEST_CHECK(&test,
+        (port_after.reset_epoch == port_reset.reset_epoch) &&
+            (port_after.read_single_starts == 1U) &&
+            (port_after.read_multi_starts == 0U) &&
+            (port_after.read_max_blocks == 1U) &&
+            (port_after.error_callbacks == 0U) &&
+            (port_after.completion_timeouts == 0U) &&
+            (port_after.card_state_timeouts == 0U) &&
+            (port_after.use_idma
+                ? ((port_after.irq_entries > 0U) &&
+                    (port_after.rx_complete_callbacks == 1U))
+                : ((port_after.irq_entries == 0U) &&
+                    (port_after.rx_complete_callbacks == 0U))),
+        "ST transfer counters restart from zero for the selected mode");
+
+cleanup:
+    if (context_ready) target_print_diagnostics(&sd_context);
+    if (media_ready) {
+        error = mtfs_stm32n6570_dk_card_detect_stop();
+        (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "media context cleanup succeeds");
+    }
+    if (registered) {
+        error = mtfs_block_registry_unregister(0U);
+        (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "block registry cleanup succeeds");
+    }
+    if (context_ready) {
+        error = mtfs_stm32_sdmmc_context_deinit(&sd_context);
+        (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,
+            "ST context cleanup succeeds");
+    }
+    failure = mtfs_test_finish(&test) != 0;
+    tm_printf((UB *)"[mtfs] diagnostics reset command %s\n",
+        failure ? (UB *)"FAIL" : (UB *)"PASS");
+    return failure ? 1 : 0;
+}
+
 static void target_print_timestamp_datetime(
     const char *label, const mtfs_datetime_t *datetime)
 {
@@ -546,6 +864,10 @@ static int target_console_command(void *opaque, const char *line)
     }
     if (strcmp(line, "bench-normal") == 0) {
         (void)target_run_benchmark(MTFS_BENCHMARK_PROFILE_NORMAL, 0);
+        return 1;
+    }
+    if (strcmp(line, "test-diagnostics-reset") == 0) {
+        (void)target_run_diagnostics_reset_test();
         return 1;
     }
     if (strcmp(line, "diag") == 0) {

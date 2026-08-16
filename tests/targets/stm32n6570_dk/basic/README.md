@@ -252,7 +252,7 @@ Phase 3.5ではcommon Block Device、removable media、STM32 SDMMC typed snapsho
 1. `MTFS_STM32N6570_TEST_PROFILE=1`と`MTFS_STM32N6570_HOTPLUG_TEST=1`を一時的に追加し、起動bannerが`Phase 3.5 ... path=IDMA+IRQ hotplug=on`になることを確認します。
 2. raw read、FatFs roundtrip、concurrent、`sdmmc_idma_diagnostics`をPASSさせます。typed snapshotではIRQ/RX/TX、read/write multi、最大block数が増え、error callback、abort、completion/card-state timeoutが0であることを確認します。
 3. idle removal/reinsertを行い、removal contractと`fatfs_roundtrip_after_reinsert`をPASSさせます。consoleで`diag`を実行し、`media_generation=3`、inserted/removed event、removal hintの増加を記録します。Card Detectのbounce回数と確定event数は一致しなくて構いません。
-4. `diag-reset`の戻り値がすべて0で、counterがclearされてもcached state、geometry、media generation、last error、CLKCRが維持されることを確認します。同一active contextでreset直後にI/Oを継続する厳密試験は今回の必須項目に含めません。
+4. カードを挿入した状態で`test-diagnostics-reset`を実行し、同一active contextで3層のepoch増加、全counter clear、cached state/geometry/media generation/last error/CLKCR維持、reset後raw read、read counter再増加、cleanupがPASSすることを確認します。
 5. `bench-smoke`、`bench-normal`、`test-fatfs-time`を実行し、4 KiB raw readをPhase 3.4 IDMA baseline 4044.0 KiB/sと比較します。
 
 次に`MTFS_STM32_SD_USE_IDMA=0`へ変更してRelease clean buildし、同じ試験を繰り返します。typed snapshotのmodeが`polling`、IRQ/RX/TX callbackとmulti-block counterが0、read/write最大block数が1、error/timeoutが0であることを確認します。4 KiB raw readの比較baselineは825.3 KiB/sです。試験後はhotplug/profile defineを外し、使用する既定modeへ戻してclean buildしてください。
@@ -268,4 +268,6 @@ STM32N6570-DKのRelease clean buildでIDMA+IRQとpolling fallbackを個別に実
 - polling normalはIRQ/RX/TX 0/0/0、multi-block 0、read/write最大block数1。raw readは512 B 826.4 KiB/s、4 KiB 825.9 KiB/s、32 KiB 816.5 KiB/s。
 - 4 KiB raw readはPhase 3.4 baseline比でIDMA約+0.08%、polling約+0.07%で、diagnostics追加による重大な性能退行は観測されませんでした。IDMAはpollingの約4.9倍です。
 
-console commandは各実行の終了時に対象contextをdeinitします。したがって`test-fatfs-time`直後の`diag`ではST typedのstateが0/0/0となり、public geometry getterを呼んでいないcommon snapshotのgeometryが未設定になる場合があります。typedのcached geometryは512 byte、7,829,504 sector、erase block 1を維持しており、これはI/O異常ではありません。同一active contextで`diag-reset`直後にI/Oを継続する厳密試験は今回の必須項目から除外し、未実施です。
+console commandは各実行の終了時に対象contextをdeinitします。したがって`test-fatfs-time`直後の`diag`ではST typedのstateが0/0/0となり、public geometry getterを呼んでいないcommon snapshotのgeometryが未設定になる場合があります。typedのcached geometryは512 byte、7,829,504 sector、erase block 1を維持しており、これはI/O異常ではありません。
+
+同一active context用の`test-diagnostics-reset`はIDMA/polling両構成でRelease build済みです。2026-08-16にIDMA実機で実行し、40 checks、0 failuresでPASSしました。reset後はcommon/media/ST epochが1、status/geometry/media generation/CLKCR/initialized stateが維持され、raw read後にcommon requested/completed sectorが1/1、ST read single/maxが1/1、IRQ/RXが1/1へ再増加しました。HAL error、abort、timeoutは0でした。pollingでの同じ実機試験は任意確認として未実施です。

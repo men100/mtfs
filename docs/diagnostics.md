@@ -139,7 +139,9 @@ BSS差にはtarget storage context 1個とmedia context 1個が含まれます�
 
 ## コンソールコマンド
 
-RA/ST runner consoleは`diag`、`diag-reset`、`diag-help`を提供します。文字列整形はrunner側だけで行い、production APIは数値構造体を返します。`diag-reset`は各層のresultを表示し、mount、unmount、initialize、format、storage hardware accessを行いません。
+RA/ST runner consoleは`diag`、`diag-reset`、`diag-help`、`test-diagnostics-reset`を提供します。文字列整形はrunner側だけで行い、production APIは数値構造体を返します。`diag-reset`は各層のresultを表示し、mount、unmount、initialize、format、storage hardware accessを行いません。
+
+`test-diagnostics-reset`は試験用の新しいSD/media contextを初期化し、公開status/geometry APIでcacheを有効化してから、同一active context内で`raw read -> get -> common/media/port reset -> get -> raw read -> get`を実行します。3層のepoch増加、全累積counterのclear、status/geometry/media generation/target固有stateの維持、同一sector dataの一致、common/port read counterの0からの再増加を検証し、最後にregistry、media service、port contextをcleanupします。raw writeとfilesystem変更は行いません。
 
 ```text
 > diag
@@ -166,7 +168,7 @@ hotplug後のcommon readはcall/success/failure 83/82/1、requested/completed se
 
 `diag-reset`はcommon/media/RAの全APIで`MTFS_OK`を返しました。直後のsnapshotではcommon/media epochが1へ進み、counterが0になった一方、common status `INITIALIZED|MEDIA_PRESENT`、geometry、last operation/error、media state、`media_generation`、RA initialization stage、last errors、R1、4 MHz bitrateが維持されました。
 
-consoleの`bench-smoke`と`test-fatfs-time`は実行ごとにSD/media contextを新規初期化し、終了時にdeinitします。このため、`diag-reset`後にこれらを実行すると新しいcontextの`reset_epoch=0`と`media_generation=1`で開始します。reset後の再初期化とI/OはPASSしていますが、同一のactive contextでreset直後にI/Oを継続するtarget試験は未実施です。
+consoleの`bench-smoke`と`test-fatfs-time`は実行ごとにSD/media contextを新規初期化し、終了時にdeinitします。このため、`diag-reset`後にこれらを実行すると新しいcontextの`reset_epoch=0`と`media_generation=1`で開始します。2026-08-16にRA実機で`test-diagnostics-reset`を実行し、40 checks、0 failuresでPASSしました。reset後は3層のepochが1、common statusが`INITIALIZED|MEDIA_PRESENT`、geometryとmedia generationが維持され、同一contextのraw read成功後にcommon readが1/1/0、requested/completed sectorが1/1、RA read sectorが1へ再増加しました。SPI transfer starts/completionsは124/124、errorとtimeoutは0でした。
 
 ### STM32N6570-DK
 
@@ -178,4 +180,6 @@ pollingのnormal runではIRQ/RX/TXとmulti-block counterがすべて0、read/wr
 
 hotplug後のsnapshotは、IDMAでcommon read 75/74/1、requested/completed sector 80/79、pollingで77/76/1、82/81でした。各1回のfailureと1 sectorの差は抜去後のNO_MEDIA確認readです。両modeとも`media_generation=3`、inserted/removed/error event 2/1/0となり、再初期化と再挿入後I/Oが成功しました。
 
-console commandは実行ごとにSD/media contextを新規初期化し、終了時にdeinitします。このため、`test-fatfs-time`直後のcommon geometryは、public geometry getterを呼んでいない新しいsnapshotでは未設定値を示し、ST typedのinitialized/HAL initialized/transfer activeは0になります。typed snapshotのcached geometryは維持されており、I/O異常ではありません。STで同一active contextの`diag-reset`直後にI/Oを継続する厳密試験は、今回の必須項目に含めず未実施です。
+console commandは実行ごとにSD/media contextを新規初期化し、終了時にdeinitします。このため、`test-fatfs-time`直後のcommon geometryは、public geometry getterを呼んでいない新しいsnapshotでは未設定値を示し、ST typedのinitialized/HAL initialized/transfer activeは0になります。typed snapshotのcached geometryは維持されており、I/O異常ではありません。
+
+2026-08-16にST IDMA実機で`test-diagnostics-reset`を実行し、40 checks、0 failuresでPASSしました。reset後は3層のepochが1、common status/geometry、media generation、ST geometry/CLKCR/initialized stateが維持されました。同一contextのraw read後はcommon readが1/1/0、requested/completed sectorが1/1、ST read single/maxが1/1、IRQ/RXが1/1へ再増加し、HAL error、abort、timeoutは0でした。polling版はRelease build済みで、同じ実機試験は任意確認として未実施です。
