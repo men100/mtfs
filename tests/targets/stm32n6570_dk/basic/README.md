@@ -56,6 +56,7 @@ Debug/Release既定は次のcompiler defineでASCII長名試験を有効にし�
 ```text
 MTFS_FF_USE_LFN=2
 MTFS_FF_MAX_LFN=64
+MTFS_FF_CODE_PAGE=437
 ```
 
 `mtfs_fatfs` source folderでは`ffunicode.c`を除外しません。LFN無効buildを確認する場合は
@@ -65,10 +66,11 @@ workerは従来の16 KiB stackを維持し、taskごとの長名と独立`FIL`�
 
 runnerは通常roundで`fatfs_lfn`、hotplug再挿入後に`fatfs_lfn_after_reinsert`を実行します。
 create/write/sync、rename/readdir、remount、long directory、最大長／異常系、SFN alias衝突、
-cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=932`も保存します。
+cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=437`も保存します。
 polling smokeは`MTFS_STM32_SD_USE_IDMA=0`とsmoke profileでclean buildし、同じLFN testとcleanupを
-確認します。APIは`FF_LFN_UNICODE=0`のANSI/OEM `char`であり、UTF-8や日本語filenameの実績を
-意味しません。CP932変換tableのROM影響はRelease map/sizeでLFN無効buildとの差を記録します。
+確認します。CP437はASCII互換のDOS OEM code pageであり、正式な試験・保証範囲はASCIIの英数字、
+space、`-`、`_`、`.`による8.3名とLFNです。CP437拡張文字、CP932/Shift_JIS、日本語filename、
+Unicode/UTF-8は正式対応外です。applicationがFatFs APIを直接呼ぶため、独自validation層は追加しません。
 
 ## Performance benchmark（Phase 3.4）
 
@@ -299,4 +301,5 @@ console commandは各実行の終了時に対象contextをdeinitします。し�
 - LFN有効のRelease IDMA+IRQ normal 10周で、8.3 roundtrip、LFN、2-task concurrent、diagnostics、RTC/FatFs timestamp、`bench-smoke`、`bench-normal`がPASSしました。4 KiB raw readはReleaseでPhase 3.4 baselineと同等で、重大な性能退行はありませんでした。
 - Release polling fallback smokeでLFN、2-task concurrent、cleanup、`bench-smoke`がPASSしました。IRQ/RX/TXは0、HAL error、abort、completion/card-state timeoutは0でした。
 - Release IDMA+IRQ hotplug smokeで、挿入、初期化、LFN、idle抜去、NO_MEDIA contract、再挿入、再初期化、`fatfs_roundtrip_after_reinsert`、`fatfs_lfn_after_reinsert`がPASSしました。inserted/removed/error eventは2/1/0、HAL error、abort、completion/card-state timeoutは0でした。
-- LFN無効のRelease buildも成功し、LFN有効によるROM増加は約66 KiBでした。増加の大半はcode page 932用`ffunicode.c`のDBCS変換tableで、BSSと既存16 KiB worker stack設定に実質的な増加はありません。
+- LFN無効のRelease buildも成功しました。旧CP932構成での参考値ではLFN有効によるROM増加は約66 KiBで、大半は`ffunicode.c`のDBCS変換tableでした。BSSと既存16 KiB worker stack設定に実質的な増加はありません。
+- 既定code pageをCP437へ変更後、Release IDMA+IRQとpollingをclean buildし、どちらもwarning/errorなしで成功しました。通常IDMA構成はtext/data/BSS 91,280 / 3,412 / 90,808 bytes、`ffunicode.o` text 1,190 bytesです。同一hotplug IDMA構成の旧CP932 151,396 / 3,412 / 90,808 bytesに対し、CP437は92,568 / 3,412 / 90,808 bytesで、textを58,828 bytes削減しました。実機normal 10周で起動bannerの`codepage=437`、8.3 roundtrip、LFN 45 checks、2-task concurrent、IDMA diagnosticsを全周PASSし、HAL error、abort、timeoutは0でした。

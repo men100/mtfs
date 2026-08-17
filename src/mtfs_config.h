@@ -41,8 +41,8 @@
 #endif
 
 #ifndef MTFS_FF_CODE_PAGE
-/* FatFs token-pastes fixed code-page values into conversion-table names. */
-#define MTFS_FF_CODE_PAGE 932
+/* CP437 is ASCII-compatible; microT-FS formally supports ASCII names only. */
+#define MTFS_FF_CODE_PAGE 437
 #endif
 
 /* FatFs volume and timestamp defaults for targets without a calendar RTC. */

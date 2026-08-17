@@ -34,7 +34,7 @@ git submodule update --init --recursive
 | VCC | 3V3 | 3.3 V |
 | GND | GND | GND |
 
-SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマットしてください。exFAT、NTFS、未フォーマット媒体には対応しません。テストはルートへ `RTTEST.BIN` と、LFN有効時は `microtfs inference result 2026-08-16.txt` などのPhase 3.6長名およびworker固有の長名、無効時は `TASKA.BIN`, `TASKB.BIN` を一時作成して最後に削除します。同名の既存file/directoryがないカードを使ってください。
+SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマットしてください。exFAT、NTFS、未フォーマット媒体には対応しません。テストはルートへ `RTTEST.BIN` と、LFN有効時は `MicroTFS Inference_Result 2026-08-16.txt` などのPhase 3.6長名およびworker固有の長名、無効時は `TASKA.BIN`, `TASKB.BIN` を一時作成して最後に削除します。同名の既存file/directoryがないカードを使ってください。
 
 ## FSP設定
 
@@ -72,6 +72,7 @@ Debug/Release既定は次のcompile definitionでASCII長名試験を有効に�
 ```text
 MTFS_FF_USE_LFN=2
 MTFS_FF_MAX_LFN=64
+MTFS_FF_CODE_PAGE=437
 ```
 
 `mtfs_src` source folderでは`ffunicode.c`を除外しません。LFN無効buildを確認する場合は
@@ -81,13 +82,16 @@ stackへLFN working bufferを置き、既定64では少なくとも130 byteを�
 
 runnerは通常roundで`fatfs_lfn`、hotplug再挿入後に`fatfs_lfn_after_reinsert`を実行します。
 create/write/sync、rename/readdir、remount、long directory、最大長／異常系、SFN alias衝突、
-cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=932`も保存します。
-APIは`FF_LFN_UNICODE=0`のANSI/OEM `char`であり、UTF-8や日本語filenameの実績を意味しません。
-CP932変換tableのROM影響はRelease map/sizeでLFN無効buildとの差を記録します。
+cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=437`も保存します。
+CP437はASCII互換のDOS OEM code pageであり、正式な試験・保証範囲はASCIIの英数字、space、
+`-`、`_`、`.`による8.3名とLFNです。CP437拡張文字、CP932/Shift_JIS、日本語filename、
+Unicode/UTF-8は正式対応外です。applicationがFatFs APIを直接呼ぶため、独自validation層は追加しません。
 
-2026-08-17のFSP 6.5.0／Arm GCC 13.2.1 Release clean buildでは、LFN有効が
+旧CP932構成（2026-08-17、FSP 6.5.0／Arm GCC 13.2.1）のRelease clean buildでは、LFN有効が
 text 150,340 bytes、BSS 87,312 bytes、無効がtext 82,596 bytes、BSS 87,304 bytesでした。
 差分はtext +67,744 bytes、BSS +8 bytesで、`ffunicode.o`のtext 60,134 bytesが大半です。
+同じ通常Release構成をCP437へ変更するとtext 91,836 bytes、data 0 bytes、BSS 87,312 bytes、
+`ffunicode.o` text 1,210 bytesとなり、CP932比でtext 58,504 bytesを削減しました。
 `-fstack-usage`による静的値は`test_fatfs_lfn()` 4,480 bytes、coordinator 328 bytes、
 worker task 56 bytesで、各16 KiB task stackを維持できます。実機でのhigh-water markでは
 ないため、将来`MTFS_FF_MAX_LFN`やtest local bufferを増やす場合は再測定してください。
@@ -202,7 +206,7 @@ software reset後は`status: VALID`のまま時刻が進むことを確認して
 
 ```text
 [mtfs] RTC provider state=<0:VALID or 1:UNSET> source=SUBCLK local-time vbt=0x.. cold=<0 or 1> source-init=<0 or 1>
-[mtfs] EK-RA8P1 Phase 3.6: profile=smoke rounds=1 path=SCI_B SPI+IRQ CD hotplug=on LFN=2 max=64 codepage=932
+[mtfs] EK-RA8P1 Phase 3.6: profile=smoke rounds=1 path=SCI_B SPI+IRQ CD hotplug=on LFN=2 max=64 codepage=437
 [mtfs] cache: I=enabled D=enabled fallback=off VTOR=0x22......
 [mtfs] vector: [0x22......,0x22......) size=448 line=32 cleans=2
 [mtfs] round 1/1 BEGIN
@@ -267,4 +271,5 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 - 2026-08-16にPhase 3.5 RA ReleaseでFatFs roundtrip、`bench-smoke`、`bench-normal`、RTC/FatFs timestamp、idle removal/reinsert、再挿入後roundtripがPASSしました。raw 4 KiB readは273.7 KiB/sでPhase 3.4 baseline 273.6 KiB/sと同等、commonとRA typedのread/write sector数は一致し、SPI error、token/ready timeout、monotonic clock errorは0でした。`diag-reset`後はcounterが0、epochが1となり、initialized/media/geometry/generation/initialization stage/error/bitrateは維持されました。
 - 2026-08-16に同一active context用の`test-diagnostics-reset`を実機実行し、40 checks、0 failuresでPASSしました。reset後はcommon/media/RA epochが1、status/geometry/media generation/RA stateが維持され、raw read後にcommon requested/completed sectorとRA read sectorが1へ再増加しました。SPI transfer starts/completionsは124/124、errorとtimeoutは0でした。
 - 2026-08-17にPhase 3.6 RA ReleaseのLFN有効／無効buildと静的stack使用量を確認しました。LFN有効の実機normal 10周、`bench-smoke`、`bench-normal`に加え、hotplug有効のnormal 10周で挿入、idle抜去、NO_MEDIA contract、再挿入、再初期化、roundtrip／LFN再試験までPASSしました。SPI error、media error、token／ready timeout、monotonic clock errorは0でした。
+- 2026-08-17に既定code pageをCP437へ変更し、Release clean buildがwarning/errorなしで成功しました。実機normal 10周で起動bannerの`codepage=437`、8.3 roundtrip、LFN 45 checks、2-task concurrent、diagnosticsを全周PASSし、SPI errorとtimeoutは0でした。
 - stress 100周は未実施です。今回はPhase 3.2の完了判定に含めません。

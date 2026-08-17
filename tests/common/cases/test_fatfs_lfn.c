@@ -147,9 +147,9 @@ int test_fatfs_lfn(mtfs_test_t *test, const char *volume_path)
         "repository LFN-disabled configuration remains available") ? 0 : 1;
 #else
     static const char primary_name[] =
-        "microtfs inference result 2026-08-16.txt";
+        "MicroTFS Inference_Result 2026-08-16.txt";
     static const char renamed_name[] =
-        "microtfs inference result 2026-08-16 renamed.txt";
+        "MicroTFS Inference_Result 2026-08-16 renamed.txt";
     static const char alpha_name[] =
         "storage diagnostics baseline alpha.bin";
     static const char beta_name[] =

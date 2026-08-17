@@ -55,6 +55,7 @@
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
 									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
@@ -185,6 +186,7 @@
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
 									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>

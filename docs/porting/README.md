@@ -82,7 +82,7 @@ mkfsなしという現在の実機runnerと同じ設定です。値は`src/mtfs_
 #define MTFS_FF_USE_MKFS 0
 #define MTFS_FF_USE_LFN 0
 #define MTFS_FF_MAX_LFN 64
-#define MTFS_FF_CODE_PAGE 932
+#define MTFS_FF_CODE_PAGE 437
 ```
 
 `ffconf.h`はこれらを`FF_FS_READONLY`、`FF_VOLUMES`、`FF_FS_REENTRANT`、
@@ -99,7 +99,7 @@ repository既定の`MTFS_FF_USE_LFN=0`は従来の8.3名だけを扱い、LFN wo
 #define MTFS_FF_USE_LFN 2
 #define MTFS_FF_MAX_LFN 64
 #define MTFS_FF_LFN_UNICODE 0
-#define MTFS_FF_CODE_PAGE 932
+#define MTFS_FF_CODE_PAGE 437
 ```
 
 mode 2は各呼出しtaskのstackへ独立したworking bufferを置くため、動的メモリを使わず、
@@ -110,15 +110,31 @@ working bufferはexFAT無効時に少なくとも`(64 + 1) * 2 = 130` byteをFat
 stackへ加えます。255では少なくとも512 byteとなるため、関数frameを含むtask stackの
 headroomをtargetごとに確認してください。
 
-APIは`MTFS_FF_LFN_UNICODE=0`の`char`/ANSI-OEMのままで、UTF-8ではありません。Phase 3.6の
-対象はASCII長名です。既定code page 932も変更しておらず、CP932 API文字列とUTF-8 byte列を
-混同しないでください。CP932の`ffunicode.c`は大きなDBCS変換tableをROMへ追加するため、
-LFN有効／無効のmap差をtargetで記録してください。LFN有効時も8.3名は同じAPIで利用できます。
+APIは`MTFS_FF_LFN_UNICODE=0`の`char`/ANSI-OEMのままで、UTF-8ではありません。既定のCP437は
+ASCII互換のDOS OEM code pageですが、CP437とASCIIは同一ではありません。microT-FSが正式に
+試験・保証するfilenameは、`A-Z`、`a-z`、`0-9`、space、`-`、`_`、`.`で構成した8.3名と
+LFNです。CP437拡張文字、CP932/Shift_JIS、日本語filename、Unicode/UTF-8は正式対応外で、
+Unicode filename APIを追加する予定はありません。FatFs APIをapplicationが直接呼ぶため、
+非ASCII名を一律拒否する独自validation層は設けません。LFN有効時も8.3名は同じAPIで利用できます。
 
 HostはCMake cacheの`MTFS_HOST_FF_USE_LFN`、`MTFS_HOST_FF_MAX_LFN`、
 `MTFS_HOST_FF_CODE_PAGE`で切り替えます。RA/ST IDE projectはC compiler defineへ同じmacroを
 設定し、`ffunicode.c`をbuild対象へ含めます。source copy利用者も`ffunicode.c`をIDEへ一度
-追加し、LFN無効時にもsource一覧へ残せます。
+追加し、LFN無効時にもsource一覧へ残せます。別code pageが必要な利用者は
+`MTFS_FF_CODE_PAGE`をFatFs対応値へ変更できますが、変換tableのROM量と媒体上の名前との互換性は
+application側で評価してください。旧CP932構成ではDBCS tableだけで約60 KiBのROMを消費しました。
+
+2026-08-17のRelease実測は次のとおりです。RAは通常構成、STは変更前後を同じhotplug IDMA構成で
+比較しています。data/BSSはcode page変更で増減しませんでした。
+
+| build | 旧CP932 text/data/BSS | CP437 text/data/BSS | text削減 | `ffunicode.o` CP932→CP437 |
+|---|---:|---:|---:|---:|
+| Host LFN有効（GCC 15.2.0） | 180,814 / 1,160 / 65,744 | 121,006 / 1,160 / 65,744 | 59,808 | 61,712 → 1,560 |
+| EK-RA8P1 Release（Arm GCC 13.2.1） | 150,340 / 0 / 87,312 | 91,836 / 0 / 87,312 | 58,504 | 60,134 → 1,210 |
+| STM32N6570-DK Release IDMA hotplug（Arm GCC 14.3.1） | 151,396 / 3,412 / 90,808 | 92,568 / 3,412 / 90,808 | 58,828 | 60,094 → 1,190 |
+
+Host LFN無効buildはtext/data/BSSが106,702 / 1,160 / 65,744で、通常source一覧へ残した
+`ffunicode.o`はtext 32 bytesの実質空objectです。LFN無効時に変換table由来のROM増加はありません。
 
 `MTFS_FF_FS_NORTC=0`へ変更する場合は共通providerと`mtfs_fattime.c`をリンクし、targetの
 RTC providerをregisterします。RTCなし構成ではこれらをリンクせず固定日時を維持します。
@@ -221,8 +237,8 @@ card detect、write protect、DMA/RIF準備確認はtarget callbackです。Card
 | card detect | STM32実機確認済み、RA実装済み | STM32N6570-DKはPN12/EXTI12、実測active-low、両edge、priority 6を`tk_def_int(TA_HLNG)`で登録する。RA8P1はPmod Pin 9→P409→FSP ICU IRQ6、両edge、priority 12、実測active-low。P000 IRQ6-DSのISELは競合防止のため無効化する。callback未指定のport契約は常時presentで従来動作を維持する。 |
 | write protect | target設定次第 | STM32 portは任意の`write_protected` callbackを持つが、STM32N6570-DK targetはNULL。RAは端子未接続。Hostはopen時のread-only指定とBlock Device capabilityで表現する。 |
 | RTC timestamp | 共通層/RA/ST port実装・実機PASS | 既定は`MTFS_FF_FS_NORTC=1`の固定日時。共通provider、RA RTC port、STM32 RTC portと`get_fattime()`を実装し、両targetでsoftware reset後の保持とFatFs timestampを確認済み。RA/ST portの設定範囲は2000～2099年。RAは外部VBATTなしの完全電源断保持を保証せず、STのLSI構成はVDD-off中の進行を保証しない。timezone/UTC/DSTはapplication責務。 |
-| LFN | compile-time optional | repository既定は`FF_USE_LFN=0`。`MTFS_FF_USE_LFN=2`では動的メモリを使わずtask stackにworking bufferを置き、ASCII長名をHostで確認済み。ST runnerへ共通試験を組込み済み。 |
-| UTF-8 filename API | 未対応 | `FF_LFN_UNICODE=0`を固定し、FatFs APIはANSI/OEMの`char`。UTF-8、日本語filenameの正式対応は本Phaseに含めない。 |
+| LFN | compile-time optional | repository既定は`FF_USE_LFN=0`。`MTFS_FF_USE_LFN=2`では動的メモリを使わずtask stackにworking bufferを置く。既定CP437のASCII範囲でHost/RA/STを確認済み。 |
+| UTF-8 filename API | 未対応 | `FF_LFN_UNICODE=0`を固定し、FatFs APIはANSI/OEMの`char`。CP437拡張文字、CP932/Shift_JIS、日本語filename、Unicode/UTF-8は正式対応外で、追加予定はない。 |
 | exFAT | 未対応 | `FF_FS_EXFAT=0`。既存targetはFAT12/16/32のみを対象とする。 |
 | multi-volume | target設定次第 | `MTFS_FF_VOLUMES`と固定長registryは複数pdrvを扱える。既定/既存runnerは1 volume。`FF_MULTI_PARTITION=0`なので1物理drive上の任意partition割当は未対応。 |
 | trim | 制限あり | 共通Block Device契約と`CTRL_TRIM` bridgeはあるが、`FF_USE_TRIM=0`で、Host/RA/STM32の全portがTRIM capabilityを公開しない。 |

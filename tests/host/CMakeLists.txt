@@ -12,8 +12,11 @@ set(MTFS_HOST_FF_USE_LFN "2" CACHE STRING
     "FatFs LFN mode for the host test executable (0 or 2)")
 set(MTFS_HOST_FF_MAX_LFN "64" CACHE STRING
     "FatFs maximum LFN length in UTF-16 code units")
-set(MTFS_HOST_FF_CODE_PAGE "932" CACHE STRING
+set(MTFS_HOST_FF_CODE_PAGE "437" CACHE STRING
     "FatFs OEM code page for host tests")
+
+message(STATUS
+    "microT-FS FatFs: LFN=${MTFS_HOST_FF_USE_LFN} MAX=${MTFS_HOST_FF_MAX_LFN} CODE_PAGE=${MTFS_HOST_FF_CODE_PAGE}")
 
 add_executable(mtfs_host_tests
     main.c
