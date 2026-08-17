@@ -1,4 +1,4 @@
-# EK-RA8P1 Phase 3.3 RTC / SD SPI / Card Detect runner
+# EK-RA8P1 Phase 3.6 RTC / SD SPI / Card Detect / optional LFN runner
 
 FATで事前フォーマットしたDigilent Pmod MicroSD Revision AをPMOD2へ接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセス、P409/IRQ6による挿入・抜去・再挿入、FSP RTCからFatFs timestampへの反映を確認するe² studioプロジェクトです。テストはカードをフォーマットしません。
 
@@ -34,7 +34,7 @@ git submodule update --init --recursive
 | VCC | 3V3 | 3.3 V |
 | GND | GND | GND |
 
-SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマットしてください。exFAT、NTFS、未フォーマット媒体には対応しません。テストはルートへ `RTTEST.BIN`, `TASKA.BIN`, `TASKB.BIN` を一時作成して最後に削除するため、同名の既存ファイルがないカードを使ってください。
+SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマットしてください。exFAT、NTFS、未フォーマット媒体には対応しません。テストはルートへ `RTTEST.BIN` と、LFN有効時は `microtfs inference result 2026-08-16.txt` などのPhase 3.6長名およびworker固有の長名、無効時は `TASKA.BIN`, `TASKB.BIN` を一時作成して最後に削除します。同名の既存file/directoryがないカードを使ってください。
 
 ## FSP設定
 
@@ -64,12 +64,45 @@ Card Detectは100 msのsoftware debounceを既定とし、edge後だけoptional 
 
 FatFs設定はcompile definitionと `src/mtfs_config.h` により、read/write有効、`FF_FS_REENTRANT=1`、microT-Kernel mutex adapter、`FF_FS_NORTC=0`、1 volume、`FF_USE_MKFS=0`です。`get_fattime()`はVALIDなRTC時刻だけをFAT timestampへ変換し、UNSET/ERROR時は0を返します。
 
+## Phase 3.6 optional LFN
+
+microT-FS共通のrepository既定は`MTFS_FF_USE_LFN=0`ですが、このPhase 3.6 test projectの
+Debug/Release既定は次のcompile definitionでASCII長名試験を有効にします。
+
+```text
+MTFS_FF_USE_LFN=2
+MTFS_FF_MAX_LFN=64
+```
+
+`mtfs_src` source folderでは`ffunicode.c`を除外しません。LFN無効buildを確認する場合は
+`MTFS_FF_USE_LFN=0`へ変更してclean buildし、確認後は2へ戻します。mode 2は呼出しtaskの
+stackへLFN working bufferを置き、既定64では少なくとも130 byteを加えます。coordinatorと
+並行test workerは従来の16 KiB stackを維持し、workerごとの長名と独立`FIL`で同時アクセスします。
+
+runnerは通常roundで`fatfs_lfn`、hotplug再挿入後に`fatfs_lfn_after_reinsert`を実行します。
+create/write/sync、rename/readdir、remount、long directory、最大長／異常系、SFN alias衝突、
+cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=932`も保存します。
+APIは`FF_LFN_UNICODE=0`のANSI/OEM `char`であり、UTF-8や日本語filenameの実績を意味しません。
+CP932変換tableのROM影響はRelease map/sizeでLFN無効buildとの差を記録します。
+
+2026-08-17のFSP 6.5.0／Arm GCC 13.2.1 Release clean buildでは、LFN有効が
+text 150,340 bytes、BSS 87,312 bytes、無効がtext 82,596 bytes、BSS 87,304 bytesでした。
+差分はtext +67,744 bytes、BSS +8 bytesで、`ffunicode.o`のtext 60,134 bytesが大半です。
+`-fstack-usage`による静的値は`test_fatfs_lfn()` 4,480 bytes、coordinator 328 bytes、
+worker task 56 bytesで、各16 KiB task stackを維持できます。実機でのhigh-water markでは
+ないため、将来`MTFS_FF_MAX_LFN`やtest local bufferを増やす場合は再測定してください。
+
 ## ビルド
 
 1. e² studioで **File > Import > General > Existing Projects into Workspace** を選び、この `basic` directoryを指定します。
 2. `configuration.xml` を開き、FSP 6.5.0 packが選択されていることを確認します。
 3. 必要なら **Generate Project Content** を実行します。
 4. configurationを **Debug** にして **Project > Build Project** を実行します。
+
+Debug/Releaseのcompiler warning基準はともに`-Wall`です。Releaseは最適化が`-O2`、Debugは
+`-O0`という違いがあります。ReleaseだけでmicroT-Kernelへ大量に出ていた
+`-Wconversion`、`-Wcast-function-type`などの追加診断は構成間の差だったため有効化しません。
+target applicationを厳格診断する場合は、依存するmicroT-Kernelとは分けて実施します。
 
 成功時は `Debug/mtfs_ek_ra8p1_basic.elf` と `.srec` が生成されます。Phase 3.3の
 Debug build確認値はtext 90,840 bytes、BSS 54,204 bytesです。coordinatorと並行test workerに
@@ -83,7 +116,7 @@ RA baselineの取得前に `bench-smoke` が `SUITE END status=PASS`、6つの `
 
 Phase 3.4aではSD data token/write ready待ちのpoll単位task delayを除去し、`tk_get_otm()`の実時間deadlineへ変更しています。benchmark終了時に表示される`[mtfs] wait token ...`、`[mtfs] wait ready ...`、`[mtfs] init ...`も保存し、timeoutとmonotonic clock errorが0であることを確認してください。kernel tickは引き続き10 ms、SPI data clockは4 MHzで、Phase 3.4のprofileや非破壊条件は変更していません。
 
-CMD0前にはSD power-up条件を満たすsettle待ちを入れ、無応答`0xFF`だけを1秒の実時間deadline内で再試行します。`[mtfs] init stage=... cmd0_attempts=... no_response=... timeouts=...`を出力するため、再現性の低い初期化失敗でもstageを特定できます。正常終了は`stage=complete`かつ`timeouts=0`です。
+CMD0前にはSD power-up条件を満たすsettle待ちを入れ、無応答`0xFF`とready response `0x00`を1秒の実時間deadline内で再試行します。`[mtfs] init stage=... cmd0_attempts=... no_response=... ready_response=... timeouts=...`を出力するため、再現性の低い初期化失敗でもstageを特定できます。正常終了は`stage=complete`かつ`timeouts=0`です。R1のerror bitは即座にI/O errorとして扱い、card detectで不在を確認した場合だけno-mediaとします。
 
 ### 反復profileとfallback
 
@@ -120,6 +153,23 @@ mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件�
 
 実機試験はSDへ書込みを行います。重要データのないカードで実施してください。runnerが`ACTION REQUIRED`を表示するまでは抜き差しせず、active write中の抜去は行わないでください。待機中は5秒ごとにGPIO raw levelとIRQ回数を表示します。raw levelが期待値へ変化したのにIRQ回数が500 ms変化しない場合は、ICU/NVIC/VTOR診断を出して早期FAILします。
 
+### SW1 boot override
+
+電源投入時、またはRESET解除時にSW1を押しておくと、`usermain()`開始時の押下を
+ラッチし、自動Phase 3.6 testをすべてskipしてcommand consoleへ直接入ります。
+次のbannerが出たらSW1を離して構いません。この経路ではRTC providerだけを初期化し、
+SDのcontext作成、card detect開始、初期化、read/writeは行いません。storageを使うのは
+`bench-*`や`test-fatfs-time`などを明示的に実行した場合だけです。
+
+```text
+[mtfs] boot override: SW1 held; automatic Phase 3.6 test skipped
+[mtfs] command console ready (SW1 boot override)
+```
+
+SW1はP009へ接続されたactive-low入力です。SW2はこの機能では使用しません。
+RTC初期化に失敗した場合、またはcommand consoleを無効にしたbuildでは、自動testへ
+fall throughせずcoordinatorを停止します。
+
 ### RTC設定とFatFs timestamp確認
 
 通常テスト終了後、RTC設定、FatFs timestamp検証、storage benchmarkを受け付けるcommand consoleが同じDebug Virtual Console上で起動します。`apps/rtc-set`のstandalone RTC consoleとは別のrunner用consoleです。
@@ -142,7 +192,7 @@ software reset後は`status: VALID`のまま時刻が進むことを確認して
 3. roundtripと並行testがPASSするまで操作しません。
 4. `ACTION REQUIRED: REMOVE`で、I/O停止中にカードを抜きます。
 5. `removal contract PASS`と`ACTION REQUIRED: REINSERT`を確認して再挿入します。
-6. `fatfs_roundtrip_after_reinsert`と`PHASE 3.3 RUN PASS`を確認します。
+6. `fatfs_roundtrip_after_reinsert`、`fatfs_lfn_after_reinsert`、`PHASE 3.6 RUN PASS`を確認します。
 
 各操作待ちは120秒です。共通media層は自動mount/unmountしません。runnerがevent callback後にinitialize/register/mount、またはunmount/unregisterを実行します。
 
@@ -152,16 +202,18 @@ software reset後は`status: VALID`のまま時刻が進むことを確認して
 
 ```text
 [mtfs] RTC provider state=<0:VALID or 1:UNSET> source=SUBCLK local-time vbt=0x.. cold=<0 or 1> source-init=<0 or 1>
-[mtfs] EK-RA8P1 Phase 3.3: profile=smoke rounds=1 path=SCI_B SPI+IRQ CD hotplug=on
+[mtfs] EK-RA8P1 Phase 3.6: profile=smoke rounds=1 path=SCI_B SPI+IRQ CD hotplug=on LFN=2 max=64 codepage=932
 [mtfs] cache: I=enabled D=enabled fallback=off VTOR=0x22......
 [mtfs] vector: [0x22......,0x22......) size=448 line=32 cleans=2
-[mtfs] round 1/10 BEGIN
+[mtfs] round 1/1 BEGIN
 [mtfs] initial ABSENT status PASS: ...
 [mtfs] ACTION REQUIRED: INSERT card now; waiting up to 120000 ms
 [mtfs] media INSERTED ...
 [mtfs] geometry sectors=... size=512 erase=1 type=SDHC/SDXC
 [TEST] fatfs_roundtrip: BEGIN
 [TEST] fatfs_roundtrip: PASS (...)
+[TEST] fatfs_lfn: BEGIN
+[TEST] fatfs_lfn: PASS (...)
 [TEST] fatfs_concurrent_microtkernel: BEGIN
 [TEST] fatfs_concurrent_microtkernel: PASS (...)
 [mtfs] ACTION REQUIRED: REMOVE card now; ...
@@ -169,8 +221,9 @@ software reset後は`status: VALID`のまま時刻が進むことを確認して
 [mtfs] HOTPLUG: removal contract PASS
 [mtfs] ACTION REQUIRED: REINSERT card now; waiting up to 120000 ms
 [TEST] fatfs_roundtrip_after_reinsert: PASS (...)
+[TEST] fatfs_lfn_after_reinsert: PASS (...)
 [mtfs] round 1/1 PASS
-[mtfs] PHASE 3.3 RUN PASS
+[mtfs] PHASE 3.6 RUN PASS
 [mtfs] command console ready after test run
 microT-FS EK-RA8P1 command console
 Commands: RTC, FatFs timestamp test, and storage benchmark.
@@ -213,4 +266,5 @@ bit 4が1ならstacked PCは`SP + 0x18`、0ならextended FP frameの後
 - 2026-08-14にPhase 3.2 RA Debug build（FSP 6.5.0、Arm GCC 13.2.1）が警告なしで成功しました。実機smokeで未挿入起動、P409/IRQ6挿入、FatFs/並行access、idle抜去後NO_MEDIA、再挿入後の明示initialize/roundtrip、cleanupがPASSしました。
 - 2026-08-16にPhase 3.5 RA ReleaseでFatFs roundtrip、`bench-smoke`、`bench-normal`、RTC/FatFs timestamp、idle removal/reinsert、再挿入後roundtripがPASSしました。raw 4 KiB readは273.7 KiB/sでPhase 3.4 baseline 273.6 KiB/sと同等、commonとRA typedのread/write sector数は一致し、SPI error、token/ready timeout、monotonic clock errorは0でした。`diag-reset`後はcounterが0、epochが1となり、initialized/media/geometry/generation/initialization stage/error/bitrateは維持されました。
 - 2026-08-16に同一active context用の`test-diagnostics-reset`を実機実行し、40 checks、0 failuresでPASSしました。reset後はcommon/media/RA epochが1、status/geometry/media generation/RA stateが維持され、raw read後にcommon requested/completed sectorとRA read sectorが1へ再増加しました。SPI transfer starts/completionsは124/124、errorとtimeoutは0でした。
+- 2026-08-17にPhase 3.6 RA ReleaseのLFN有効／無効buildと静的stack使用量を確認しました。LFN有効の実機normal 10周、`bench-smoke`、`bench-normal`はPASSし、SPI errorと各種timeoutは0でした。hotplug試験は未実施です。
 - stress 100周は未実施です。今回はPhase 3.2の完了判定に含めません。

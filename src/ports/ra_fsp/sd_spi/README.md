@@ -41,9 +41,9 @@ target側のP409 IRQ callbackはraw levelの記録とmedia/transfer event flag�
 
 ## プロトコルと制限
 
-初期化はpower-up settle待ち、CS Highで80 dummy clocks、CMD0、CMD8、CMD55/ACMD41（v2ではHCS）、CMD58、CMD9の順です。settle待ちは1 msを要求し、現在の10 ms kernel tickでは約10 msへ切り上げられます。CMD0が規定のresponse poll内に応答せず`0xFF`だけを返した場合は、CSをHighへ戻してdummy clockとretry間隔を入れ、`initialization_timeout_ms`のmonotonic deadlineまで再試行します。有効な異常R1、FSP error、transfer event timeoutは再試行で隠しません。
+初期化はpower-up settle待ち、CS Highで80 dummy clocks、CMD0、CMD8、CMD55/ACMD41（v2ではHCS）、CMD58、CMD9の順です。settle待ちは1 msを要求し、現在の10 ms kernel tickでは約10 msへ切り上げられます。CMD0が規定のresponse poll内に応答せず`0xFF`だけを返した場合、またはready responseの`0x00`を返した場合は、CSをHighへ戻してdummy clockとretry間隔を入れ、`initialization_timeout_ms`のmonotonic deadlineまで再試行します。R1のerror bit、FSP error、transfer event timeoutは再試行で隠しません。
 
-`initialization_stage`、`cmd0_attempts`、`cmd0_no_response`、`cmd0_timeouts`により、初期化失敗位置とCMD0の回復状況を確認できます。通常成功時も一度無応答から回復した場合は`stage=complete cmd0_attempts=2 no_response=1 timeouts=0`のように表示されます。
+`initialization_stage`、`cmd0_attempts`、`cmd0_no_response`、`cmd0_ready_responses`、`cmd0_timeouts`により、初期化失敗位置とCMD0の回復状況を確認できます。一度ready responseから回復した場合は`stage=complete cmd0_attempts=2 no_response=0 ready_response=1 timeouts=0`のように表示されます。
 
 SDSCはbyte addressing、SDHC/SDXCはblock addressingへ変換します。読み書きは512 byte固定で、複数sector要求をCMD17/CMD24の反復として処理します。書込みbusy解除まで待つため `sync` は成功を返します。
 

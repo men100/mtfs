@@ -138,6 +138,9 @@ void mtfs_ra8p1_fault_entry(void)
 
 ER __real_knl_init_interrupt(void);
 ER __real_knl_define_inthdr(INT intno, ATR intatr, FP inthdr);
+ER __wrap_knl_init_interrupt(void);
+ER __wrap_knl_define_inthdr(INT intno, ATR intatr, FP inthdr);
+void __wrap_knl_start_mtkernel(void);
 
 ER __wrap_knl_init_interrupt(void)
 {
@@ -192,7 +195,8 @@ void __wrap_knl_start_mtkernel(void)
     g_mtfs_ra8p1_vector_cache_diagnostics.vtor_after_relocation = SCB->VTOR;
 
     register_value = *(_UW *)SCB_AIRCR;
-    register_value = (register_value & (~AIRCR_PRIGROUP3)) | AIRCR_PRIGROUP0;
+    register_value = (register_value & ~((UW)AIRCR_PRIGROUP3)) |
+        AIRCR_PRIGROUP0;
     *(_UW *)SCB_AIRCR =
         (register_value & UINT32_C(0x0000FFFF)) | AIRCR_VECTKEY;
 

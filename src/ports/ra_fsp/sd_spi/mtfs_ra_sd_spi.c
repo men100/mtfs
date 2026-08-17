@@ -1,6 +1,7 @@
 #include "mtfs_ra_sd_spi.h"
 #include "../../../block/mtfs_block_diagnostics_internal.h"
 #include "mtfs_ra_sd_spi_deadline.h"
+#include "mtfs_ra_sd_spi_protocol.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -728,6 +729,7 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
     for (;;) {
         ER command_kernel_error = E_OK;
         fsp_err_t command_fsp_error = FSP_SUCCESS;
+        mtfs_ra_sd_spi_cmd0_action_t command_action;
         mtfs_error_t end_result;
         int command_called = 0;
 
@@ -754,25 +756,34 @@ static mtfs_error_t mtfs_sd_initialize_locked(mtfs_ra_sd_spi_context_t *context)
         if (result == MTFS_OK) {
             result = end_result;
         }
+        command_action = mtfs_ra_sd_spi_cmd0_action(r1);
         if (result == MTFS_OK) {
-            if (r1 == MTFS_SD_R1_IDLE) {
+            if (command_action == MTFS_RA_SD_SPI_CMD0_ACCEPT) {
                 break;
             }
-            return MTFS_ERROR_NO_MEDIA;
-        }
-        if (!command_called || (end_result != MTFS_OK) ||
-            (result != MTFS_ERROR_NOT_READY) ||
-            (command_kernel_error != E_OK) ||
-            (command_fsp_error != FSP_SUCCESS) ||
-            (r1 != 0xFFU)) {
-            if (command_called && (end_result == MTFS_OK)) {
-                context->last_kernel_error = command_kernel_error;
-                context->last_fsp_error = command_fsp_error;
+            if (command_action ==
+                MTFS_RA_SD_SPI_CMD0_RETRY_READY_RESPONSE) {
+                MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                    &context->diagnostics.cmd0_ready_responses));
+            } else {
+                return MTFS_ERROR_IO;
             }
-            return result;
+        } else {
+            if (!command_called || (end_result != MTFS_OK) ||
+                (result != MTFS_ERROR_NOT_READY) ||
+                (command_kernel_error != E_OK) ||
+                (command_fsp_error != FSP_SUCCESS) ||
+                (command_action !=
+                    MTFS_RA_SD_SPI_CMD0_RETRY_NO_RESPONSE)) {
+                if (command_called && (end_result == MTFS_OK)) {
+                    context->last_kernel_error = command_kernel_error;
+                    context->last_fsp_error = command_fsp_error;
+                }
+                return result;
+            }
+            MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
+                &context->diagnostics.cmd0_no_response));
         }
-        MTFS_RA_DIAGNOSTIC(mtfs_sd_diagnostic_increment(
-            &context->diagnostics.cmd0_no_response));
         result = mtfs_sd_kernel_error(context,
             tk_dly_tsk(MTFS_SD_CMD0_RETRY_DELAY_MS));
         if (result != MTFS_OK) {

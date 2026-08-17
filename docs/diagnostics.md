@@ -92,7 +92,7 @@ mediaのIRQ counterとnotification sequenceもtask側copy中に増える可能�
 - 完了したread/write sector
 - token/readyのcall、poll byte、最大poll、timeout
 - ACMD41 retry、monotonic clock error
-- CMD0 attempt、no-response、timeout
+- CMD0 attempt、no-response、ready-response、timeout
 - initialization stage、last R1
 - last FSP error、microT-Kernel error、microT-FS error
 - card type、current SPI bitrate

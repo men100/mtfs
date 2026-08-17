@@ -1,5 +1,7 @@
 #include "hal_data.h"
 
+void R_BSP_WarmStart(bsp_warm_start_event_t event);
+
 void R_BSP_WarmStart(bsp_warm_start_event_t event)
 {
     if (event == BSP_WARM_START_POST_C) {

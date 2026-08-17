@@ -20,7 +20,7 @@ extern "C" {
 #define MTFS_RA_SD_SPI_DEFAULT_DATA_HZ   (4000000U)
 #define MTFS_RA_SD_SPI_DEFAULT_TIMEOUT_MS (1000U)
 #define MTFS_RA_SD_SPI_DUMMY_SIZE        (514U)
-#define MTFS_RA_SD_SPI_DIAGNOSTICS_API_VERSION (UINT16_C(1))
+#define MTFS_RA_SD_SPI_DIAGNOSTICS_API_VERSION (UINT16_C(2))
 #define MTFS_RA_SD_SPI_DIAGNOSTICS_VALID_ALL (UINT32_MAX)
 
 typedef int (*mtfs_ra_sd_spi_signal_fn)(void *opaque);
@@ -85,6 +85,7 @@ typedef struct mtfs_ra_sd_spi_diagnostics
     uint32_t monotonic_clock_errors;
     uint32_t cmd0_attempts;
     uint32_t cmd0_no_response;
+    uint32_t cmd0_ready_responses;
     uint32_t cmd0_timeouts;
     uint32_t initialization_stage;
     uint32_t card_type;

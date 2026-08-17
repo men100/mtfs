@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "mtfs_ra_sd_spi_deadline.h"
+#include "mtfs_ra_sd_spi_protocol.h"
 
 int test_ra_sd_spi_deadline(mtfs_test_t *test)
 {
@@ -41,6 +42,30 @@ int test_ra_sd_spi_deadline(mtfs_test_t *test)
     if (!MTFS_TEST_CHECK(test,
             mtfs_ra_sd_spi_deadline_expired(&deadline, UINT64_MAX),
             "zero timeout expires immediately without addition overflow")) {
+        return 1;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_ra_sd_spi_cmd0_action(0x01U) ==
+                MTFS_RA_SD_SPI_CMD0_ACCEPT,
+            "CMD0 idle response is accepted")) {
+        return 1;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_ra_sd_spi_cmd0_action(0xFFU) ==
+                MTFS_RA_SD_SPI_CMD0_RETRY_NO_RESPONSE,
+            "CMD0 no-response byte is retried")) {
+        return 1;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_ra_sd_spi_cmd0_action(0x00U) ==
+                MTFS_RA_SD_SPI_CMD0_RETRY_READY_RESPONSE,
+            "CMD0 ready response is retried")) {
+        return 1;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_ra_sd_spi_cmd0_action(0x05U) ==
+                MTFS_RA_SD_SPI_CMD0_REJECT_RESPONSE,
+            "CMD0 response with error bits is rejected")) {
         return 1;
     }
     return 0;

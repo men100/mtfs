@@ -5,6 +5,7 @@
 #include <tm/tmonitor.h>
 
 #include "ff.h"
+#include "bsp_pin_cfg.h"
 #include "hal_data.h"
 #include "mtfs_block_device.h"
 #include "mtfs_block_diagnostics.h"
@@ -14,6 +15,7 @@
 #include "mtfs_ra_sd_spi.h"
 #include "mtfs_test.h"
 #include "mtfs_benchmark.h"
+#include "test_fatfs_lfn.h"
 #include "test_fatfs_roundtrip.h"
 #include "mtfs_ra8p1_platform.h"
 #include "mtfs_ra8p1_vector_cache.h"
@@ -85,6 +87,21 @@ static void target_media_event(void *opaque, mtfs_media_event_t event,
     mtfs_media_state_t state);
 static void target_print_diagnostics(
     mtfs_ra_sd_spi_context_t *context);
+
+static int target_boot_console_requested(void)
+{
+    bsp_io_level_t level = BSP_IO_LEVEL_HIGH;
+    fsp_err_t result = g_ioport.p_api->pinRead(
+        g_ioport.p_ctrl, USER_SW1, &level);
+
+    if (result != FSP_SUCCESS) {
+        tm_printf((UB *)"[mtfs] boot SW1 read FAIL: fsp=%d; normal boot selected\n",
+            result);
+        return 0;
+    }
+    return level == BSP_IO_LEVEL_LOW;
+}
+
 #if !MTFS_FF_FS_NORTC
 static mtfs_ra_rtc_context_t rtc_context;
 static ID rtc_mutex_id;
@@ -504,10 +521,11 @@ static void target_print_diagnostics(
         diagnostics->ready_poll_bytes,
         diagnostics->ready_max_polls,
         diagnostics->ready_timeouts);
-    tm_printf((UB *)"[mtfs] init stage=%s cmd0_attempts=%u no_response=%u timeouts=%u\n",
+    tm_printf((UB *)"[mtfs] init stage=%s cmd0_attempts=%u no_response=%u ready_response=%u timeouts=%u\n",
         (UB *)target_sd_init_stage_name(diagnostics->initialization_stage),
         diagnostics->cmd0_attempts,
         diagnostics->cmd0_no_response,
+        diagnostics->cmd0_ready_responses,
         diagnostics->cmd0_timeouts);
     tm_printf((UB *)"[mtfs] init acmd41_retries=%u monotonic_clock_errors=%u\n",
         diagnostics->acmd41_retries,
@@ -589,6 +607,7 @@ static int target_ra_counters_are_clear(
         (diagnostics->monotonic_clock_errors == 0U) &&
         (diagnostics->cmd0_attempts == 0U) &&
         (diagnostics->cmd0_no_response == 0U) &&
+        (diagnostics->cmd0_ready_responses == 0U) &&
         (diagnostics->cmd0_timeouts == 0U);
 }
 
@@ -985,7 +1004,6 @@ static void target_coordinator(INT start_code, void *opaque)
     };
 #endif
 
-    (void)start_code;
     (void)opaque;
 #if !MTFS_FF_FS_NORTC
     rtc_mutex_id = tk_cre_mtx(&rtc_mutex);
@@ -1013,6 +1031,20 @@ static void target_coordinator(INT start_code, void *opaque)
             (UW)rtc_context.clock_source_initialized);
     }
 #endif
+    if (start_code != 0) {
+        tm_printf((UB *)"\n[mtfs] boot override: SW1 held; automatic Phase 3.6 test skipped\n");
+#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
+        if (rtc_error == MTFS_OK) {
+            tm_printf((UB *)"[mtfs] command console ready (SW1 boot override)\n");
+            target_command_console();
+        }
+        tm_printf((UB *)"[mtfs] command console unavailable; coordinator stopped\n");
+#else
+        tm_printf((UB *)"[mtfs] command console disabled; coordinator stopped\n");
+#endif
+        tk_exd_tsk();
+        return;
+    }
     mtfs_ra8p1_sd_spi_config(&config);
 #if MTFS_RA8P1_HOTPLUG_TEST
     media_application_event_flag_id = tk_cre_flg(&media_flag_config);
@@ -1023,9 +1055,10 @@ static void target_coordinator(INT start_code, void *opaque)
     }
 #endif
 
-    tm_printf((UB *)"\n[mtfs] EK-RA8P1 Phase 3.3: profile=%s rounds=%u path=SCI_B SPI+IRQ CD hotplug=%s\n",
+    tm_printf((UB *)"\n[mtfs] EK-RA8P1 Phase 3.6: profile=%s rounds=%u path=SCI_B SPI+IRQ CD hotplug=%s LFN=%u max=%u codepage=%u\n",
         (UB *)MTFS_RA8P1_TEST_PROFILE_NAME, MTFS_RA8P1_TEST_ROUNDS,
-        MTFS_RA8P1_HOTPLUG_TEST ? (UB *)"on" : (UB *)"off");
+        MTFS_RA8P1_HOTPLUG_TEST ? (UB *)"on" : (UB *)"off",
+        FF_USE_LFN, FF_MAX_LFN, FF_CODE_PAGE);
     tm_printf((UB *)"[mtfs] cache: I=%s D=%s fallback=%s VTOR=0x%08x\n",
         (g_mtfs_ra8p1_vector_cache_diagnostics.ccr_at_hal_entry &
             SCB_CCR_IC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
@@ -1173,6 +1206,13 @@ static void target_coordinator(INT start_code, void *opaque)
             round_failure = 1;
         }
 
+        mtfs_test_begin(&test, "fatfs_lfn", target_reporter, NULL);
+        case_result = test_fatfs_lfn(&test, "0:");
+        if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
+            target_print_diagnostics(&sd_context);
+            round_failure = 1;
+        }
+
         mtfs_test_begin(&test, "fatfs_concurrent_microtkernel",
             target_reporter, NULL);
         case_result = mtfs_target_run_concurrent(&test, "0:", round);
@@ -1240,6 +1280,12 @@ static void target_coordinator(INT start_code, void *opaque)
         if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
             round_failure = 1;
         }
+        mtfs_test_begin(&test, "fatfs_lfn_after_reinsert",
+            target_reporter, NULL);
+        case_result = test_fatfs_lfn(&test, "0:");
+        if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
+            round_failure = 1;
+        }
 #endif
 
 round_done:
@@ -1278,7 +1324,7 @@ round_done:
         }
     }
 
-    tm_printf((UB *)"[mtfs] PHASE 3.3 RUN %s\n",
+    tm_printf((UB *)"[mtfs] PHASE 3.6 RUN %s\n",
         overall_failure ? (UB *)"FAIL" : (UB *)"PASS");
 #if MTFS_RA8P1_HOTPLUG_TEST
     if (media_application_event_flag_id > 0) {
@@ -1303,13 +1349,14 @@ EXPORT INT usermain(void)
         .itskpri = 9,
         .stksz = 16U * 1024U
     };
+    INT boot_console = target_boot_console_requested();
     ID task_id = tk_cre_tsk(&coordinator);
 
     if (task_id <= 0) {
         tm_printf((UB *)"[mtfs] coordinator create FAIL: %d\n", task_id);
         goto park;
     }
-    if (tk_sta_tsk(task_id, 0) < E_OK) {
+    if (tk_sta_tsk(task_id, boot_console) < E_OK) {
         tm_printf((UB *)"[mtfs] coordinator start FAIL\n");
         (void)tk_del_tsk(task_id);
     }
@@ -1317,4 +1364,5 @@ park:
     for (;;) {
         (void)tk_slp_tsk(TMO_FEVR);
     }
+    return 0;
 }
