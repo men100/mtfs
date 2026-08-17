@@ -293,3 +293,10 @@ STM32N6570-DKのRelease clean buildでIDMA+IRQとpolling fallbackを個別に実
 console commandは各実行の終了時に対象contextをdeinitします。したがって`test-fatfs-time`直後の`diag`ではST typedのstateが0/0/0となり、public geometry getterを呼んでいないcommon snapshotのgeometryが未設定になる場合があります。typedのcached geometryは512 byte、7,829,504 sector、erase block 1を維持しており、これはI/O異常ではありません。
 
 同一active context用の`test-diagnostics-reset`はIDMA/polling両構成でRelease build済みです。2026-08-16にIDMA実機で実行し、40 checks、0 failuresでPASSしました。reset後はcommon/media/ST epochが1、status/geometry/media generation/CLKCR/initialized stateが維持され、raw read後にcommon requested/completed sectorが1/1、ST read single/maxが1/1、IRQ/RXが1/1へ再増加しました。HAL error、abort、timeoutは0でした。pollingでの同じ実機試験は任意確認として未実施です。
+
+### Phase 3.6実機結果（2026-08-17）
+
+- LFN有効のRelease IDMA+IRQ normal 10周で、8.3 roundtrip、LFN、2-task concurrent、diagnostics、RTC/FatFs timestamp、`bench-smoke`、`bench-normal`がPASSしました。4 KiB raw readはReleaseでPhase 3.4 baselineと同等で、重大な性能退行はありませんでした。
+- Release polling fallback smokeでLFN、2-task concurrent、cleanup、`bench-smoke`がPASSしました。IRQ/RX/TXは0、HAL error、abort、completion/card-state timeoutは0でした。
+- Release IDMA+IRQ hotplug smokeで、挿入、初期化、LFN、idle抜去、NO_MEDIA contract、再挿入、再初期化、`fatfs_roundtrip_after_reinsert`、`fatfs_lfn_after_reinsert`がPASSしました。inserted/removed/error eventは2/1/0、HAL error、abort、completion/card-state timeoutは0でした。
+- LFN無効のRelease buildも成功し、LFN有効によるROM増加は約66 KiBでした。増加の大半はcode page 932用`ffunicode.c`のDBCS変換tableで、BSSと既存16 KiB worker stack設定に実質的な増加はありません。
