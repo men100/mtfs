@@ -159,9 +159,9 @@ format minor/major versionを改めて判断する。v1へ暗黙には追加し�
 | 32 | 4 | `key_id` | v1では1 |
 | 36 | 4 | `key_version` | v1では1 |
 | 40 | 16 | `package_id` | Host CSPRNGで生成する識別子。nonceの代用ではない |
-| 56 | 16 | `model_id` | callerが割り当てるUUID byte列 |
+| 56 | 16 | `model_id` | callerが割り当てるUUID byte列。Host toolは省略時にUUID v4を生成してよい |
 | 72 | 8 | `model_version` | applicationから参照するversion。anti-rollbackの意味は持たない |
-| 80 | 4 | `target_id` | target/runtime family enum |
+| 80 | 4 | `target_id` | 個別boardではなく互換性を共有するtarget/runtime family enum |
 | 84 | 4 | `accelerator_id` | CPU/NPU provider enum |
 | 88 | 4 | `model_format` | runtime model format enum |
 | 92 | 4 | `reserved0` | 0 |
@@ -187,6 +187,20 @@ entryはtype昇順に並べ、typeの重複を拒否する。critical flag付き
 未知entryは無視してよい。初期typeはruntime ABI version、tensor arena requirement、model inputの
 説明、長さを制限したUTF-8 display nameとする。path、secret、実行可能callbackは禁止する。
 security上重要な固定fieldはTLVではなくpreambleへ置く。
+
+Phase 4.1Aのcodecで曖昧さを残さないため、v1ではflag bit 0を`CRITICAL`とし、その他のflag bitを
+拒否する。初期typeとcanonical valueは次のとおりとする。整数valueもunsigned little-endianである。
+
+| type | value | v1の制約 |
+|---:|---|---|
+| 1 | runtime ABI version (`u32`) | lengthは4 byte |
+| 2 | tensor arena requirement (`u64`) | lengthは8 byte |
+| 3 | model input description (UTF-8) | 1..1024 byte、NUL禁止、正規UTF-8 |
+| 4 | display name (UTF-8) | 1..255 byte、NUL禁止、正規UTF-8 |
+
+未知noncritical typeはcanonical ordering/paddingを検査した上で無視する。既知typeのlengthやUTF-8が
+不正な場合、未知flag、重複、降順、非zero paddingはformat errorとする。この明確化はpreamble、
+section配置、AAD、暗号byte列を変更しない。
 
 ### 4.4 AEADの構成
 
@@ -324,8 +338,9 @@ provider契約:
 - key handleにはgeneration tagを持たせ、close/reset後のstale handleを失敗させる。
 - tag不一致はsecurity固有の新error `MTFS_ERROR_AUTHENTICATION`へmapする。malformed formatと
   destination不足にも、実装Phaseで別々のerrorを割り当てる。
-- providerがlogへ出力するのはoperation/result識別子だけとし、key、nonceに対応するplaintext、
-  model内容、tagは出力しない。
+- providerが通常logへ出力するのはoperation/result識別子だけとし、key、復号plaintext、model内容は
+  出力しない。nonce、tag、ciphertextはsecretではないが、byte dumpはtest artifactまたは明示的な
+  診断機能に限定する。
 
 RAでは`rsip_wrapped_key_t`を使用し、AEAD sequenceを
 `R_RSIP_AES_AEAD_Init/AADUpdate/Update/Verify`へmapする。FSPではmulti-shot Updateと16-byte block

@@ -43,6 +43,7 @@
 # e2 studio related files
 *.elf
 *.hex
+!tools/sealed_model/tests/vectors/*.hex
 *.in
 *.init
 *.jlink

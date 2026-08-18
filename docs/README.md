@@ -6,6 +6,7 @@
 - `adr/0002-ra8p1-tmonitor-receive.md`: EK-RA8P1 T-Monitor受信待ち不具合のtarget互換修正
 - `adr/0003-secure-ai-storage.md`: Phase 4.0 Secure AI Storageの脅威モデル、鍵境界、format判断
 - `security/secure-ai-storage.md`: sealed model形式、crypto provider/API、extension構成、実装検証計画
+- `security/host-sealed-model-tools.md`: Phase 4.1A Host toolのbuild、運用、test vector、制限
 - `porting/README.md`: 新規ボードへのソース取り込みから実機testまでの移植ガイド
 - `porting/block-device-port.md`: Block Device operation、状態、error、contextの実装契約
 - `porting/microtkernel-integration.md`: mutex、IRQ、event flag、HAL timebase、task寿命
