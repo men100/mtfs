@@ -76,7 +76,8 @@ domain separationは構造で強制する。各鍵は別用途のoperationでは
      trusted provisioning RAMへ入力鍵が現れるため、production profileからcompile outする。
    - STM32開発経路では、device上のSAESが入力鍵をDHUKでwrapする。production provisioningと
      lifecycle/HDPL policyは製品ごとの判断とし、Phase 4.0ではOTP programmingもlifecycle変更も行わない。
-4. provider blob、algorithm/version、非secretのchecksumを内部nonvolatile storageへ保存する。
+4. provider blob、algorithm/version、非secretのchecksumをtarget管理下のnonvolatile storageへ保存する。
+   RAでは内部Data Flash、STM32N657ではDHUKで保護したblobをboard上のexternal flash等へ保存する候補がある。
    removable SDを唯一の保存先にはしない。
 5. boot時または利用時にproviderがblob構造を検証し、opaqueな`K_fleet` handleをopenする。
    HUK/DHUKはhardware内部で選択し、application codeから読み出さない。
@@ -225,12 +226,17 @@ fileから境界検査付きで読み出したbyte列をそのまま使用し、
 2. `(key_id,key_version)`で選択したlocal `K_fleet` handleをopenする。
 3. manifestをAADとして48-byte envelopeを認証し、opaqueな`K_model` handleを生成する。
    成功後に限り、`get_info`は認証済みmetadataを返してよい。
-4. chunkごとにciphertextをI/O bufferへ読み、chunk scratch bufferへ復号してtag verifyを呼出す。
+4. payload I/Oを開始する前に、認証済みmanifestから`payload_plain_length`を取得し、
+   `payload_plain_length <= destination_size`および`destination_size >= required_ram`を検査する。
+   この検査に失敗した場合はdestinationを変更せずに返す。検査成功後のzeroize範囲は、destination先頭から
+   `payload_plain_length` byteと確定する。
+5. chunkごとにciphertextをI/O bufferへ読み、chunk scratch bufferへ復号してtag verifyを呼出す。
    verify成功まではscratchのbyteを最終destinationへcopyしない。
-5. verify成功後、正確なchunk plaintextを連続した最終destinationへcopyし、scratchをzeroizeする。
-6. 以降にerrorが発生した場合は、このmodelのdestination範囲、scratch、provider operation、import済み
-   `K_model`を全てzeroizeし、authentication/format/I/O errorを返す。認証済みprefixも保持しない。
-7. 全処理の成功時だけhandle stateを`LOADED`にする。applicationがmodelをNPUへ渡してよいのは
+6. verify成功後、正確なchunk plaintextを連続した最終destinationへcopyし、scratchをzeroizeする。
+7. payload I/O開始後にerrorが発生した場合は、destination先頭から`payload_plain_length` byte、scratch、
+   provider operation、import済み`K_model`をzeroizeし、authentication/format/I/O errorを返す。
+   認証済みprefixも保持しない。`destination_size`の余剰部分やcaller所有の隣接workspaceは変更しない。
+8. 全処理の成功時だけhandle stateを`LOADED`にする。applicationがmodelをNPUへ渡してよいのは
    その後だけである。
 
 compilerによってstoreを除去されないproject共通primitiveでzeroizationを行う。単純な`memset`は
@@ -244,7 +250,7 @@ target/providerの責務とする。
 | 最終model以外の追加RAM | in-placeを実証しない限りmodel sizeまでのciphertext copy | 小さいI/O/provider buffer | 1 chunkのscratch + I/O/alignment buffer |
 | hardware作業buffer | 最大になる可能性がある | 小さい。vendor block alignmentが必要 | 小さい。chunkごとに独立operationを実行 |
 | 未認証plaintext | final tag確認まで出力全体 | final tag確認まで最終model領域内で増加 | 最大1 scratch chunk |
-| 認証失敗時のzeroization | model/copy全体 | 書込み済みdestination全体 | scratchと、それまでにcommitしたdestination全byte |
+| 認証失敗時のzeroization | model領域（destination先頭の`payload_plain_length` byte）と一時copy | model領域（destination先頭の`payload_plain_length` byte） | scratchとmodel領域（destination先頭の`payload_plain_length` byte） |
 | 破損検出時点 | 最後 | 最後 | 破損したchunkの終端 |
 | format overhead | 16-byte tag 1個 | 16-byte tag 1個 | chunkごとに16 byte。64 KiB時0.0244% |
 | nonce管理 | packageごとに1個 | packageごとに1個 | 64-bit prefix + 検査済み32-bit index |
@@ -374,9 +380,12 @@ mtfs_error_t mtfs_model_close(mtfs_model_handle_t *handle);
 `open`はformatを検証し、`K_model` envelopeを使ってmanifestを認証する。object type不一致、未対応の
 target/NPU/format、未対応key selector、上限超過chunkはreturn前に拒否する。このため、成功handleに
 対する`get_info`が未認証metadataを返すことはない。v1の`load`は同期APIであり、
-`destination_size >= required_ram`を要求し、正確な`model_size`を`loaded_size`へ返す。失敗時は
-`loaded_size=0`とし、model destination範囲をzeroizeする。`close`は初期化途中でも安全に呼出せ、
-FatFs objectと全provider handleをcloseする。
+`destination_size >= required_ram`を要求し、正確な`model_size`（`payload_plain_length`）を
+`loaded_size`へ返す。payload I/Oの開始前に、認証済みmanifestからzeroize可能な範囲を確定する。
+`destination_size`が`required_ram`または`payload_plain_length`より小さい場合は、destinationを変更せず
+`loaded_size=0`として失敗する。この検査後に失敗した場合は、destination先頭から
+`payload_plain_length` byteをzeroizeし、`destination_size`の余剰部分およびcaller所有の隣接workspaceは
+変更しない。`close`は初期化途中でも安全に呼出せ、FatFs objectと全provider handleをcloseする。
 
 このAPIはmodelをNPUへsubmitしない。runtime固有のcache maintenanceとNPU呼出しは
 application/provider層に残す。将来のpartial/direct loadには新APIが必要であり、v1 whole-load規則を
@@ -480,8 +489,8 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 3. 現行FullSecure LRUN AppliでSTM32 providerをspikeする。実装Phaseでは必要なCube CRYP/SAES sourceだけを
    追加し、clock/RIF/security contextを設定する。同じtest vectorに加えてHDPL reset/rebootを通す。
 4. stack/BSS/scratch、crypto throughput、SD+crypto pipelineを測定する。合否条件は、link map上の重複なし、
-   log/map/repository内のkeyなし、verify前のscratch外plaintextなし、全failure injectionでdestination全体が
-   zeroizeされることとする。
+   log/map/repository内のkeyなし、verify前のscratch外plaintextなし、payload I/O開始後の全failure injectionで
+   destination先頭の`payload_plain_length` byteがzeroizeされ、余剰部分が変更されないこととする。
 5. 両spike成功後に限り、provider context size、target最大chunk policy、error enumを確定する。
 
 ### Phase 4.2: sealed blobとmodel store

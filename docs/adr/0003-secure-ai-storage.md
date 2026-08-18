@@ -131,8 +131,12 @@ src/ports/host/crypto/
   可能になる。fleet範囲を小さくする運用が必要である。
 - FullSecure/flat applicationの侵害からkey operationを隔離する保証はない。hardware engineが
   HUK/DHUKおよびstored wrapped keyを保護する範囲だけが追加保証である。
-- chunk認証に成功したprefixも、後続chunkが失敗した場合は最終destination全体をzeroizeする。
-  applicationは`mtfs_model_load()`成功前のdestinationをNPUへ渡してはならない。
+- `mtfs_model_load()`はpayload I/O開始前に、認証済みmanifestから`payload_plain_length`を取得して
+  destinationへ収まることを検査し、失敗時に消去可能な範囲を確定する。サイズ検査に失敗した場合は
+  destinationを変更しない。payload I/O開始後に後続chunkを含む処理が失敗した場合は、認証済みprefixを
+  保持せず、destination先頭から`payload_plain_length` byteをzeroizeする。`destination_size`の余剰部分や
+  caller所有の隣接workspaceは変更しない。applicationは`mtfs_model_load()`成功前のdestinationをNPUへ
+  渡してはならない。
 - 64 KiB scratchとI/O/alignment bufferが最終model領域に追加して必要になる。両targetの搭載SRAM
   から設計上は許容できるが、NPU runtimeとの同時配置はlink mapと実機で確認する。
 - package formatはtarget非依存だが、`K_fleet`のdevice保存blobはprovider固有で互換ではない。
@@ -150,6 +154,7 @@ src/ports/host/crypto/
 4. 両targetで4/16/64 KiB chunk、非16-byte最終chunk、misaligned FatFs buffer、in-place禁止時の
    bounce経路、同時SD I/Oとのcache/DMA整合を確認する。
 5. 64 KiB scratch、provider context、NPU model領域、tensor arenaを含むlink mapが重ならず、
-   `mtfs_model_load()`失敗時にdestinationとscratchがzeroizeされることを確認する。
+   `mtfs_model_load()`のpayload I/O開始後の失敗時にdestination先頭の`payload_plain_length` byteとscratchが
+   zeroizeされ、`destination_size`の余剰部分が変更されないことを確認する。
 
 合否条件の詳細は設計文書の「Phase 4.1以降」を参照する。
