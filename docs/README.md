@@ -8,6 +8,7 @@
 - `security/secure-ai-storage.md`: sealed model形式、crypto provider/API、extension構成、実装検証計画
 - `security/host-sealed-model-tools.md`: Phase 4.1A Host toolのbuild、運用、test vector、制限
 - `security/ek-ra8p1-rsip-e50d-spike.md`: Phase 4.1B-RA RSIP-E50D hardware spikeのpreflight、blocker、test-only harness
+- `security/ek-ra8p1-sd-key-provisioning.md`: RFP注入したHUK-wrapped fleet keyを専用appでSDへ保存するcontest profile
 - `porting/README.md`: 新規ボードへのソース取り込みから実機testまでの移植ガイド
 - `porting/block-device-port.md`: Block Device operation、状態、error、contextの実装契約
 - `porting/microtkernel-integration.md`: mutex、IRQ、event flag、HAL timebase、task寿命

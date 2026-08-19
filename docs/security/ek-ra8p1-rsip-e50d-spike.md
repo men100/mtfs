@@ -1,17 +1,19 @@
 # EK-RA8P1 RSIP-E50D ハードウェア暗号スパイク（Phase 4.1B-RA）
 
-状態: **BLOCKED / NOT HARDWARE-VALIDATED / NOT PRODUCTION-READY**（2026-08-19）。
+状態: **GENERATED-KEY GCM HARDWARE PASS / FIXED-KEY PROVISIONING BLOCKED /
+NOT PRODUCTION-READY**（2026-08-19）。
 
 本レポートは、`tests/targets/ek_ra8p1/basic` で使用している RA FSP 6.5.0 の
 実際のパックを対象に実施した、Phase 4.1B-RA の事前調査結果を記録するものである。
-ハードウェアスパイクの完了を示すものではない。ターゲットの NVM、OTP、
+generated-key GCM経路は実機PASSしたが、fixed fleet key経路を含むハードウェアスパイク
+全体の完了を示すものではない。ターゲットの NVM、OTP、
 オプション設定メモリ、ライフサイクル状態、デバッグロック設定への書込みは
 一切実施していない。
 
-## 受入れ試験を阻害している事項
+## 初回preflightで受入れ試験を阻害した事項
 
 Phase 4.1A の固定フリート鍵をプロビジョニングし、完全な電源断を挟んだ後に
-再利用することを妨げる、相互に独立した二つのブロッカーがある。
+再利用することを妨げた、相互に独立した二つの初回ブロッカーは次のとおりだった。
 
 1. 選択されているデバイスは `R7KA8P1KFLCAC` である。生成された
    `bsp_mcu_device_pn_cfg.h` では `BSP_DATA_FLASH_SIZE_BYTES` が `0` と定義され、
@@ -31,6 +33,12 @@ Phase 4.1A の固定フリート鍵をプロビジョニングし、完全な電
    raw AES-256 鍵をインポートするためのサポート済み API はない。
    選択された plaintext プリミティブのファイルを Protected Mode の生成ソースへ
    混在させることは、FSP がサポートしない変更になるため実施していない。
+
+保存先については、内部MRAMを通常版が所有する設計を採用せず、RFP注入済みの
+HUK-wrapped blobを専用appでSDへcopyするcontest profileを選択した。詳細は
+[`ek-ra8p1-sd-key-provisioning.md`](ek-ra8p1-sd-key-provisioning.md)に記録する。
+これにより通常版のMRAM予約は不要になるが、RA8P1 factory boot interfaceによるinitial
+AES-256 `.rkey`注入可否は、RFP/SKMT導入後のGo/No-Go gateとして残る。
 
 このため、Host の golden vector に含まれるエンベロープの復号、直後の `K_model`
 インポート、ラップ済み鍵の永続化、再起動／完全電源断サイクルの検証、固定鍵を用いた
@@ -68,8 +76,8 @@ Phase 4.1A の固定フリート鍵をプロビジョニングし、完全な電
 この試験は、固定鍵による既知解試験ではなく、生成鍵によるラウンドトリップとして
 意図的に表示される。初回の実機試行では、ハーネスが GCM 経路から CCM 専用の
 `R_RSIP_AES_AEAD_LengthsSet()` を呼び出していたため、`crypto-kat` と
-`crypto-negative` が FAIL した。この呼出しは除去済みだが、修正版の実機再試験は
-まだ行っていない。この初回結果を RSIP の GCM 処理自体の不合格とは判定しない。
+`crypto-negative` が FAIL した。この呼出しを除去した修正版を実機で再試験し、PASSした。
+この初回結果を RSIP の GCM 処理自体の不合格とは判定しない。
 
 状態を持つコマンド、または前提条件に依存するコマンド
 （`crypto-provision-test-key`、`crypto-reboot-check`、
@@ -135,11 +143,9 @@ crypto-kat
 crypto-negative
 ```
 
-二つのブロッカーが解消されるまで、プロビジョニングを試みてはならない。次に必要な判断は、
-Renesas がサポートする Protected Mode のプロビジョニング経路
-（通常は開発用 plaintext injection ではなく、暗号化鍵/KUK を使用する量産設計）と、
-消去／書込み／アラインメント／電源断時の規則を文書化した、ボードまたはプロジェクト所有の
-不揮発レコード格納領域である。これらを決定した後にのみ、Phase 4.1A の
+RFP/SKMTでRA8P1 Protected Modeのinitial AES-256 `.rkey`注入を確認するまで、
+実機プロビジョニングを試みてはならない。保存先はSDの`0:/MTFSKEY.BIN`とし、
+専用app以外から作成・更新しない。注入経路と実addressを確定した後にのみ、Phase 4.1A の
 `golden_package.mtfs` を `GOLDEN.MTF` のような ASCII ファイル名でコピーし、
 残りの再起動、実際の完全電源断、mutation、4/16/64 KiB、ゼロ化、性能、および SD の
 各試験を実行すること。
@@ -150,8 +156,8 @@ Renesas がサポートする Protected Mode のプロビジョニング経路
 検証前の出力を private scratch に限定する規則、強化したゼロ化プリミティブ、
 Close/Open による中断処理、診断カウンター、および明示的な試験専用ゲート。
 
-新規に設計／検証が必要なもの: 量産用の鍵プロビジョニング、NVM レコードと電源断時の
-プロトコル、`K_model` のインポート、古いハンドルのライフサイクル、パッケージパーサー、
+新規に設計／検証が必要なもの: 量産用の鍵プロビジョニング、contest profileのSD鍵レコードの
+実機試験と電源断時のプロトコル、`K_model` のインポート、古いハンドルのライフサイクル、パッケージパーサー、
 SD パイプライン、TrustZone/FullSecure 境界、ハードウェア試験結果、および性能。
 
 これらの項目と、必要な実機試験のすべてが PASS するまで、Phase 4.1B-RA は
@@ -192,8 +198,12 @@ WSL2 Ubuntu 26.04 での Host 回帰試験結果:
   2 chunks。JSON、package、payload、test key の SHA-256 はすべてバイト単位で一致
 
 機能を有効にした Debug イメージによる初回の実機試行では、起動バナーと `crypto-info` の
-表示を確認した。`crypto-kat` と `crypto-negative` は前述のハーネス不具合により FAIL した。
-修正版による KAT、negative vector、4/16/64 KiB、およびターゲット上のゼロ化は
-**NOT RUN** である。また、InitialKeyWrap、再起動、実際の完全電源断、golden vector、
+表示を確認した。初回は前述のハーネス不具合によりFAILしたが、修正版では
+`crypto-kat`と`crypto-negative`の両方で、生成鍵によるempty/partial/4/16/64 KiB、
+multi-shot、negative、Close/Open後の再利用がPASSした。両commandは現在同じcombined smokeを
+呼ぶため、2回実行後のcounterは`open=4 close=4 wrap=2 start=26 update=94 verify=14
+auth_fail=2 abort=2 zeroize=40 generation=4 last_fsp=0`だった。この結果はgenerated-key
+hardware smokeのPASSであり、fixed-key KATのPASSではない。また、initial `.rkey`注入、
+SDからのfixed-key load、再起動、実際の完全電源断、golden vector、
 SD/FatFs 暗号処理、ターゲット性能、および既存の RA smoke/normal runtime も
 引き続き **NOT RUN** である。

@@ -1,8 +1,13 @@
 # EK-RA8P1 Phase 3.6 RTC / SD SPI / Card Detect / optional LFN runner
 
-Phase 4.1B-RAのRSIP-E50D test-only preflight、未解決blocker、console手順は
+Phase 4.1B-RAのRSIP-E50D test-only preflight、実機generated-key GCM PASS、fixed-keyの
+未解決blocker、console手順は
 [`docs/security/ek-ra8p1-rsip-e50d-spike.md`](../../../../docs/security/ek-ra8p1-rsip-e50d-spike.md)
-を参照してください。実機試験未完了のためproduction-readyではありません。
+を参照してください。HUK-wrapped `K_fleet`をSDへ保存するcontest profileと専用provisioning appは
+[`docs/security/ek-ra8p1-sd-key-provisioning.md`](../../../../docs/security/ek-ra8p1-sd-key-provisioning.md)
+に記録しています。fixed-key実機試験未完了のためproduction-readyではありません。
+専用app用の`src/ports/ra_fsp/crypto`と`src/extensions/security/wrapped_key`は、このbasic
+projectのDebug/Release source対象から除外しています。
 
 FATで事前フォーマットしたDigilent Pmod MicroSD Revision AをPMOD2へ接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセス、P409/IRQ6による挿入・抜去・再挿入、FSP RTCからFatFs timestampへの反映を確認するe² studioプロジェクトです。テストはカードをフォーマットしません。
 

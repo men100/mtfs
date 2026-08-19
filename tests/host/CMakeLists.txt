@@ -26,6 +26,7 @@ add_executable(mtfs_host_tests
     test_ra_sd_spi_deadline.c
     test_rtc_set_app.c
     test_time_provider.c
+    test_wrapped_key_record.c
     ../common/framework/mtfs_test.c
     ../common/benchmarks/mtfs_benchmark.c
     ../common/cases/test_fatfs_concurrent.c
@@ -38,6 +39,8 @@ add_executable(mtfs_host_tests
     ../../src/block/mtfs_block_registry.c
     ../../src/core/mtfs_media.c
     ../../src/core/mtfs_time.c
+    ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_record.c
+    ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_fatfs.c
     ../../src/fatfs/ff.c
     ../../src/fatfs/ffunicode.c
     ../../src/fatfs/mtfs_diskio.c
@@ -59,6 +62,7 @@ target_include_directories(mtfs_host_tests PRIVATE
     ../../src
     ../../src/block
     ../../src/core
+    ../../src/extensions/security/wrapped_key
     ../../src/fatfs
     ../../src/os/host
     ../../src/os/microtkernel

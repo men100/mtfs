@@ -87,6 +87,14 @@ provider APIはraw keyを返さず、key handle、AEAD operation、sign operatio
 HUK/DHUKは読出し可能な鍵として扱わない。providerがhardware key selectionまたはwrapped key
 importに使うrootであり、microT-FS APIへbyte列として現れない。
 
+EK-RA8P1のcontest profileでは、ボードごとの初回処理をtrusted環境のRFP/SKMTと専用
+provisioning firmwareで行い、52-byte HUK-wrapped `K_fleet`をSD上のversioned record
+`0:/MTFSKEY.BIN`へ保存する。通常版はrecordをaligned SRAMへloadしてRSIPへ渡し、MRAMへ
+永続鍵領域を予約しない。KUK、remote update、anti-rollbackは採用せず、SD fileを失った場合は
+trusted環境で再provisioningする。programming interfaceを維持するため、このprofileは
+production provisioningではない。詳細は
+[`../security/ek-ra8p1-sd-key-provisioning.md`](../security/ek-ra8p1-sd-key-provisioning.md)に定める。
+
 ### 3. sealed modelはchunked AES-256-GCMとする
 
 初版formatは64 KiBを既定chunk sizeとする独立AEAD chunk方式を採用する。formatは4 KiBから

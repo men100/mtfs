@@ -1,0 +1,20 @@
+diff --git a/sysdepend/ra_fsp/lib/libtm/ek_ra8p1/tm_com.c b/sysdepend/ra_fsp/lib/libtm/ek_ra8p1/tm_com.c
+index 6ab4cff..ecb4020 100644
+--- a/sysdepend/ra_fsp/lib/libtm/ek_ra8p1/tm_com.c
++++ b/sysdepend/ra_fsp/lib/libtm/ek_ra8p1/tm_com.c
+@@ -63,12 +63,12 @@ EXPORT	void	tm_rcv_dat( UB* buf, INT size )
+ {
+ 	UW	csr;
+ 
+-	while(size-- > 0) {
++	while(size > 0) {
+ 		csr = in_w(SCI8_CSR);
+ 		if( (csr & CSR_RDRF) != 0) {
+ 			*buf++ = in_b( SCI8_RDR );
++			size--;
+ 		} else if( csr & CSR_ERR ) {	/* check Communication error */
+ 			out_w( SCI8_CFCLR, csr & CSR_ERR);
+-			size++;
+ 		}
+ 	}
+ }

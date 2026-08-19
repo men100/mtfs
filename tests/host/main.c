@@ -20,6 +20,7 @@
 #include "test_block_diagnostics.h"
 #include "test_rtc_set_app.h"
 #include "test_time_provider.h"
+#include "test_wrapped_key_record.h"
 
 #define MTFS_HOST_IMAGE_SIZE (16L * 1024L * 1024L)
 #define MTFS_HOST_SECTOR_SIZE MTFS_HOST_BLOCK_FILE_DEFAULT_SECTOR_SIZE
@@ -161,6 +162,9 @@ int main(void)
     if (test_time_provider(&test) != 0) {
         goto cleanup;
     }
+    if (test_wrapped_key_record(&test) != 0) {
+        goto cleanup;
+    }
     if (test_ra_sd_spi_deadline(&test) != 0) {
         goto cleanup;
     }
@@ -273,6 +277,9 @@ int main(void)
     fat_result = f_mkfs("0:", &format_options, format_buffer, (UINT)sizeof(format_buffer));
     if (!MTFS_TEST_CHECK(&test, fat_result == FR_OK,
             "host runner explicitly formats temporary image")) {
+        goto cleanup;
+    }
+    if (test_wrapped_key_fatfs(&test, "0:") != 0) {
         goto cleanup;
     }
     roundtrip_result = test_fatfs_roundtrip(&test, "0:");

@@ -72,13 +72,18 @@ domain separationは構造で強制する。各鍵は別用途のoperationでは
 2. userは`key_id=1`、`key_version=1`を割り当てる。v1が扱うactive keyは1個だけとする。
 3. provisioningではtargetを認証し、`K_fleet`をdevice固有のprovider blobへ変換する。
    - RA production経路では、Renesas UFPK/W-UFPK secure injectionとRSIP-E50D protected key形式を
-     優先する。開発専用のplaintext injection経路ではFSP InitialKeyWrap APIを呼出してもよいが、
-     trusted provisioning RAMへ入力鍵が現れるため、production profileからcompile outする。
+     優先する。EK-RA8P1 contest profileでは、信頼できる場所でRFP/SKMTを使って初期鍵を注入し、
+     専用provisioning appだけがHUK-wrapped blobをSDへcopyする。raw鍵を通常版firmwareやSDへ置かない。
+     開発専用のplaintext injection経路でFSP InitialKeyWrap APIを呼ぶ構成は、trusted provisioning
+     RAMへ入力鍵が現れるため、production profileからcompile outする。
    - STM32開発経路では、device上のSAESが入力鍵をDHUKでwrapする。production provisioningと
      lifecycle/HDPL policyは製品ごとの判断とし、Phase 4.0ではOTP programmingもlifecycle変更も行わない。
 4. provider blob、algorithm/version、非secretのchecksumをtarget管理下のnonvolatile storageへ保存する。
-   RAでは内部Data Flash、STM32N657ではDHUKで保護したblobをboard上のexternal flash等へ保存する候補がある。
-   removable SDを唯一の保存先にはしない。
+   RA8P1の選択デバイスにはData Flashがない。EK-RA8P1 contest profileでは、可用性、rollback、媒体交換を
+   threat model外とする明示的なtrade-offにより、removable SDを唯一のblob保存先として採用する。
+   SDの紛失・破損時は同じボードを再provisioningする。production profileではremovable SDだけに依存せず、
+   lifecycle、更新認証、anti-rollbackを含め、予約済み内部領域、board上のexternal NVM、secure element等を
+   製品要件に合わせて選ぶ。STM32N657ではDHUKで保護したblobをboard上のexternal flash等へ保存する候補がある。
 5. boot時または利用時にproviderがblob構造を検証し、opaqueな`K_fleet` handleをopenする。
    HUK/DHUKはhardware内部で選択し、application codeから読み出さない。
 6. close時またはerror時には、providerがhardware stateを無効化し、一時的なcontrol/key-import bufferを
@@ -544,7 +549,9 @@ firmwareを含むthreat model、version付きpointer-validation ABI、dual-image
 FSP資料で、RSIP-E50D protected modeのAES-GCMとmulti-shot AEAD APIを確認した。key-injection APIは
 provider wrapped keyを出力し、AES-256に対応する。Renesas資料には256-bit HUK wrapping rootが記載され、
 copyしたwrapped keyを別MCUでは利用できないことが示されている。production provisioningでは
-開発用plaintext経路ではなく、UFPK/W-UFPK flowに従う。
+開発用plaintext経路ではなく、UFPK/W-UFPK flowに従う。EK-RA8P1 contest profileの具体的な境界と
+未完了のRFP/SKMT gateは
+[`ek-ra8p1-sd-key-provisioning.md`](ek-ra8p1-sd-key-provisioning.md)に記録する。
 
 ### STMicroelectronics
 
