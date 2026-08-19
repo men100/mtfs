@@ -20,6 +20,7 @@
 #include "mtfs_ra8p1_platform.h"
 #include "mtfs_ra8p1_vector_cache.h"
 #include "mtfs_target_concurrent.h"
+#include "mtfs_ra8p1_crypto_spike.h"
 #ifndef MTFS_FF_FS_NORTC
 #define MTFS_FF_FS_NORTC (1)
 #endif
@@ -237,7 +238,13 @@ static void target_command_console(void)
         "test-diagnostics-reset    verify reset on one active context\r\n"
         "diag                      print common/media/RA snapshots\r\n"
         "diag-reset                reset diagnostic counters only\r\n"
-        "diag-help                 explain diagnostic commands\r\n");
+        "diag-help                 explain diagnostic commands\r\n"
+#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
+        "crypto-info               show RSIP spike configuration and diagnostics\r\n"
+        "crypto-kat                run generated-key GCM smoke test\r\n"
+        "crypto-negative           run generated-key GCM negative smoke test\r\n"
+#endif
+        );
     mtfs_rtc_set_tmonitor_write(NULL,
         "microT-FS EK-RA8P1 command console\r\n"
         "Commands: RTC, FatFs timestamp test, and storage benchmark.\r\n"
@@ -945,6 +952,9 @@ cleanup:
 static int target_console_command(void *opaque, const char *line)
 {
     (void)opaque;
+    if (mtfs_ra8p1_crypto_spike_command(line)) {
+        return 1;
+    }
     if (strcmp(line, "test-fatfs-time") == 0) {
         (void)target_run_fatfs_time_test();
         return 1;
@@ -1005,6 +1015,7 @@ static void target_coordinator(INT start_code, void *opaque)
 #endif
 
     (void)opaque;
+    mtfs_ra8p1_crypto_spike_banner();
 #if !MTFS_FF_FS_NORTC
     rtc_mutex_id = tk_cre_mtx(&rtc_mutex);
     if (rtc_mutex_id <= 0) {

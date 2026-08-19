@@ -1,5 +1,9 @@
 # EK-RA8P1 Phase 3.6 RTC / SD SPI / Card Detect / optional LFN runner
 
+Phase 4.1B-RAのRSIP-E50D test-only preflight、未解決blocker、console手順は
+[`docs/security/ek-ra8p1-rsip-e50d-spike.md`](../../../../docs/security/ek-ra8p1-rsip-e50d-spike.md)
+を参照してください。実機試験未完了のためproduction-readyではありません。
+
 FATで事前フォーマットしたDigilent Pmod MicroSD Revision AをPMOD2へ接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセス、P409/IRQ6による挿入・抜去・再挿入、FSP RTCからFatFs timestampへの反映を確認するe² studioプロジェクトです。テストはカードをフォーマットしません。
 
 ## 必要環境
@@ -52,6 +56,7 @@ SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマッ�
 - RTC `g_rtc0`、Sub-Clock、carry IRQ priority 12
 - RTC alarm/periodic IRQとcallbackは未使用
 - **Set Source Clock in Open** はDisabled。providerが`VBTBPSR.VBPORF`でバックアップdomain喪失を検出した時だけ`clockSourceSet`を呼ぶ
+- RSIP-E50D Protected Mode `g_rsip`（AES-256、AES-GCM、SHA-256のみ）。test harnessは既定無効で、flash moduleは追加しない
 
 Card Detectは100 msのsoftware debounceを既定とし、edge後だけoptional media service taskが再確認します。`MTFS_RA8P1_CD_DEBOUNCE_MS`で変更できます。実機で未挿入`raw=1`、挿入`raw=0`を確認済みのため、`MTFS_RA8P1_CD_ACTIVE_LOW=1`を既定としています。
 
