@@ -6,8 +6,144 @@
 
 #include "mtfs_wrapped_key_fatfs.h"
 #include "mtfs_wrapped_key_record.h"
+#include "mtfs_stm32_nor_key_store.h"
 
 #define TEST_RECORD_BYTES MTFS_WRAPPED_KEY_RECORD_RSIP_AES256_BYTES
+
+typedef struct mock_nor
+{
+    uint8_t sectors[2][MTFS_STM32_NOR_ERASE_BYTES];
+    uint32_t program_calls;
+    uint32_t fail_program_call;
+} mock_nor_t;
+
+static int mock_slot(uint32_t offset, size_t bytes, size_t *within)
+{
+    if ((offset >= MTFS_STM32_NOR_KEY_OFFSET_A) &&
+        ((uint64_t)offset + bytes <=
+            (uint64_t)MTFS_STM32_NOR_KEY_OFFSET_A +
+                MTFS_STM32_NOR_ERASE_BYTES)) {
+        *within = offset - MTFS_STM32_NOR_KEY_OFFSET_A;
+        return 0;
+    }
+    if ((offset >= MTFS_STM32_NOR_KEY_OFFSET_B) &&
+        ((uint64_t)offset + bytes <=
+            (uint64_t)MTFS_STM32_NOR_KEY_OFFSET_B +
+                MTFS_STM32_NOR_ERASE_BYTES)) {
+        *within = offset - MTFS_STM32_NOR_KEY_OFFSET_B;
+        return 1;
+    }
+    return -1;
+}
+
+static int mock_nor_read(void *opaque, uint32_t offset, uint8_t *data,
+    size_t bytes)
+{
+    mock_nor_t *nor = (mock_nor_t *)opaque;
+    size_t within;
+    int slot = mock_slot(offset, bytes, &within);
+    if (slot < 0) return -10;
+    memcpy(data, nor->sectors[slot] + within, bytes);
+    return 0;
+}
+
+static int mock_nor_erase(void *opaque, uint32_t offset)
+{
+    mock_nor_t *nor = (mock_nor_t *)opaque;
+    size_t within;
+    int slot = mock_slot(offset, MTFS_STM32_NOR_ERASE_BYTES, &within);
+    if ((slot < 0) || (within != 0U)) return -11;
+    memset(nor->sectors[slot], 0xff, MTFS_STM32_NOR_ERASE_BYTES);
+    return 0;
+}
+
+static int mock_nor_program(void *opaque, uint32_t offset,
+    const uint8_t *data, size_t bytes)
+{
+    mock_nor_t *nor = (mock_nor_t *)opaque;
+    size_t within, index;
+    int slot = mock_slot(offset, bytes, &within);
+    ++nor->program_calls;
+    if (nor->program_calls == nor->fail_program_call) return -12;
+    if (slot < 0) return -13;
+    for (index = 0U; index < bytes; ++index) {
+        if ((uint8_t)(nor->sectors[slot][within + index] & data[index]) !=
+            data[index]) return -14;
+        nor->sectors[slot][within + index] &= data[index];
+    }
+    return 0;
+}
+
+static int test_stm32_nor_store(mtfs_test_t *test)
+{
+    mock_nor_t nor;
+    mtfs_stm32_nor_io_t io = {
+        &nor, mock_nor_read, mock_nor_erase, mock_nor_program
+    };
+    mtfs_stm32_nor_wrapped_key_t key1, key2, loaded;
+    mtfs_stm32_nor_key_metadata_t metadata;
+    mtfs_stm32_nor_key_store_diagnostics_t diagnostics = {0};
+    size_t index;
+    if (!MTFS_TEST_CHECK(test,
+            MTFS_STM32_NOR_KEY_OFFSET_A == UINT32_C(0x07ffe000) &&
+                MTFS_STM32_NOR_KEY_OFFSET_B == UINT32_C(0x07fff000) &&
+                MTFS_STM32_NOR_KEY_OFFSET_B +
+                    MTFS_STM32_NOR_ERASE_BYTES == MTFS_STM32_NOR_BYTES,
+            "reserve the final two 4 KiB STM32 NOR sectors for keys")) return 1;
+    memset(&nor, 0xff, sizeof(nor));
+    nor.program_calls = 0U;
+    nor.fail_program_call = 0U;
+    for (index = 0U; index < sizeof(key1.bytes); ++index) {
+        key1.bytes[index] = (uint8_t)(index * 3U + 1U);
+        key2.bytes[index] = (uint8_t)(index * 5U + 7U);
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_load(&io, &loaded, &metadata,
+                &diagnostics) == MTFS_STM32_NOR_KEY_STORE_NOT_FOUND,
+            "empty STM32 NOR key slots are not provisioned")) return 1;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_commit(&io, &key1, 1U, 1U, 0,
+                &metadata, &diagnostics) == MTFS_STM32_NOR_KEY_STORE_OK &&
+                metadata.generation == 1U &&
+                metadata.slot_offset == MTFS_STM32_NOR_KEY_OFFSET_A &&
+                diagnostics.write_count == 2U,
+            "STM32 NOR commit verifies staged data then writes commit marker")) return 1;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_load(&io, &loaded, &metadata,
+                &diagnostics) == MTFS_STM32_NOR_KEY_STORE_OK &&
+                memcmp(loaded.bytes, key1.bytes, sizeof(key1.bytes)) == 0,
+            "load committed STM32 DHUK-wrapped key")) return 1;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 2U, 0,
+                &metadata, &diagnostics) ==
+                    MTFS_STM32_NOR_KEY_STORE_ALREADY_PROVISIONED,
+            "reject STM32 fleet-key reprovision by default")) return 1;
+    nor.fail_program_call = nor.program_calls + 2U;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 2U, 1,
+                &metadata, &diagnostics) == MTFS_STM32_NOR_KEY_STORE_IO_ERROR,
+            "a power-loss-like commit write failure is rejected")) return 1;
+    nor.fail_program_call = 0U;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_load(&io, &loaded, &metadata,
+                &diagnostics) == MTFS_STM32_NOR_KEY_STORE_OK &&
+                metadata.generation == 1U &&
+                memcmp(loaded.bytes, key1.bytes, sizeof(key1.bytes)) == 0,
+            "an uncommitted inactive slot cannot replace the old key")) return 1;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 2U, 1,
+                &metadata, &diagnostics) == MTFS_STM32_NOR_KEY_STORE_OK &&
+                metadata.generation == 2U &&
+                metadata.slot_offset == MTFS_STM32_NOR_KEY_OFFSET_B,
+            "update the inactive slot with the next generation")) return 1;
+    nor.sectors[1][40] ^= 1U;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_stm32_nor_key_store_load(&io, &loaded, &metadata,
+                &diagnostics) == MTFS_STM32_NOR_KEY_STORE_OK &&
+                metadata.generation == 1U && diagnostics.valid_slots == 1U,
+            "fall back to the older valid slot after record corruption")) return 1;
+    return 0;
+}
 
 static void fill_blob(uint8_t *blob)
 {
@@ -145,6 +281,65 @@ int test_wrapped_key_record(mtfs_test_t *test)
                 &input, blob, sizeof(blob), &encoded_bytes) ==
                     MTFS_WRAPPED_KEY_RECORD_INVALID_ARGUMENT,
             "reject an unassigned key identifier")) {
+        return 1;
+    }
+
+    {
+        mtfs_wrapped_key_metadata_t saes_input = {
+            MTFS_WRAPPED_KEY_PROVIDER_STM32_SAES_DHUK,
+            MTFS_WRAPPED_KEY_TYPE_AES_256,
+            1U,
+            1U
+        };
+        uint8_t saes_blob[MTFS_WRAPPED_KEY_RECORD_SAES_AES256_BLOB_BYTES];
+        uint8_t saes_record[MTFS_WRAPPED_KEY_RECORD_SAES_AES256_BYTES];
+        size_t index;
+
+        for (index = 0U; index < sizeof(saes_blob); ++index) {
+            saes_blob[index] = (uint8_t)(0xa5U ^ index);
+        }
+        status = mtfs_wrapped_key_record_encode(saes_record,
+            sizeof(saes_record), &saes_input, saes_blob,
+            sizeof(saes_blob), &encoded_bytes);
+        if (!MTFS_TEST_CHECK(test,
+                status == MTFS_WRAPPED_KEY_RECORD_OK &&
+                    encoded_bytes == sizeof(saes_record),
+                "encode a fixed 64-byte STM32 SAES/DHUK record")) {
+            return 1;
+        }
+        status = mtfs_wrapped_key_record_decode(saes_record,
+            sizeof(saes_record),
+            MTFS_WRAPPED_KEY_PROVIDER_STM32_SAES_DHUK,
+            MTFS_WRAPPED_KEY_TYPE_AES_256, sizeof(saes_blob),
+            &output, &decoded_blob);
+        if (!MTFS_TEST_CHECK(test,
+                status == MTFS_WRAPPED_KEY_RECORD_OK &&
+                    memcmp(decoded_blob, saes_blob, sizeof(saes_blob)) == 0,
+                "decode the 32-byte SAES wrapped-key blob")) {
+            return 1;
+        }
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_wrapped_key_record_decode(saes_record,
+                    sizeof(saes_record),
+                    MTFS_WRAPPED_KEY_PROVIDER_RA_RSIP_E50D,
+                    MTFS_WRAPPED_KEY_TYPE_AES_256, sizeof(saes_blob),
+                    &output, &decoded_blob) ==
+                        MTFS_WRAPPED_KEY_RECORD_UNSUPPORTED,
+                "reject an SAES record before selecting the wrong provider")) {
+            return 1;
+        }
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_wrapped_key_record_decode(saes_record,
+                    sizeof(saes_record),
+                    MTFS_WRAPPED_KEY_PROVIDER_STM32_SAES_DHUK,
+                    MTFS_WRAPPED_KEY_TYPE_AES_256,
+                    sizeof(saes_blob) - 1U, &output, &decoded_blob) ==
+                        MTFS_WRAPPED_KEY_RECORD_INVALID_FORMAT,
+                "reject a non-32-byte SAES wrapped-key expectation")) {
+            return 1;
+        }
+    }
+    if (test_stm32_nor_store(test) != 0) {
         return 1;
     }
     return 0;

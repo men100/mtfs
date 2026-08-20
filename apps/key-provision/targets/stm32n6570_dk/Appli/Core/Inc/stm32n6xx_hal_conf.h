@@ -34,7 +34,7 @@ extern "C" {
   * @brief This is the list of modules to be used in the HAL driver
   */
 #define HAL_MODULE_ENABLED
-#define HAL_ADC_MODULE_ENABLED
+/*#define HAL_ADC_MODULE_ENABLED   */
 /*#define HAL_BSEC_MODULE_ENABLED   */
 /*#define HAL_CRC_MODULE_ENABLED   */
 #define HAL_CRYP_MODULE_ENABLED
@@ -49,7 +49,7 @@ extern "C" {
 /*#define HAL_GFXTIM_MODULE_ENABLED   */
 /*#define HAL_HASH_MODULE_ENABLED   */
 /*#define HAL_HCD_MODULE_ENABLED   */
-#define HAL_I2C_MODULE_ENABLED
+/*#define HAL_I2C_MODULE_ENABLED   */
 /*#define HAL_I2S_MODULE_ENABLED   */
 /*#define HAL_I3C_MODULE_ENABLED   */
 /*#define HAL_ICACHE_MODULE_ENABLED   */
@@ -69,11 +69,9 @@ extern "C" {
 /*#define HAL_RAMCFG_MODULE_ENABLED   */
 /*#define HAL_RIF_MODULE_ENABLED   */
 #define HAL_RNG_MODULE_ENABLED
-#if defined(MTFS_FF_FS_NORTC) && !MTFS_FF_FS_NORTC
-#define HAL_RTC_MODULE_ENABLED
-#endif
+/* RTC is not part of the isolated provisioning image. */
 /*#define HAL_SAI_MODULE_ENABLED   */
-#define HAL_SD_MODULE_ENABLED
+/*#define HAL_SD_MODULE_ENABLED   */
 /*#define HAL_SDIO_MODULE_ENABLED   */
 /*#define HAL_SDRAM_MODULE_ENABLED   */
 /*#define HAL_SMARTCARD_MODULE_ENABLED   */
@@ -90,7 +88,7 @@ extern "C" {
 /*#define HAL_MDIOS_MODULE_ENABLED   */
 /*#define HAL_GPU2D_MODULE_ENABLED   */
 #define HAL_GPIO_MODULE_ENABLED
-#define HAL_EXTI_MODULE_ENABLED
+/*#define HAL_EXTI_MODULE_ENABLED   */
 #define HAL_DMA_MODULE_ENABLED
 #define HAL_RCC_MODULE_ENABLED
 #define HAL_PWR_MODULE_ENABLED

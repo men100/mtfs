@@ -49,6 +49,7 @@ add_executable(mtfs_host_tests
     ../../src/os/microtkernel/mtfs_fatfs_mutex.c
     ../../src/ports/host/mtfs_host_block_file.c
     ../../src/ports/ra_fsp/sd_spi/mtfs_ra_sd_spi_deadline.c
+    ../../src/ports/stm32_cube/crypto/mtfs_stm32_nor_key_store.c
 )
 
 add_library(mtfs_public_headers_cpp_compile OBJECT test_public_headers.cpp)
@@ -68,6 +69,7 @@ target_include_directories(mtfs_host_tests PRIVATE
     ../../src/os/microtkernel
     ../../src/ports/host
     ../../src/ports/ra_fsp/sd_spi
+    ../../src/ports/stm32_cube/crypto
     ../../apps/rtc-set/common
     ../common/framework
     ../common/benchmarks

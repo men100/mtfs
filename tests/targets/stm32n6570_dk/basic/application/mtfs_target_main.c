@@ -17,6 +17,7 @@
 #include "test_fatfs_roundtrip.h"
 #include "mtfs_stm32n6570_dk_platform.h"
 #include "mtfs_target_concurrent.h"
+#include "mtfs_stm32n6570_crypto_spike.h"
 #ifndef MTFS_FF_FS_NORTC
 #define MTFS_FF_FS_NORTC (1)
 #endif
@@ -232,10 +233,14 @@ static void target_command_console(void)
         "test-diagnostics-reset    verify reset on one active context\r\n"
         "diag                      print common/media/ST snapshots\r\n"
         "diag-reset                reset diagnostic counters only\r\n"
-        "diag-help                 explain diagnostic commands\r\n");
+        "diag-help                 explain diagnostic commands\r\n"
+        "crypto-info               print SAES/DHUK execution context\r\n"
+        "crypto-consistency        run AES-256-GCM size/reinit tests\r\n"
+        "crypto-negative           reject tag/ciphertext corruption\r\n"
+        "crypto-package-test       test provisioned sealed package\r\n");
     mtfs_rtc_set_tmonitor_write(NULL,
         "microT-FS STM32N6570-DK command console\r\n"
-        "Commands: RTC, FatFs timestamp test, and storage benchmark.\r\n"
+        "Commands: RTC, storage, and STM32 SAES/DHUK crypto spike.\r\n"
         "RTC set uses local time; no timezone/DST conversion.\r\n"
         "Type help for commands.\r\n> ");
     for (;;) {
@@ -851,6 +856,9 @@ cleanup:
 static int target_console_command(void *opaque, const char *line)
 {
     (void)opaque;
+    if (mtfs_stm32n6570_crypto_command(line)) {
+        return 1;
+    }
     if (strcmp(line, "test-fatfs-time") == 0) {
         (void)target_run_fatfs_time_test();
         return 1;
