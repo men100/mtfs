@@ -37,7 +37,7 @@ SDカードの型番・状態、filesystemの断片化、FAT種別、cluster siz
 
 ## EK-RA8P1での実行
 
-e² studioで `tests/targets/ek_ra8p1/basic` のReleaseをbuildして書き込みます。起動時の既存basic testが完了し、console promptが出た後に次を入力します。
+e² studioで `tests/targets/ek_ra8p1/basic` のReleaseをbuildして書き込みます。起動後すぐに表示されるconsole promptで次を入力します。
 
 ```text
 bench-info
@@ -53,7 +53,7 @@ Phase 3.4a以降は各benchmark commandの終了時にRA SPI wait診断も表示
 
 ## STM32N6570-DKでの実行
 
-CubeIDEで`tests/targets/stm32n6570_dk/basic/Appli`のReleaseと対応するFSBLをbuildして書き込みます。既存basic test完了後のcommand consoleで、RAと同じ順に`bench-info`、`bench-smoke`、`bench-normal`を実行します。
+CubeIDEで`tests/targets/stm32n6570_dk/basic/Appli`のReleaseと対応するFSBLをbuildして書き込みます。起動後すぐに表示されるcommand consoleで、RAと同じ順に`bench-info`、`bench-smoke`、`bench-normal`を実行します。
 
 既定の`MTFS_STM32_SD_USE_IDMA=1`はSDMMC2 4-bit IDMA+IRQで、複数block要求をHAL DMAへ保持します。比較用のpolling baselineはcompiler defineを0へ変更してclean buildし、同じカードと手順で測定します。polling portは複数sector要求を単一sector HAL callへ分割します。`bench-info`にはHALが初期化後に設定したCLKCRとSDMMC2 source clockから算出した実bus clockを出力します。
 

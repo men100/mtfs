@@ -102,7 +102,7 @@ stackへLFN working bufferを置き、既定64では少なくとも130 byteを�
 
 runnerは通常roundで`fatfs_lfn`、hotplug再挿入後に`fatfs_lfn_after_reinsert`を実行します。
 create/write/sync、rename/readdir、remount、long directory、最大長／異常系、SFN alias衝突、
-cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=437`も保存します。
+cleanupがPASSすることを確認します。storage command bannerの`LFN=2 max=64 codepage=437`も保存します。
 CP437はASCII互換のDOS OEM code pageであり、正式な試験・保証範囲はASCIIの英数字、space、
 `-`、`_`、`.`による8.3名とLFNです。CP437拡張文字、CP932/Shift_JIS、日本語filename、
 Unicode/UTF-8は正式対応外です。applicationがFatFs APIを直接呼ぶため、独自validation層は追加しません。
@@ -134,7 +134,7 @@ Debug build確認値はtext 90,840 bytes、BSS 54,204 bytesです。coordinator�
 
 ## Phase 3.4 performance benchmark
 
-Release buildを書き込み、既存test run後のconsoleで `bench-info`、`bench-smoke`、`bench-normal` を実行できます。benchmarkはraw readだけを行い、FatFsでは8.3名の `MTFSBEN.TMP` だけを `FA_CREATE_NEW` で作成します。同名ファイルがあれば中止し、formatは行いません。詳細なprofile条件、指標、ログ保存項目は `../../../../docs/testing/performance-benchmark.md` を参照してください。
+Release buildを書き込み、起動後すぐに表示されるconsoleで `bench-info`、`bench-smoke`、`bench-normal` を実行できます。benchmarkはraw readだけを行い、FatFsでは8.3名の `MTFSBEN.TMP` だけを `FA_CREATE_NEW` で作成します。同名ファイルがあれば中止し、formatは行いません。詳細なprofile条件、指標、ログ保存項目は `../../../../docs/testing/performance-benchmark.md` を参照してください。
 
 RA baselineの取得前に `bench-smoke` が `SUITE END status=PASS`、6つの `cleanup file_removed=yes`、最後の `COMMAND status=PASS` を出すことを確認してください。その後、同じカードとbuildのまま `bench-normal` を1回実行し、console出力全体を保存します。
 
@@ -153,15 +153,14 @@ Compiler > Preprocessor** で次のcompile definitionを追加すると切り替
 | normal | なし、または`=2` | 10 |
 | stress | `MTFS_RA8P1_TEST_PROFILE=3` | 100 |
 
-挿抜試験は既定で無効です。実機smoke試験ではcompiler defineへ次を追加します。
+起動時にはstorage試験を行いません。consoleの`test-roundtrip [rounds]`で反復試験、
+`test-hotplug`で1回の対話的挿抜試験を開始します。`test-roundtrip`の引数は1～1000で、
+省略時は上記profileの周回数です。HotPlug用のcompiler defineや専用buildは不要です。
 
-```text
-MTFS_RA8P1_TEST_PROFILE=1
-MTFS_RA8P1_HOTPLUG_TEST=1
-```
-
-各周でSD context/init、geometry、sector 0 read、mount/unmount、file round-trip、
-2-task並行access、remount後検証、file削除、task/event flag/context解放まで行います。
+1 commandの開始時にSD context、Card Detect、event state、registryを初期化し、全round終了後に
+一度だけcleanupします。このため`diag`には直前のstorage command全体で累積したsnapshotが残り、
+live stateはcleanup済みの非稼働状態として表示されます。各roundではgeometry、sector 0 read、
+file round-trip、2-task並行access、remount後検証、file削除まで行います。
 mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件ではありません。
 
 診断時だけ`MTFS_RA8P1_DISABLE_CACHES_FALLBACK=1`を定義すると旧来の全面cache
@@ -177,46 +176,35 @@ mkfsは呼びません。sector 0末尾の`55 AA`は表示だけで合否条件�
 
 実機試験はSDへ書込みを行います。重要データのないカードで実施してください。runnerが`ACTION REQUIRED`を表示するまでは抜き差しせず、active write中の抜去は行わないでください。待機中は5秒ごとにGPIO raw levelとIRQ回数を表示します。raw levelが期待値へ変化したのにIRQ回数が500 ms変化しない場合は、ICU/NVIC/VTOR診断を出して早期FAILします。
 
-### SW1 boot override
-
-電源投入時、またはRESET解除時にSW1を押しておくと、`usermain()`開始時の押下を
-ラッチし、自動Phase 3.6 testをすべてskipしてcommand consoleへ直接入ります。
-次のbannerが出たらSW1を離して構いません。この経路ではRTC providerだけを初期化し、
-SDのcontext作成、card detect開始、初期化、read/writeは行いません。storageを使うのは
-`bench-*`や`test-fatfs-time`などを明示的に実行した場合だけです。
-
-```text
-[mtfs] boot override: SW1 held; automatic Phase 3.6 test skipped
-[mtfs] command console ready (SW1 boot override)
-```
-
-SW1はP009へ接続されたactive-low入力です。SW2はこの機能では使用しません。
-RTC初期化に失敗した場合、またはcommand consoleを無効にしたbuildでは、自動testへ
-fall throughせずcoordinatorを停止します。
-
 ### RTC設定とFatFs timestamp確認
 
-通常テスト終了後、RTC設定、FatFs timestamp検証、storage benchmarkを受け付けるcommand consoleが同じDebug Virtual Console上で起動します。`apps/rtc-set`のstandalone RTC consoleとは別のrunner用consoleです。
+RTC provider初期化後、RTC設定、roundtrip/HotPlug、FatFs timestamp検証、storage benchmarkを
+受け付けるcommand consoleがDebug Virtual Console上ですぐに起動します。RTC初期化に失敗しても
+consoleは起動し、RTC以外のcommandを使用できます。
 
 ```text
-status
-set 2026-08-14 22:30:00
-get
+help
+rtc-status
+rtc-set 2026-08-14 22:30:00
+rtc-get
+test-roundtrip [rounds]
+test-hotplug
 test-fatfs-time
+rtc-clear
 ```
 
-`set`はtimezone/DST変換を行わないlocal time設定です。`test-fatfs-time`はSD contextとcard detectをその場で再初期化し、一時ファイルへ書き込んだFatFs timestampがRTC時刻（FATの2秒分解能内）と一致することを確認して後片付けします。成功条件は`fatfs_timestamp: PASS`と`FAT timestamp command PASS`です。
+`rtc-set`はtimezone/DST変換を行わないlocal time設定です。`test-fatfs-time`はSD contextとcard detectをその場で再初期化し、一時ファイルへ書き込んだFatFs timestampがRTC時刻（FATの2秒分解能内）と一致することを確認して後片付けします。成功条件は`fatfs_timestamp: PASS`と`FAT timestamp command PASS`です。
 
-software reset後は`status: VALID`のまま時刻が進むことを確認してください。EK-RA8P1のVBATT用J36は未実装なので、ボード電源を完全に切った場合の保持にはJ36へ適切な外部電池を接続する必要があります。詳細は[EK-RA8P1 v1 User's Manual](https://www.renesas.com/en/document/mat/ek-ra8p1-v1-users-manual)と[RA8P1 Group User's Manual: Hardware](https://www.renesas.com/en/document/mah/ra8p1-group-users-manual-hardware)を参照してください。
+software reset後は`rtc-status`が`status: VALID`のまま時刻が進むことを確認してください。EK-RA8P1のVBATT用J36は未実装なので、ボード電源を完全に切った場合の保持にはJ36へ適切な外部電池を接続する必要があります。詳細は[EK-RA8P1 v1 User's Manual](https://www.renesas.com/en/document/mat/ek-ra8p1-v1-users-manual)と[RA8P1 Group User's Manual: Hardware](https://www.renesas.com/en/document/mah/ra8p1-group-users-manual-hardware)を参照してください。
 
 ### 挿抜smoke手順
 
-1. カード未挿入で起動し、`initial ABSENT status PASS`を確認します。
+1. カード未挿入で起動し、consoleから`test-hotplug`を実行して`initial ABSENT status PASS`を確認します。
 2. `ACTION REQUIRED: INSERT`でカードを挿入します。
 3. roundtripと並行testがPASSするまで操作しません。
 4. `ACTION REQUIRED: REMOVE`で、I/O停止中にカードを抜きます。
 5. `removal contract PASS`と`ACTION REQUIRED: REINSERT`を確認して再挿入します。
-6. `fatfs_roundtrip_after_reinsert`、`fatfs_lfn_after_reinsert`、`PHASE 3.6 RUN PASS`を確認します。
+6. `fatfs_roundtrip_after_reinsert`、`fatfs_lfn_after_reinsert`、`storage command PASS`を確認します。
 
 各操作待ちは120秒です。共通media層は自動mount/unmountしません。runnerがevent callback後にinitialize/register/mount、またはunmount/unregisterを実行します。
 
@@ -226,7 +214,8 @@ software reset後は`status: VALID`のまま時刻が進むことを確認して
 
 ```text
 [mtfs] RTC provider state=<0:VALID or 1:UNSET> source=SUBCLK local-time vbt=0x.. cold=<0 or 1> source-init=<0 or 1>
-[mtfs] EK-RA8P1 Phase 3.6: profile=smoke rounds=1 path=SCI_B SPI+IRQ CD hotplug=on LFN=2 max=64 codepage=437
+> test-hotplug
+[mtfs] EK-RA8P1 storage test: profile=normal rounds=1 path=SCI_B SPI+IRQ CD hotplug=on LFN=2 max=64 codepage=437
 [mtfs] cache: I=enabled D=enabled fallback=off VTOR=0x22......
 [mtfs] vector: [0x22......,0x22......) size=448 line=32 cleans=2
 [mtfs] round 1/1 BEGIN
@@ -247,10 +236,8 @@ software reset後は`status: VALID`のまま時刻が進むことを確認して
 [TEST] fatfs_roundtrip_after_reinsert: PASS (...)
 [TEST] fatfs_lfn_after_reinsert: PASS (...)
 [mtfs] round 1/1 PASS
-[mtfs] PHASE 3.6 RUN PASS
-[mtfs] command console ready after test run
-microT-FS EK-RA8P1 command console
-Commands: RTC, FatFs timestamp test, and storage benchmark.
+[mtfs] storage command PASS
+>
 ```
 
 失敗時はテスト名、source line、check内容に加え、SD初期化では最後のmtfs/microT-Kernel/FSP errorとR1 responseを表示します。`FR_NO_FILESYSTEM`相当のmount失敗ならカード形式を確認してください。

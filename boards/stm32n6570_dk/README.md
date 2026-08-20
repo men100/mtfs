@@ -12,7 +12,6 @@ STM32N6570-DK向けアプリケーションで共用するSTM32Cube生成資産�
 include pathで参照します。
 
 - `tests/targets/stm32n6570_dk/basic/FSBL`: basic test専用wrapper/launch
-- `apps/rtc-set/targets/stm32n6570_dk/FSBL`: rtc-set専用wrapper/launch
 
 この構成ではFSBL実装を一か所で保ちつつ、Appliごとのproject名、build output、load image、
 debug launch設定をconsumer側へ閉じ込めます。

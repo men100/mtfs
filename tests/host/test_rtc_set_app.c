@@ -7,7 +7,7 @@
 
 typedef struct rtc_set_fixture
 {
-    char output[256];
+    char output[512];
     size_t output_length;
     char command[64];
     unsigned int command_count;
@@ -59,6 +59,36 @@ int test_rtc_set_app(mtfs_test_t *test)
                 strcmp(fixture.command, "probe") == 0 &&
                 strcmp(fixture.output, "probe\r\n> ") == 0,
             "RTC console treats CR+LF as one command terminator")) {
+        return 1;
+    }
+
+    memset(&fixture, 0, sizeof(fixture));
+    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
+    mtfs_rtc_set_app_set_extension(
+        &app, fixture_command, &fixture, "probe                     probe extension\r\n");
+    mtfs_rtc_set_app_execute(&app, "help");
+    if (!MTFS_TEST_CHECK(test,
+            strncmp(fixture.output, "help ", 5U) == 0 &&
+                strstr(fixture.output, "rtc-get ") != NULL &&
+                strstr(fixture.output, "rtc-status ") != NULL &&
+                strstr(fixture.output, "rtc-set YYYY-MM-DD hh:mm:ss ") != NULL &&
+                strstr(fixture.output, "rtc-clear ") != NULL &&
+                strstr(fixture.output, "\r\nprobe ") != NULL,
+            "RTC console help starts with help and uses rtc-prefixed commands")) {
+        return 1;
+    }
+
+    memset(&fixture, 0, sizeof(fixture));
+    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
+    mtfs_rtc_set_app_set_extension(
+        &app, fixture_command, &fixture, NULL);
+    mtfs_rtc_set_app_execute(&app, "rtc-status");
+    mtfs_rtc_set_app_execute(&app, "status");
+    if (!MTFS_TEST_CHECK(test,
+            strcmp(fixture.output, "status: UNAVAILABLE\r\n") == 0 &&
+                fixture.command_count == 1U &&
+                strcmp(fixture.command, "status") == 0,
+            "RTC console reserves only the rtc-prefixed status command")) {
         return 1;
     }
 

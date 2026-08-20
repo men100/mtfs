@@ -1,6 +1,6 @@
 # STM32N6570-DK SDMMC2 runner
 
-STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。Phase 3.2ではPN12/EXTI12のCard Detect、edge後だけの500 ms debounce、挿入・抜去・再挿入を追加しました。I-cache/D-cacheを有効のまま使い、RIF readback、raw read、FatFs roundtrip、optional LFN、2 task同時アクセス、IRQ/callback/転送block数を診断します。Phase 3.4ではbasic test後のcommand consoleから非破壊performance benchmarkを実行できます。raw sector writeとformatは行いません。
+STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 runner です。既定は SDMMC 内蔵 IDMA + SDMMC2 IRQ、代替は polling です。Phase 3.2ではPN12/EXTI12のCard Detect、edge後だけの500 ms debounce、挿入・抜去・再挿入を追加しました。I-cache/D-cacheを有効のまま使い、RIF readback、raw read、FatFs roundtrip、optional LFN、2 task同時アクセス、IRQ/callback/転送block数を診断します。起動後すぐにcommand consoleへ入り、roundtrip、HotPlug、非破壊performance benchmarkを必要時に実行します。raw sector writeとformatは行いません。
 
 ## 対応ツールとプロジェクト
 
@@ -66,7 +66,7 @@ workerは従来の16 KiB stackを維持し、taskごとの長名と独立`FIL`�
 
 runnerは通常roundで`fatfs_lfn`、hotplug再挿入後に`fatfs_lfn_after_reinsert`を実行します。
 create/write/sync、rename/readdir、remount、long directory、最大長／異常系、SFN alias衝突、
-cleanupがPASSすることを確認します。起動bannerの`LFN=2 max=64 codepage=437`も保存します。
+cleanupがPASSすることを確認します。storage command bannerの`LFN=2 max=64 codepage=437`も保存します。
 polling smokeは`MTFS_STM32_SD_USE_IDMA=0`とsmoke profileでclean buildし、同じLFN testとcleanupを
 確認します。CP437はASCII互換のDOS OEM code pageであり、正式な試験・保証範囲はASCIIの英数字、
 space、`-`、`_`、`.`による8.3名とLFNです。CP437拡張文字、CP932/Shift_JIS、日本語filename、
@@ -74,7 +74,7 @@ Unicode/UTF-8は正式対応外です。applicationがFatFs APIを直接呼ぶ�
 
 ## Performance benchmark（Phase 3.4）
 
-通常のbasic testが完了してcommand consoleのpromptが表示された後、次を順に実行します。
+起動後すぐに表示されるcommand consoleのpromptで、次を順に実行します。
 
 ```text
 bench-info
@@ -111,28 +111,36 @@ STM32N6570-DK exampleに合わせたLSI（公称32 kHz）です。local timeを�
 timezone/UTC/DST変換は行いません。
 
 設定済みmarkerはTAMP backup register 28-30を予約します。BKP28は`MTFS` magicのcommit
-word、BKP29はversion/check、BKP30はmagic反転値です。`set`はcommitを先にclearし、HALで
+word、BKP29はversion/check、BKP30はmagic反転値です。`rtc-set`はcommitを先にclearし、HALで
 time/date設定、HAL readback一致確認、BKP29/30、最後にBKP28の順で書きます。marker欠落は
 `UNSET`、marker有効かつcalendar不正/read失敗は`ERROR`です。STM32の2桁year制約により
 このportのset範囲は2000-2099年です。
 
-RTC/provider mutexはcoordinator task開始時に静的T-Kernel objectとして作成します。通常の
-FatFs試験完了後、同じtaskがUSART1 VCP（115200 8N1）でcommand consoleへ移行します。
+RTC/provider mutexはcoordinator task開始時に静的T-Kernel objectとして作成します。同じtaskは
+起動時のstorage試験を行わず、USART1 VCP（115200 8N1）のcommand consoleへ直接移行します。
 `MTFS_TARGET_RTC_CONSOLE=1`はこの診断consoleだけを選択し、製品構成では0にできます。
 `MTFS_FF_FS_NORTC=1`ではconsole指定にかかわらずRTC初期化とconsoleをコンパイル対象の
 実行経路から外し、このtargetのHAL RTC moduleとSTM32 RTC port本体も無効になります。
 
 ```text
-status
-set 2026-08-14 21:30:00
-get
+help
+rtc-status
+rtc-set 2026-08-14 21:30:00
+rtc-get
+test-roundtrip [rounds]
+test-hotplug
 test-fatfs-time
 bench-info
 bench-smoke
 bench-normal
-clear
-help
+rtc-clear
 ```
+
+`test-roundtrip`の引数は1～1000です。省略時はbuild profileの
+`MTFS_STM32N6570_TEST_ROUNDS`（既定normalは10）を使います。1 commandの開始時に
+SD context、Card Detect、event state、registryを初期化し、全round終了後に一度だけ
+cleanupします。このため`diag`には直前のstorage command全体で累積したsnapshotが残り、
+live stateはcleanup済みの非稼働状態として表示されます。
 
 `test-fatfs-time`はSDMMC context、card detect、pdrv 0をその場で初期化し、専用の
 `MTFSTIME.TST`を作成・closeして`f_stat()`の日時が作成前後のRTC範囲内にあることを
@@ -156,8 +164,8 @@ source変更時はbackup domain/markerを明示的に無効化してください
 
 ### RTC実機結果（2026-08-14）
 
-- `set 2026-08-14 21:30:00`後にsoftware system resetし、`status: VALID`を確認。
-- reset後の`get`は`21:30:59`、約65秒後は`21:32:04`で、calendar進行とmarker保持を確認。
+- `rtc-set 2026-08-14 21:30:00`後にsoftware system resetし、`rtc-status`で`status: VALID`を確認。
+- reset後の`rtc-get`は`21:30:59`、約65秒後は`21:32:04`で、calendar進行とmarker保持を確認。
 - 2026-08-16にIDMA/polling両構成で`test-fatfs-time`を実行し、checks 12、failures 0でPASS。
 
 現在はFull Secure imageなのでRTC/TAMP secure aliasへ直接アクセスします。将来TrustZone化
@@ -181,10 +189,9 @@ SDMMC2 IRQ priority 5とEXTI12 priority 6は別handler・別counterです。
 挿入操作で多数の両edgeが観測されることがあるため、各edgeから期限を再設定します。
 必要ならAppli compiler define `MTFS_STM32N6_CD_DEBOUNCE_MS=<ms>`で変更できます。
 
-通常runnerでもCard Detect IRQ/serviceは標準で有効です。Appli Debug/Releaseの既定は
-normal profile／hotplug offです。対話的挿抜試験時だけ`MTFS_STM32N6570_TEST_PROFILE=1`と
-`MTFS_STM32N6570_HOTPLUG_TEST=1`をcompiler defineへ追加します。起動bannerの
-`hotplug=on/off`で使用設定を確認できます。
+Card Detect IRQ/serviceは各storage commandで開始し、終了時にcleanupします。
+通常の反復試験は`test-roundtrip [rounds]`、対話的挿抜試験は`test-hotplug`で開始します。
+HotPlug用のcompiler defineや専用buildは不要です。
 
 ## 実機接続と起動
 
@@ -205,7 +212,7 @@ backupしてください。mkfsとraw sector writeは行いません。
 
 ### Phase 3.1回帰
 
-1. IDMA=1でsmoke、normal、stressを実行し、cache/RIF、geometry、raw read、FatFs、
+1. IDMA=1で`test-roundtrip 1`、`test-roundtrip 10`、必要なら`test-roundtrip 100`を実行し、cache/RIF、geometry、raw read、FatFs、
    concurrent、remount、SDMMC2 IRQ/Rx/Tx診断がPASSすることを確認します。
 2. `MTFS_STM32_SD_USE_IDMA=0`へ切り替えてclean buildし、同じprofileを実行します。
    pollingではread/writeの`multi=0`、`max=1`、filesystem結果がIDMAと同じことを確認します。
@@ -213,12 +220,10 @@ backupしてください。mkfsとraw sector writeは行いません。
 
 ### Phase 3.2挿抜
 
-Appli Debugへ`MTFS_STM32N6570_TEST_PROFILE=1`と
-`MTFS_STM32N6570_HOTPLUG_TEST=1`を一時的に追加し、まずIDMA=1でclean buildします。
-起動bannerが`profile=smoke rounds=1 ... hotplug=on`であることを確認します。試験後は
-両defineを外し、既定の`profile=normal ... hotplug=off`へ戻します。
+まずIDMA=1のbuildを起動してconsoleで`test-hotplug`を実行します。専用profileや
+HotPlug用compiler defineは不要です。
 
-1. カードなしで起動します。`CD raw=1 active=low`相当でABSENTとなり、runnerが
+1. カードなしで`test-hotplug`を実行します。`CD raw=1 active=low`相当でABSENTとなり、runnerが
    `initial ABSENT status PASS`（NO_MEDIA、MEDIA_PRESENT clear）と`card absent: insert`を
    表示してevent待ちになることを確認します。
 2. カードを挿入します。EXTI12 falling edge、最後のedgeから500 ms debounce後に`media INSERTED`が1回だけ
@@ -273,13 +278,13 @@ Phase 3.5ではcommon Block Device、removable media、STM32 SDMMC typed snapsho
 
 まず既定の`MTFS_STM32_SD_USE_IDMA=1`でRelease clean buildし、次を確認します。
 
-1. `MTFS_STM32N6570_TEST_PROFILE=1`と`MTFS_STM32N6570_HOTPLUG_TEST=1`を一時的に追加し、起動bannerが`Phase 3.5 ... path=IDMA+IRQ hotplug=on`になることを確認します。
+1. consoleで`test-hotplug`を実行し、storage test bannerが`path=IDMA+IRQ hotplug=on`になることを確認します。
 2. raw read、FatFs roundtrip、concurrent、`sdmmc_idma_diagnostics`をPASSさせます。typed snapshotではIRQ/RX/TX、read/write multi、最大block数が増え、error callback、abort、completion/card-state timeoutが0であることを確認します。
 3. idle removal/reinsertを行い、removal contractと`fatfs_roundtrip_after_reinsert`をPASSさせます。consoleで`diag`を実行し、`media_generation=3`、inserted/removed event、removal hintの増加を記録します。Card Detectのbounce回数と確定event数は一致しなくて構いません。
 4. カードを挿入した状態で`test-diagnostics-reset`を実行し、同一active contextで3層のepoch増加、全counter clear、cached state/geometry/media generation/last error/CLKCR維持、reset後raw read、read counter再増加、cleanupがPASSすることを確認します。
 5. `bench-smoke`、`bench-normal`、`test-fatfs-time`を実行し、4 KiB raw readをPhase 3.4 IDMA baseline 4044.0 KiB/sと比較します。
 
-次に`MTFS_STM32_SD_USE_IDMA=0`へ変更してRelease clean buildし、同じ試験を繰り返します。typed snapshotのmodeが`polling`、IRQ/RX/TX callbackとmulti-block counterが0、read/write最大block数が1、error/timeoutが0であることを確認します。4 KiB raw readの比較baselineは825.3 KiB/sです。試験後はhotplug/profile defineを外し、使用する既定modeへ戻してclean buildしてください。
+次に`MTFS_STM32_SD_USE_IDMA=0`へ変更してRelease clean buildし、同じ試験を繰り返します。typed snapshotのmodeが`polling`、IRQ/RX/TX callbackとmulti-block counterが0、read/write最大block数が1、error/timeoutが0であることを確認します。4 KiB raw readの比較baselineは825.3 KiB/sです。
 
 ### Phase 3.5実機結果（2026-08-16）
 

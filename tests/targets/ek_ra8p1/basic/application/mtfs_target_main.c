@@ -5,7 +5,6 @@
 #include <tm/tmonitor.h>
 
 #include "ff.h"
-#include "bsp_pin_cfg.h"
 #include "hal_data.h"
 #include "mtfs_block_device.h"
 #include "mtfs_block_diagnostics.h"
@@ -49,14 +48,11 @@ EXPORT INT usermain(void);
 #define MTFS_RA8P1_TEST_PROFILE MTFS_TEST_PROFILE_NORMAL
 #endif
 
-#ifndef MTFS_RA8P1_HOTPLUG_TEST
-#define MTFS_RA8P1_HOTPLUG_TEST (0)
-#endif
-
 #define MTFS_TARGET_MEDIA_INSERTED  (UINT32_C(1) << 0)
 #define MTFS_TARGET_MEDIA_REMOVED   (UINT32_C(1) << 1)
 #define MTFS_TARGET_MEDIA_ERROR     (UINT32_C(1) << 2)
 #define MTFS_TARGET_HOTPLUG_WAIT_MS (120000U)
+#define MTFS_TARGET_TEST_ROUNDS_MAX (1000U)
 
 #if MTFS_RA8P1_TEST_PROFILE == MTFS_TEST_PROFILE_SMOKE
 #define MTFS_RA8P1_TEST_ROUNDS       (1U)
@@ -88,20 +84,7 @@ static void target_media_event(void *opaque, mtfs_media_event_t event,
     mtfs_media_state_t state);
 static void target_print_diagnostics(
     mtfs_ra_sd_spi_context_t *context);
-
-static int target_boot_console_requested(void)
-{
-    bsp_io_level_t level = BSP_IO_LEVEL_HIGH;
-    fsp_err_t result = g_ioport.p_api->pinRead(
-        g_ioport.p_ctrl, USER_SW1, &level);
-
-    if (result != FSP_SUCCESS) {
-        tm_printf((UB *)"[mtfs] boot SW1 read FAIL: fsp=%d; normal boot selected\n",
-            result);
-        return 0;
-    }
-    return level == BSP_IO_LEVEL_LOW;
-}
+static int target_run_storage_test(unsigned int rounds, int hotplug);
 
 #if !MTFS_FF_FS_NORTC
 static mtfs_ra_rtc_context_t rtc_context;
@@ -231,6 +214,8 @@ static void target_command_console(void)
     mtfs_rtc_set_app_t app;
     mtfs_rtc_set_app_init(&app, mtfs_rtc_set_tmonitor_write, NULL);
     mtfs_rtc_set_app_set_extension(&app, target_console_command, NULL,
+        "test-roundtrip [rounds]   run storage suite (default: profile)\r\n"
+        "test-hotplug              run one remove/reinsert storage test\r\n"
         "test-fatfs-time           verify FatFs timestamp against RTC\r\n"
         "bench-info                print RA benchmark conditions\r\n"
         "bench-smoke               run short non-destructive benchmark\r\n"
@@ -248,7 +233,7 @@ static void target_command_console(void)
         );
     mtfs_rtc_set_tmonitor_write(NULL,
         "microT-FS EK-RA8P1 command console\r\n"
-        "Commands: RTC, FatFs timestamp test, and storage benchmark.\r\n"
+        "Commands: RTC, storage tests, benchmark, and crypto diagnostics.\r\n"
         "RTC set uses local time; no timezone/DST conversion.\r\n"
         "Type help for commands.\r\n> ");
     for (;;) {
@@ -318,7 +303,6 @@ static void target_media_event(void *opaque, mtfs_media_event_t event,
         media_inserted_events, media_removed_events, media_error_events);
 }
 
-#if MTFS_RA8P1_HOTPLUG_TEST
 #define MTFS_TARGET_MEDIA_WAIT_SLICE_MS (100U)
 #define MTFS_TARGET_MEDIA_WAIT_LOG_MS   (5000U)
 #define MTFS_TARGET_IRQ_GRACE_MS        (500U)
@@ -408,7 +392,6 @@ static int target_wait_media_event(UINT expected, const char *operation)
     target_print_card_detect_hardware();
     return 0;
 }
-#endif
 
 static int target_check_spi_diagnostics(
     mtfs_test_t *test, mtfs_ra_sd_spi_context_t *context)
@@ -952,7 +935,46 @@ cleanup:
 
 static int target_console_command(void *opaque, const char *line)
 {
+    static const char command[] = "test-roundtrip";
+    unsigned int rounds = MTFS_RA8P1_TEST_ROUNDS;
+    size_t offset = sizeof(command) - 1U;
+    int parse_result = 0;
+
     (void)opaque;
+    if (strcmp(line, command) == 0) {
+        parse_result = 1;
+    } else if ((strncmp(line, command, offset) == 0) &&
+        (line[offset] == ' ')) {
+        const char *argument = line + offset + 1U;
+        rounds = 0U;
+        parse_result = -1;
+        while ((*argument >= '0') && (*argument <= '9')) {
+            unsigned int digit = (unsigned int)(*argument++ - '0');
+            if (rounds > ((MTFS_TARGET_TEST_ROUNDS_MAX - digit) / 10U)) {
+                rounds = MTFS_TARGET_TEST_ROUNDS_MAX + 1U;
+                break;
+            }
+            rounds = rounds * 10U + digit;
+            parse_result = 1;
+        }
+        if ((*argument != '\0') || (rounds == 0U) ||
+            (rounds > MTFS_TARGET_TEST_ROUNDS_MAX)) {
+            parse_result = -1;
+        }
+    }
+    if (parse_result != 0) {
+        if (parse_result < 0) {
+            tm_printf((UB *)"[mtfs] usage: test-roundtrip [1..%u] (default=%u)\n",
+                MTFS_TARGET_TEST_ROUNDS_MAX, MTFS_RA8P1_TEST_ROUNDS);
+        } else {
+            (void)target_run_storage_test(rounds, 0);
+        }
+        return 1;
+    }
+    if (strcmp(line, "test-hotplug") == 0) {
+        (void)target_run_storage_test(1U, 1);
+        return 1;
+    }
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
     if ((strcmp(line, "crypto-package-test") == 0) ||
         (strcmp(line, "crypto-negative") == 0)) {
@@ -1049,86 +1071,46 @@ crypto_sd_cleanup:
         return 1;
     }
     if (strcmp(line, "diag-help") == 0) {
-        tm_printf((UB *)"[diag] diag reads cached numeric snapshots without media I/O; diag-reset clears counters and advances reset epochs only\n");
+        tm_printf((UB *)"[diag] diag reads cached snapshots from the last storage command without media I/O; multi-round counters are cumulative and live state is inactive after cleanup; diag-reset clears counters and advances reset epochs only\n");
         return 1;
     }
     return 0;
 }
 #endif
 
-static void target_coordinator(INT start_code, void *opaque)
+static int target_run_storage_test(unsigned int rounds, int hotplug)
 {
     mtfs_ra_sd_spi_config_t config;
+    mtfs_block_device_t *device = NULL;
+    mtfs_error_t error = MTFS_OK;
     unsigned int round;
+    int registered = 0;
+    int context_ready = 0;
+    int media_ready = 0;
     int overall_failure = 0;
-#if !MTFS_FF_FS_NORTC
-    mtfs_error_t rtc_error;
-    T_CMTX rtc_mutex = {
-        .mtxatr = TA_INHERIT
-    };
-#endif
-#if MTFS_RA8P1_HOTPLUG_TEST
     T_CFLG media_flag_config = {
         .flgatr = TA_TFIFO,
         .iflgptn = 0U
     };
-#endif
 
-    (void)opaque;
-    mtfs_ra8p1_crypto_spike_banner();
-#if !MTFS_FF_FS_NORTC
-    rtc_mutex_id = tk_cre_mtx(&rtc_mutex);
-    if (rtc_mutex_id <= 0) {
-        tm_printf((UB *)"[mtfs] RTC mutex create FAIL: %d\n", rtc_mutex_id);
-        tk_exd_tsk();
-    }
-    rtc_error = mtfs_ra_rtc_init(&rtc_context, &g_rtc0,
-        target_rtc_lock, target_rtc_unlock, &rtc_mutex_id);
-    if (rtc_error == MTFS_OK) {
-        rtc_error = mtfs_time_provider_register(
-            mtfs_ra_rtc_provider(&rtc_context));
-    }
-    if (rtc_error != MTFS_OK) {
-        tm_printf((UB *)"[mtfs] RTC provider init FAIL: %d fsp=%d vbt=0x%02x\n",
-            rtc_error, rtc_context.last_fsp_error,
-            rtc_context.vbatt_status_at_init);
-        overall_failure = 1;
-    } else {
-        mtfs_time_status_t rtc_status;
-        (void)mtfs_time_get_status(&rtc_status);
-        tm_printf((UB *)"[mtfs] RTC provider state=%u source=SUBCLK local-time vbt=0x%02x cold=%u source-init=%u\n",
-            (UW)rtc_status, rtc_context.vbatt_status_at_init,
-            (UW)rtc_context.backup_power_loss_at_init,
-            (UW)rtc_context.clock_source_initialized);
-    }
-#endif
-    if (start_code != 0) {
-        tm_printf((UB *)"\n[mtfs] boot override: SW1 held; automatic Phase 3.6 test skipped\n");
-#if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
-        if (rtc_error == MTFS_OK) {
-            tm_printf((UB *)"[mtfs] command console ready (SW1 boot override)\n");
-            target_command_console();
-        }
-        tm_printf((UB *)"[mtfs] command console unavailable; coordinator stopped\n");
-#else
-        tm_printf((UB *)"[mtfs] command console disabled; coordinator stopped\n");
-#endif
-        tk_exd_tsk();
-        return;
-    }
+    media_inserted_events = 0U;
+    media_removed_events = 0U;
+    media_error_events = 0U;
+    media_reinitialize_count = 0U;
     mtfs_ra8p1_sd_spi_config(&config);
-#if MTFS_RA8P1_HOTPLUG_TEST
-    media_application_event_flag_id = tk_cre_flg(&media_flag_config);
-    if (media_application_event_flag_id <= 0) {
-        tm_printf((UB *)"[mtfs] application media event flag create FAIL: %d\n",
-            media_application_event_flag_id);
-        tk_exd_tsk();
+    if (hotplug) {
+        media_application_event_flag_id = tk_cre_flg(&media_flag_config);
+        if (media_application_event_flag_id <= 0) {
+            tm_printf((UB *)"[mtfs] application media event flag create FAIL: %d\n",
+                media_application_event_flag_id);
+            media_application_event_flag_id = 0;
+            return 1;
+        }
     }
-#endif
 
-    tm_printf((UB *)"\n[mtfs] EK-RA8P1 Phase 3.6: profile=%s rounds=%u path=SCI_B SPI+IRQ CD hotplug=%s LFN=%u max=%u codepage=%u\n",
-        (UB *)MTFS_RA8P1_TEST_PROFILE_NAME, MTFS_RA8P1_TEST_ROUNDS,
-        MTFS_RA8P1_HOTPLUG_TEST ? (UB *)"on" : (UB *)"off",
+    tm_printf((UB *)"\n[mtfs] EK-RA8P1 storage test: profile=%s rounds=%u path=SCI_B SPI+IRQ CD hotplug=%s LFN=%u max=%u codepage=%u\n",
+        (UB *)MTFS_RA8P1_TEST_PROFILE_NAME, rounds,
+        hotplug ? (UB *)"on" : (UB *)"off",
         FF_USE_LFN, FF_MAX_LFN, FF_CODE_PAGE);
     tm_printf((UB *)"[mtfs] cache: I=%s D=%s fallback=%s VTOR=0x%08x\n",
         (g_mtfs_ra8p1_vector_cache_diagnostics.ccr_at_hal_entry &
@@ -1152,94 +1134,87 @@ static void target_coordinator(INT start_code, void *opaque)
         overall_failure = 1;
     }
 
-    for (round = 1U; round <= MTFS_RA8P1_TEST_ROUNDS; ++round) {
-        mtfs_block_device_t *device = NULL;
+    error = mtfs_ra_sd_spi_context_init(&sd_context, &config);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] context init FAIL mtfs=%d tk=%d fsp=%d\n",
+            error, sd_context.last_kernel_error,
+            sd_context.last_fsp_error);
+        overall_failure = 1;
+        goto test_done;
+    }
+    context_ready = 1;
+    error = mtfs_ra8p1_card_detect_start(&media_context,
+        &media_service, &sd_context, target_media_event, NULL);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] card detect start FAIL mtfs=%d tk=%d\n",
+            error, media_service.last_kernel_error);
+        overall_failure = 1;
+        goto test_done;
+    }
+    media_ready = 1;
+    device = mtfs_ra_sd_spi_block_device(&sd_context);
+    tm_printf((UB *)"[mtfs] context=%p dummy=%p size=%u cd-debounce=%u ms\n",
+        &sd_context, sd_context.dummy_tx,
+        (UW)sizeof(sd_context.dummy_tx),
+        media_context.config.debounce_ms);
+    {
+        mtfs_ra8p1_card_detect_diagnostics_t cd;
+        mtfs_ra8p1_get_card_detect_diagnostics(&cd);
+        tm_printf((UB *)"[mtfs] CD initial raw=%u configured-active=%s irq=%u\n",
+            cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
+            cd.irq_entries);
+        if (hotplug) {
+            target_print_card_detect_hardware();
+        }
+    }
+
+    if (hotplug && !mtfs_media_is_present(&media_context)) {
+        mtfs_block_status_t absent_status = 0U;
+        mtfs_error_t absent_error = mtfs_block_status(device, &absent_status);
+        if ((absent_error != MTFS_ERROR_NO_MEDIA) ||
+            ((absent_status & MTFS_BLOCK_STATUS_MEDIA_PRESENT) != 0U)) {
+            tm_printf((UB *)"[mtfs] initial ABSENT status FAIL: %d/0x%08x\n",
+                absent_error, absent_status);
+            overall_failure = 1;
+            goto test_done;
+        }
+        tm_printf((UB *)"[mtfs] initial ABSENT status PASS: mtfs=%d flags=0x%08x\n",
+            absent_error, absent_status);
+        tm_printf((UB *)"[mtfs] ACTION REQUIRED: INSERT card now; waiting up to %u ms\n",
+            MTFS_TARGET_HOTPLUG_WAIT_MS);
+        if (!target_wait_media_event(MTFS_TARGET_MEDIA_INSERTED,
+                "initial INSERTED")) {
+            overall_failure = 1;
+            goto test_done;
+        }
+    }
+
+    error = mtfs_block_initialize(device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] SD init FAIL mtfs=%d tk=%d fsp=%d r1=0x%02x\n",
+            error, sd_context.last_kernel_error,
+            sd_context.last_fsp_error, sd_context.last_r1);
+        target_print_diagnostics(&sd_context);
+        overall_failure = 1;
+        goto test_done;
+    }
+    ++media_reinitialize_count;
+    error = mtfs_block_registry_register(0U, device);
+    if (error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] pdrv 0 register FAIL: %d\n", error);
+        overall_failure = 1;
+        goto test_done;
+    }
+    registered = 1;
+
+    for (round = 1U; round <= rounds; ++round) {
         mtfs_block_geometry_t geometry;
-        mtfs_error_t error;
         mtfs_test_t test;
         int case_result;
-        int registered = 0;
-        int context_ready = 0;
-        int media_ready = 0;
         int round_failure = 0;
 
         tm_printf((UB *)"[mtfs] round %u/%u BEGIN\n",
-            round, MTFS_RA8P1_TEST_ROUNDS);
-        error = mtfs_ra_sd_spi_context_init(&sd_context, &config);
-        if (error != MTFS_OK) {
-            tm_printf((UB *)"[mtfs] context init FAIL mtfs=%d tk=%d fsp=%d\n",
-                error, sd_context.last_kernel_error,
-                sd_context.last_fsp_error);
-            round_failure = 1;
-            goto round_done;
-        }
-        context_ready = 1;
-        error = mtfs_ra8p1_card_detect_start(&media_context,
-            &media_service, &sd_context, target_media_event, NULL);
-        if (error != MTFS_OK) {
-            tm_printf((UB *)"[mtfs] card detect start FAIL mtfs=%d tk=%d\n",
-                error, media_service.last_kernel_error);
-            round_failure = 1;
-            goto round_done;
-        }
-        media_ready = 1;
-        device = mtfs_ra_sd_spi_block_device(&sd_context);
-        tm_printf((UB *)"[mtfs] context=%p dummy=%p size=%u cd-debounce=%u ms\n",
-            &sd_context, sd_context.dummy_tx,
-            (UW)sizeof(sd_context.dummy_tx),
-            media_context.config.debounce_ms);
-        {
-            mtfs_ra8p1_card_detect_diagnostics_t cd;
-            mtfs_ra8p1_get_card_detect_diagnostics(&cd);
-            tm_printf((UB *)"[mtfs] CD initial raw=%u configured-active=%s irq=%u\n",
-                cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
-                cd.irq_entries);
-#if MTFS_RA8P1_HOTPLUG_TEST
-            target_print_card_detect_hardware();
-#endif
-        }
-
-#if MTFS_RA8P1_HOTPLUG_TEST
-        if (!mtfs_media_is_present(&media_context)) {
-            mtfs_block_status_t absent_status = 0U;
-            mtfs_error_t absent_error =
-                mtfs_block_status(device, &absent_status);
-            if ((absent_error != MTFS_ERROR_NO_MEDIA) ||
-                ((absent_status & MTFS_BLOCK_STATUS_MEDIA_PRESENT) != 0U)) {
-                tm_printf((UB *)"[mtfs] initial ABSENT status FAIL: %d/0x%08x\n",
-                    absent_error, absent_status);
-                round_failure = 1;
-                goto round_done;
-            }
-            tm_printf((UB *)"[mtfs] initial ABSENT status PASS: mtfs=%d flags=0x%08x\n",
-                absent_error, absent_status);
-            tm_printf((UB *)"[mtfs] ACTION REQUIRED: INSERT card now; waiting up to %u ms\n",
-                MTFS_TARGET_HOTPLUG_WAIT_MS);
-            if (!target_wait_media_event(MTFS_TARGET_MEDIA_INSERTED,
-                    "initial INSERTED")) {
-                round_failure = 1;
-                goto round_done;
-            }
-        }
-#endif
-
-        error = mtfs_block_initialize(device);
-        if (error != MTFS_OK) {
-            tm_printf((UB *)"[mtfs] SD init FAIL mtfs=%d tk=%d fsp=%d r1=0x%02x\n",
-                error, sd_context.last_kernel_error,
-                sd_context.last_fsp_error, sd_context.last_r1);
-            target_print_diagnostics(&sd_context);
-            round_failure = 1;
-            goto round_done;
-        }
-        ++media_reinitialize_count;
-        error = mtfs_block_registry_register(0U, device);
-        if (error != MTFS_OK) {
-            tm_printf((UB *)"[mtfs] pdrv 0 register FAIL: %d\n", error);
-            round_failure = 1;
-            goto round_done;
-        }
-        registered = 1;
+            round, rounds);
 
         error = mtfs_block_get_geometry(device, &geometry);
         if (error != MTFS_OK) {
@@ -1300,7 +1275,7 @@ static void target_coordinator(INT start_code, void *opaque)
         }
         target_print_diagnostics(&sd_context);
 
-#if MTFS_RA8P1_HOTPLUG_TEST
+        if (hotplug) {
         tm_printf((UB *)"[mtfs] ACTION REQUIRED: REMOVE card now; I/O is idle and files are closed/synced; waiting up to %u ms\n",
             MTFS_TARGET_HOTPLUG_WAIT_MS);
         if (!target_wait_media_event(MTFS_TARGET_MEDIA_REMOVED, "REMOVED")) {
@@ -1357,57 +1332,96 @@ static void target_coordinator(INT start_code, void *opaque)
         if ((mtfs_test_finish(&test) != 0) || (case_result != 0)) {
             round_failure = 1;
         }
-#endif
+        }
 
 round_done:
-        if (media_ready) {
-            mtfs_ra8p1_card_detect_diagnostics_t cd;
-            mtfs_ra8p1_get_card_detect_diagnostics(&cd);
-            tm_printf((UB *)"[mtfs] CD raw=%u active=%s irq=%u rise=%u fall=%u inserted=%u removed=%u error=%u state=%u reinit=%u\n",
-                cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
-                cd.irq_entries, cd.rising_edges, cd.falling_edges,
-                media_inserted_events, media_removed_events,
-                media_error_events, (UW)mtfs_media_state(&media_context),
-                media_reinitialize_count);
-            if (mtfs_ra8p1_card_detect_stop() != MTFS_OK) {
-                tm_printf((UB *)"[mtfs] card detect cleanup FAIL tk=%d task=%d flag=%d\n",
-                    media_service.last_kernel_error,
-                    media_service.task_id, media_service.event_flag_id);
-                round_failure = 1;
-            }
-        }
-        if (registered && (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
-            tm_printf((UB *)"[mtfs] registry cleanup FAIL\n");
-            round_failure = 1;
-        }
-        if (context_ready) {
-            error = mtfs_ra_sd_spi_context_deinit(&sd_context);
-            if (error != MTFS_OK) {
-                tm_printf((UB *)"[mtfs] context cleanup FAIL: %d\n", error);
-                round_failure = 1;
-            }
-        }
         tm_printf((UB *)"[mtfs] round %u/%u %s\n", round,
-            MTFS_RA8P1_TEST_ROUNDS,
+            rounds,
             round_failure ? (UB *)"FAIL" : (UB *)"PASS");
         if (round_failure) {
             overall_failure = 1;
         }
     }
 
-    tm_printf((UB *)"[mtfs] PHASE 3.6 RUN %s\n",
-        overall_failure ? (UB *)"FAIL" : (UB *)"PASS");
-#if MTFS_RA8P1_HOTPLUG_TEST
+test_done:
+    if (media_ready) {
+        mtfs_ra8p1_card_detect_diagnostics_t cd;
+        mtfs_ra8p1_get_card_detect_diagnostics(&cd);
+        tm_printf((UB *)"[mtfs] CD raw=%u active=%s irq=%u rise=%u fall=%u inserted=%u removed=%u error=%u state=%u reinit=%u\n",
+            cd.raw_level, cd.active_low ? (UB *)"low" : (UB *)"high",
+            cd.irq_entries, cd.rising_edges, cd.falling_edges,
+            media_inserted_events, media_removed_events,
+            media_error_events, (UW)mtfs_media_state(&media_context),
+            media_reinitialize_count);
+        if (mtfs_ra8p1_card_detect_stop() != MTFS_OK) {
+            tm_printf((UB *)"[mtfs] card detect cleanup FAIL tk=%d task=%d flag=%d\n",
+                media_service.last_kernel_error,
+                media_service.task_id, media_service.event_flag_id);
+            overall_failure = 1;
+        }
+    }
+    if (registered && (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
+        tm_printf((UB *)"[mtfs] registry cleanup FAIL\n");
+        overall_failure = 1;
+    }
+    if (context_ready) {
+        error = mtfs_ra_sd_spi_context_deinit(&sd_context);
+        if (error != MTFS_OK) {
+            tm_printf((UB *)"[mtfs] context cleanup FAIL: %d\n", error);
+            overall_failure = 1;
+        }
+    }
     if (media_application_event_flag_id > 0) {
         (void)tk_del_flg(media_application_event_flag_id);
         media_application_event_flag_id = 0;
     }
+    tm_printf((UB *)"[mtfs] storage command %s\n",
+        overall_failure ? (UB *)"FAIL" : (UB *)"PASS");
+    return overall_failure;
+}
+
+static void target_coordinator(INT start_code, void *opaque)
+{
+#if !MTFS_FF_FS_NORTC
+    mtfs_error_t rtc_error;
+    T_CMTX rtc_mutex = {
+        .mtxatr = TA_INHERIT
+    };
+#endif
+
+    (void)start_code;
+    (void)opaque;
+    mtfs_ra8p1_crypto_spike_banner();
+#if !MTFS_FF_FS_NORTC
+    rtc_mutex_id = tk_cre_mtx(&rtc_mutex);
+    if (rtc_mutex_id <= 0) {
+        tm_printf((UB *)"[mtfs] RTC mutex create FAIL: %d\n", rtc_mutex_id);
+        tk_exd_tsk();
+    }
+    rtc_error = mtfs_ra_rtc_init(&rtc_context, &g_rtc0,
+        target_rtc_lock, target_rtc_unlock, &rtc_mutex_id);
+    if (rtc_error == MTFS_OK) {
+        rtc_error = mtfs_time_provider_register(
+            mtfs_ra_rtc_provider(&rtc_context));
+    }
+    if (rtc_error != MTFS_OK) {
+        tm_printf((UB *)"[mtfs] RTC provider init FAIL: %d fsp=%d vbt=0x%02x\n",
+            rtc_error, rtc_context.last_fsp_error,
+            rtc_context.vbatt_status_at_init);
+    } else {
+        mtfs_time_status_t rtc_status;
+        (void)mtfs_time_get_status(&rtc_status);
+        tm_printf((UB *)"[mtfs] RTC provider state=%u source=SUBCLK local-time vbt=0x%02x cold=%u source-init=%u\n",
+            (UW)rtc_status, rtc_context.vbatt_status_at_init,
+            (UW)rtc_context.backup_power_loss_at_init,
+            (UW)rtc_context.clock_source_initialized);
+    }
 #endif
 #if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
-    if (rtc_error == MTFS_OK) {
-        tm_printf((UB *)"[mtfs] command console ready after test run\n");
-        target_command_console();
-    }
+    tm_printf((UB *)"[mtfs] command console ready\n");
+    target_command_console();
+#else
+    tm_printf((UB *)"[mtfs] command console disabled; coordinator stopped\n");
 #endif
     tk_exd_tsk();
 }
@@ -1420,14 +1434,13 @@ EXPORT INT usermain(void)
         .itskpri = 9,
         .stksz = 16U * 1024U
     };
-    INT boot_console = target_boot_console_requested();
     ID task_id = tk_cre_tsk(&coordinator);
 
     if (task_id <= 0) {
         tm_printf((UB *)"[mtfs] coordinator create FAIL: %d\n", task_id);
         goto park;
     }
-    if (tk_sta_tsk(task_id, boot_console) < E_OK) {
+    if (tk_sta_tsk(task_id, 0) < E_OK) {
         tm_printf((UB *)"[mtfs] coordinator start FAIL\n");
         (void)tk_del_tsk(task_id);
     }

@@ -188,31 +188,31 @@ void mtfs_rtc_set_app_execute(mtfs_rtc_set_app_t *app, const char *line)
     }
     if (strcmp(line, "help") == 0) {
         app_write(app,
-            "get                       show local RTC time\r\n"
-            "status                    show provider state\r\n"
-            "set YYYY-MM-DD hh:mm:ss    set local time and verify it\r\n"
-            "clear                     clear the setting marker\r\n"
-            "help                      show this help\r\n");
+            "help                          show this help\r\n"
+            "rtc-get                       show local RTC time\r\n"
+            "rtc-status                    show provider state\r\n"
+            "rtc-set YYYY-MM-DD hh:mm:ss    set local time and verify it\r\n"
+            "rtc-clear                     clear the setting marker\r\n");
         if (app->command_help != NULL) {
             app_write(app, app->command_help);
         }
-    } else if (strcmp(line, "get") == 0) {
+    } else if (strcmp(line, "rtc-get") == 0) {
         app_get(app, "time: ");
-    } else if (strcmp(line, "status") == 0) {
+    } else if (strcmp(line, "rtc-status") == 0) {
         error = mtfs_time_get_status(&status);
         if (error != MTFS_OK) {
             status = MTFS_TIME_STATUS_ERROR;
         }
         app_print_status(app, status);
-    } else if (strcmp(line, "clear") == 0) {
+    } else if (strcmp(line, "rtc-clear") == 0) {
         error = mtfs_time_clear();
         app_write(app, error == MTFS_OK ?
             "OK: marker cleared; state is UNSET\r\n" :
             "ERROR: marker clear failed\r\n");
-    } else if (strncmp(line, "set ", 4U) == 0) {
-        if (!app_parse_datetime(line + 4, &datetime)) {
+    } else if (strncmp(line, "rtc-set ", 8U) == 0) {
+        if (!app_parse_datetime(line + 8, &datetime)) {
             app_write(app,
-                "ERROR: use set YYYY-MM-DD hh:mm:ss with a valid date\r\n");
+                "ERROR: use rtc-set YYYY-MM-DD hh:mm:ss with a valid date\r\n");
         } else {
             error = mtfs_time_set_local(&datetime);
             if (error == MTFS_OK) {
