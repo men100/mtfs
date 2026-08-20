@@ -509,8 +509,9 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 
 ### Phase 4.2: sealed blobとmodel store
 
-generic parser/state machine、Host provider、public model API、RA/ST provider、target known-answer testを
-実装する。同じfleetに属する両target providerで、1つのHost toolが生成したpackageをcross-testする。
+generic parser/state machine、Host provider、public model API、RA/ST provider、target package integration/
+negative testを実装する。同じfleetに属する両target providerで、1つのHost toolが生成したpackageを
+cross-testする。
 Host parserのfuzzingと、target testと共有するmutation corpusを追加する。
 
 ### Phase 4.3: secure media sinkとstorage sentinel

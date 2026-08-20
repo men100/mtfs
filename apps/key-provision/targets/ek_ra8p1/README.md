@@ -91,7 +91,8 @@ crypto-negative
 crypto-package-test
 ```
 
-`crypto-consistency`はprovisioned keyによるGCM一貫性試験です。`crypto-package-test`と
-`crypto-negative`は、同じHost `fleet.key`から生成してSD rootへ置いた`MTFSTEST.MTF`を使い、
-packageの既知plaintext照合と改ざん拒否を検証します。公開テスト鍵への更新や試験後の鍵復元は不要です。生成手順は
+`crypto-consistency`はprovisioned keyによるGCM一貫性試験です。`crypto-package-test`は、同じHost
+`fleet.key`から生成してSD rootへ置いた`MTFSTEST.MTF`の既知plaintextを照合します。
+`crypto-negative`は同じfileを読み、RAM上で改変したenvelope tag、chunk ciphertext、chunk tagの拒否と
+出力zeroizeを検証します。SD上のfileは変更しません。公開テスト鍵への更新や試験後の鍵復元は不要です。生成手順は
 [`ek-ra8p1-phase-4.1b-ra2.md`](../../../../docs/security/ek-ra8p1-phase-4.1b-ra2.md)を参照してください。

@@ -48,6 +48,16 @@ if(BUILD_TESTING)
         MTFS_SEALED_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors")
     mtfs_sealed_set_warnings(mtfs_sealed_tests)
     add_test(NAME mtfs_sealed_model COMMAND mtfs_sealed_tests)
+
+    add_test(NAME mtfs_test_package_cli
+        COMMAND ${CMAKE_COMMAND}
+            "-DMTFS_TEST_PACKAGE=$<TARGET_FILE:mtfs-test-package>"
+            "-DMTFS_VERIFY=$<TARGET_FILE:mtfs-verify>"
+            "-DMTFS_UNSEAL=$<TARGET_FILE:mtfs-unseal>"
+            "-DMTFS_TEST_KEY=${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/fleet_test.key"
+            "-DMTFS_EXPECTED_PAYLOAD=${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/golden_payload.bin"
+            "-DMTFS_TEST_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/mtfs-test-package-cli"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_package_cli.cmake")
 endif()
 
 message(STATUS "microT-FS sealed-model Host crypto: OpenSSL ${OPENSSL_VERSION}")

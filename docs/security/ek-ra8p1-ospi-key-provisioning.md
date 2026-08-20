@@ -90,7 +90,9 @@ block-aligned入力でも追加16 bytesが必要である。
 3. 同じcommandの再実行が`already-provisioned`で書込みなしに停止する。
 4. 完全電源断後、通常版の`crypto-info`がkey ID/version/generationを表示する。
 5. `crypto-consistency`がempty、37 byte、4/16/64 KiB、OSPI再読込み・再importをPASSする。
-6. Phase 4.1B baselineの`crypto-negative`が改変tagとciphertextを拒否し、出力zeroizeをPASSする。
+6. Phase 4.1B baselineの37-byte GCM negative pathが改変tagとciphertextを拒否し、出力zeroizeを
+   PASSする。現行consoleの`crypto-negative`は、`MTFSTEST.MTF`のenvelope tag、chunk ciphertext、
+   chunk tagまで検証するPhase 4.1B-RA2の上位統合試験である。
 
 ## Extended acceptance
 

@@ -28,6 +28,10 @@ ctest --test-dir /tmp/mtfs-sealed-asan --output-on-failure
 配布用Host CLIだけをbuildする場合は`-DBUILD_TESTING=OFF`を指定する。この構成ではtest executableや
 vector pathを参照せず、固定test keyをbinaryへ組み込まない。test有効時もkeyはruntimeに専用pathから読む。
 
+CTestはcodec/cryptoのpositive・negative単体試験に加え、`mtfs-test-package`による生成、既定の上書き拒否、
+明示上書き、policy付きverify、unseal、既知plaintextとのbyte比較、descriptor/hash、raw test key非包含を
+CLI経路で検証する。
+
 ## CLI
 
 fleet keyを生成する。raw key fileは正確に32 byteで、`key_id=1`、`key_version=1`固定である。
@@ -147,11 +151,14 @@ payload I/O開始後の任意の失敗では先頭`payload_plain_length` byteだ
 - chunkごとのnonce、AAD、ciphertext、tag、expected plaintext
 - representative expected-failure mutation offset
 
-`golden_vector.json`と`golden_manifest.hex`はC arrayへ機械変換できる。Phase 4.1B providerは同じvectorで
-envelope unwrap、4/16/64 KiB GCM、短い最終chunk、tag failureを確認すること。合否条件は、全byte一致、
-tag failure時にscratch外へplaintextを出さないこと、abort/close後にkey stateを再利用できないこと、
-destinationの正確なzeroization範囲をtarget上でも満たすことである。test keyをproduction build、device、
-provisioning artifactへ含めてはならない。
+`golden_vector.json`と`golden_manifest.hex`はC arrayへ機械変換でき、Host codecとcrypto primitiveの固定
+known-answer testに使う。test keyを通常のtarget build、device、provisioning artifactへ含めてはならない。
+
+EK-RA8P1 Phase 4.1B-RA2のtarget統合試験では公開test keyへ入れ替えず、実際にprovisionした`K_fleet`と
+同じHost `fleet.key`から毎回`MTFSTEST.MTF`を生成する。`crypto-package-test`はenvelope unwrap、raw
+`K_model`のHUK wrap/zeroize、短い最終chunkを含むpayloadの既知plaintext照合を行い、`crypto-negative`は
+同じpackageをRAM上だけで改変して認証拒否と出力zeroizeを確認する。これは固定key/input/outputのKATではなく、
+fleet-specific sealed package integration testである。
 
 ## Security limitations
 

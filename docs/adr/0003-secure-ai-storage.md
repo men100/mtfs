@@ -1,6 +1,6 @@
 # ADR 0003: Secure AI Storage の初版境界と sealed model 形式
 
-- Status: Accepted for Phase 4.0; provider integration is hardware-validation pending
+- Status: Accepted; EK-RA8P1 provider hardware PASS, STM32N657 provider pending
 - Date: 2026-08-18
 - Targets: EK-RA8P1 (RA FSP 6.5.0), STM32N6570-DK (STM32Cube FW_N6 V1.3.0), Host tests
 - Scope: architecture and interface design only
@@ -22,8 +22,8 @@ target projectを変更せず、これらが同じ鍵や責務を誤って共有
 STM32の`FullSecure`はCPUがSecure stateでapplicationを実行する構成であり、同じimage内の
 software component間を隔離するものではない。RAのflat buildにもSecurity stateによる分離は
 ない。したがって初版を「TrustZoneで鍵を隔離した」と表現してはならない。一方、RA8P1の
-RSIP-E50D protected modeとSTM32N657のSAESは、HUK/DHUKをsoftwareへ読み出さず、
-device固有のwrapped keyを利用できる。
+RSIP-E50D Compatibility Mode InitialKeyWrapとSTM32N657のSAESは、HUK/DHUKをsoftwareへ
+読み出さず、device固有のwrapped keyを利用できる。
 
 詳細な形式、API、比較、検証計画は
 [`../security/secure-ai-storage.md`](../security/secure-ai-storage.md)に定める。

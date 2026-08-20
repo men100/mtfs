@@ -65,10 +65,11 @@ SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマッ�
 - `MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1`で`crypto-info`、`crypto-consistency`、`crypto-negative`、`crypto-package-test`を公開
 - flat build専用として`MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS`を定義し、PSAのwhole-message境界copyを省く
 
-`crypto-package-test`と`crypto-negative`はPhase 4.1B-RA2のコマンドです。実際にprovisionした
-`fleet.key`でHost生成したSD上の`0:/MTFSTEST.MTF`を使い、OSPI `K_fleet`によるenvelope復号、
-raw `K_model`の即時HUK wrap/zeroize、2 payload chunkの既知plaintext照合、3種類の改ざん拒否を
-検証します。生成・コピー手順は
+`crypto-package-test`と`crypto-negative`はPhase 4.1B-RA2のコマンドです。どちらも実際にprovisionした
+`fleet.key`でHost生成したSD上の`0:/MTFSTEST.MTF`を使います。`crypto-package-test`はOSPI `K_fleet`に
+よるenvelope復号、raw `K_model`の即時HUK wrap/zeroize、2 payload chunkの既知plaintext照合を行います。
+`crypto-negative`は同じfileをRAM上だけで改変し、envelope tag、chunk ciphertext、chunk tagの拒否と
+出力zeroizeを検証します。生成・コピー手順は
 [`docs/security/ek-ra8p1-phase-4.1b-ra2.md`](../../../../docs/security/ek-ra8p1-phase-4.1b-ra2.md)
 を参照してください。integration test専用の固定profile readerだけを使用し、汎用FatFs model storeはPhase 4.2です。
 
