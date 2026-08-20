@@ -1,6 +1,6 @@
 # EK-RA8P1 RSIP-E50D hardware crypto spike（Phase 4.1B-RA）
 
-状態: **CONTEST PROFILE CORE CRYPTO PATH HARDWARE PASS / EXTENDED ACCEPTANCE PENDING**
+状態: **CONTEST PROFILE HARDWARE PASS / OPTIONAL EXTENDED TESTS DEFERRED**
 （2026-08-20）。
 
 ## 経緯と現在の判断
@@ -89,7 +89,7 @@ basicはTrustZoneを使わない単一の信頼済みfirmwareで、PSAへ渡すb
 whole-message境界copyを省き、12 KiB heapのまま16/64 KiBを処理できる。TrustZone、shared memory、
 または信頼できないPSA callerを導入する場合、この定義を外してsecure側buffer設計を見直すこと。
 
-実機ではUART/XMODEM-1K受信、HUK wrap、OSPI erase/write/readback、reset後の再読込み、
+実機ではUART/XMODEM-1K受信、HUK wrap、OSPI erase/write/readback、reset後および完全電源断後の再読込み、
 provisioned keyのempty/37 byte/4/16/64 KiB GCM consistencyと再import、tag/ciphertext改ざん拒否、
 出力zeroizeをPASSした。contest threat modelのcore crypto pathはhardware-validatedとする。
-完全電源断、cross-device rejection、key更新中の電源断耐性はextended acceptanceとして残る。
+cross-device rejectionとkey更新中の電源断耐性は、現在のcontest scopeを妨げないoptional extended testとして残る。

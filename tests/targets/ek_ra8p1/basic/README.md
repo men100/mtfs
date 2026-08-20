@@ -4,7 +4,7 @@ Phase 4.1B-RAのRSIP-E50D Compatibility Mode、OSPI鍵保存、console手順は
 [`docs/security/ek-ra8p1-rsip-e50d-spike.md`](../../../../docs/security/ek-ra8p1-rsip-e50d-spike.md)
 を参照してください。UARTで受信した`K_fleet`をHUK-wrapしてboard上OSPIへ保存するcontest profileは
 [`docs/security/ek-ra8p1-ospi-key-provisioning.md`](../../../../docs/security/ek-ra8p1-ospi-key-provisioning.md)
-に記録しています。provision、reset後のOSPI検証、通常版GCM consistency/negative試験は実機PASS済みです。
+に記録しています。provision、reset後および完全電源断後のOSPI検証、通常版GCM consistency/negative試験は実機PASS済みです。
 `src/ports/ra_fsp/crypto`はDebug/Release source対象に含めます。
 
 FATで事前フォーマットしたDigilent Pmod MicroSD Revision AをPMOD2へ接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセス、P409/IRQ6による挿入・抜去・再挿入、FSP RTCからFatFs timestampへの反映を確認するe² studioプロジェクトです。テストはカードをフォーマットしません。

@@ -1,6 +1,6 @@
 # EK-RA8P1 OSPI fleet-key provisioning profile
 
-状態: **CONTEST PROFILE CORE CRYPTO PATH HARDWARE PASS / EXTENDED ACCEPTANCE PENDING**
+状態: **CONTEST PROFILE HARDWARE PASS / OPTIONAL EXTENDED TESTS DEFERRED**
 （2026-08-20）。
 
 ## 決定
@@ -97,8 +97,8 @@ block-aligned入力でも追加16 bytesが必要である。
 現時点では両projectのFSP生成とDebug linkに加えて、UART/XMODEM-1K受信、HUK wrap、
 GCM正例・negative認証拒否、OSPI slot Aへの初回commit、reset後の`verify-ospi`を実機でPASSした。
 通常版loaderによるempty/37 byte/4/16/64 KiB consistencyと再import、tag/ciphertext改ざん拒否、
-出力zeroizeも実機でPASSした。完全電源断、cross-device rejection、更新・電源断耐性を含む
-extended acceptanceは未完了である。
+出力zeroizeに加え、完全電源断後のOSPI key再読込みと同suiteも実機でPASSした。
+cross-device rejectionと更新中の電源断耐性は、現在のcontest scopeを妨げないoptional extended testとする。
 通常版の初回試験で64 KiB復号bufferのfinal-block余白不足を検出し、16-byte余白とcase/stage別診断を
 追加した。さらに16 KiB暗号化時、PSAのwhole-message境界copyが12 KiB heapを超えて`-141`となるため、
 flat trusted build限定の`MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS`を有効化し、修正版でPASSを確認した。
