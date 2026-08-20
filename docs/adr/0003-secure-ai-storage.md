@@ -153,8 +153,8 @@ src/ports/host/crypto/
 
 次のspikeが全て通るまでprovider実装をproduction-readyとしない。
 
-1. RA8P1でRSIP-E50D protected modeのAES-256 wrapped keyを再起動後にimportし、GCMの
-   AAD/multi-shot decrypt/tag failureを確認する。tag failure時はscratch外に平文を出さない。
+1. RA8P1でAES-256 wrapped keyを再起動後にimportし、GCMのchunk単位one-shot decrypt、AAD、
+   tag failureを確認する。tag failure時はscratch外に平文を出さない。multipartは必須条件にしない。
 2. RA8P1でpackage envelopeから得た32-byte `K_model`をprovider-native wrapped keyへ直ちに
    importできること、raw bufferをzeroizeできることを確認する。
 3. STM32N657 FullSecure AppliでSAESのDHUK wrapped-key mode、AES-256-GCM、tag failure、

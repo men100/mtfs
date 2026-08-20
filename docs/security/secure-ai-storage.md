@@ -276,8 +276,8 @@ target/providerの責務とする。
 | random access | 不可 | 不可 | 将来のAPI/policy追加後に可能 |
 | RA SD SPI | 大きなread/copyは高cost。現行4 KiB baselineは約274 KiB/s | sequential I/Oが可能 | 64 KiB chunk内で4 KiBずつ逐次read。早期失敗が可能 |
 | STM32 SDMMC | 大きな連続transferが可能 | IDMA sequential readに適する | chunk内のmulti-block I/Oを維持。512-byte chunkは避ける |
-| RSIP-E50D | one-shot可能 | GCM multi-shot Update/Verifyは文書化済み | 独立GCM operationに対応。import flowはspikeが必要 |
-| STM32 SAES | GCM対応 | 正確なHAL streaming動作はspikeが必要 | chunkごとのone-shot fallbackが可能。DHUK flowはspikeが必要 |
+| RSIP-E50D | one-shot可能 | GCM multi-shot Update/Verifyは文書化済み | v1はchunk単位one-shotを使用。multipartは将来最適化 |
+| STM32 SAES | GCM対応 | 正確なHAL streaming動作はspikeが必要 | v1はchunk単位one-shotを必須とする。DHUK flowはspikeが必要 |
 | Host provider | 容易 | 容易 | 容易で、negative testも決定的に再現可能 |
 | 連続NPU model領域 | payload全体が必要 | payload全体が必要 | payload全体が引き続き必要。chunkingでは削減されない |
 
@@ -314,17 +314,12 @@ typedef struct mtfs_crypto_provider_api {
         const uint8_t *ciphertext, size_t ciphertext_size,
         const uint8_t tag[16], uint32_t output_usage,
         mtfs_crypto_key_handle_t *unwrapped_key);
-    mtfs_error_t (*aead_decrypt_start)(
-        void *ctx, mtfs_crypto_key_handle_t key, const uint8_t nonce[12]);
-    mtfs_error_t (*aead_aad_update)(
-        void *ctx, const uint8_t *data, size_t size);
-    mtfs_error_t (*aead_decrypt_update)(
-        void *ctx, const uint8_t *input, uint8_t *unauthenticated_output,
-        size_t size, size_t *output_size);
-    mtfs_error_t (*aead_verify_finish)(
-        void *ctx, const uint8_t tag[16], uint8_t *tail,
-        size_t tail_capacity, size_t *tail_size);
-    void (*aead_abort)(void *ctx);
+    mtfs_error_t (*aead_decrypt)(
+        void *ctx, mtfs_crypto_key_handle_t key,
+        const uint8_t nonce[12], const uint8_t *aad, size_t aad_size,
+        const uint8_t *ciphertext, size_t ciphertext_size,
+        const uint8_t tag[16], uint8_t *plaintext,
+        size_t plaintext_capacity, size_t *plaintext_size);
     void (*close_key)(void *ctx, mtfs_crypto_key_handle_t key);
 } mtfs_crypto_provider_api_t;
 ```
@@ -332,13 +327,13 @@ typedef struct mtfs_crypto_provider_api {
 provider契約:
 
 - `unwrap_key_aead`はcallerに対してatomicに動作する。認証失敗時はhandleもraw keyも返さない。
-- `aead_decrypt_update`の出力は、名前でも未認証であることを明示する。callerは
-  `aead_verify_finish`成功まで出力をscratch内に保持する。
-- v1ではprovider instanceごとにactiveなAEAD operationを1個だけ扱えればよい。競合時は
-  `NOT_READY`を返す。serializationは明示的に行い、暗黙のglobal lockを仮定しない。
+- `aead_decrypt`は1個の認証済みchunk全体をone-shotで処理し、出力先はmodel destinationではなく
+  caller所有scratchとする。成功後だけcallerが認証済みplaintextをmodel destinationへcopyする。
+- v1の必須経路はchunk単位one-shot AEADとする。multipart AEADはscratchまたはcopy削減の将来最適化で、
+  provider capabilityとして追加する場合もone-shotと同じ認証・zeroization semanticsを満たす。
+- provider呼出しは明示的にserializeし、暗黙のglobal lockを仮定しない。
 - vendorの32-bit lengthへnarrowingする前に全sizeを境界検査する。将来APIでproviderがin-place
   capabilityをadvertiseし、testするまではinput/output aliasを禁止する。
-- `aead_abort`はidempotentとし、I/O、認証、timeout、cancel、media removal後にperipheral stateをclearする。
 - key handleにはgeneration tagを持たせ、close/reset後のstale handleを失敗させる。
 - tag不一致はsecurity固有の新error `MTFS_ERROR_AUTHENTICATION`へmapする。malformed formatと
   destination不足にも、実装Phaseで別々のerrorを割り当てる。
@@ -346,9 +341,9 @@ provider契約:
   出力しない。nonce、tag、ciphertextはsecretではないが、byte dumpはtest artifactまたは明示的な
   診断機能に限定する。
 
-RAでは`rsip_wrapped_key_t`を使用し、AEAD sequenceを
-`R_RSIP_AES_AEAD_Init/AADUpdate/Update/Verify`へmapする。FSPではmulti-shot Updateと16-byte block
-単位の出力動作が文書化されている。STM32ではDHUK-wrapped key importを使うSAES/CRYP HALへmapする。
+RAでは`rsip_wrapped_key_t`を使用し、v1のchunk単位one-shotをPSA AEADへmapする。FSPのmultipart
+Update/Verifyは利用可能だがv1の成立条件にはしない。STM32ではDHUK-wrapped key importを使う
+SAES/CRYP HALのchunk単位one-shotへmapする。
 現行repositoryにはN6 CRYP driverがまだ含まれないため、正確なsource/project追加は意図的に
 実装Phaseへ延期する。Hostでは検証済みcrypto libraryを使い、独自AES実装は行わない。
 wrapped handleはemulateするが、hardware保護があるとは主張しない。
@@ -483,7 +478,7 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 | capability | Host | EK-RA8P1 / RSIP-E50D | STM32N657 / SAES | 状態 |
 |---|---|---|---|---|
 | AES-256-GCM、16-byte tag | standard library | Compatibility + PSA hardware acceleration | SAESはGCM 128/256対応 | RA実機PASS、ST待ち |
-| multi-shot AEAD | library依存、必須 | PSA multipartは後続integrationで検証 | HAL sequenceの検証が必要 | target spike待ち |
+| chunk単位one-shot AEAD | v1必須経路 | PSA one-shotでRA2実機PASS | SAES one-shotの検証が必要 | RA実機PASS、ST待ち。multipartは将来最適化 |
 | applicationからのHUK/DHUK読出し | 該当なし | 不可。hardware wrapping rootとして使用 | 不可。SAES内部のderived key | 設計上禁止 |
 | device-bound `K_fleet` blob | test時だけemulate | Compatibility InitialKeyWrap + OSPI record | DHUKを使うSAES wrapped-key mode | RA実機PASS、ST待ち |
 | envelopeからopaque `K_model`への変換 | software handle | 復号直後にInitialKeyWrap/import | 復号直後のSAES wrap/importが候補 | RA2実機PASS、ST待ち |

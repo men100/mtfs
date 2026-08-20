@@ -242,8 +242,8 @@ static void target_command_console(void)
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
         "crypto-info               show RSIP spike configuration and diagnostics\r\n"
         "crypto-consistency        test provisioned-key GCM consistency\r\n"
-        "crypto-negative           reject SD KAT package tampering in RAM\r\n"
-        "crypto-kat                verify fleet-specific SD KAT package\r\n"
+        "crypto-negative           reject SD test package tampering in RAM\r\n"
+        "crypto-package-test       verify fleet-specific SD test package\r\n"
 #endif
         );
     mtfs_rtc_set_tmonitor_write(NULL,
@@ -954,7 +954,7 @@ static int target_console_command(void *opaque, const char *line)
 {
     (void)opaque;
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
-    if ((strcmp(line, "crypto-kat") == 0) ||
+    if ((strcmp(line, "crypto-package-test") == 0) ||
         (strcmp(line, "crypto-negative") == 0)) {
         mtfs_ra_sd_spi_config_t config;
         mtfs_block_device_t *device = NULL;

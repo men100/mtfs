@@ -88,7 +88,7 @@ bool write_descriptor(const std::filesystem::path &path,
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
         return false;
-    output << "MTFS-KAT-v1\n"
+    output << "MTFS-TEST-v1\n"
            << "package=" << package.filename().string() << '\n'
            << "package_bytes=" << package_bytes << '\n'
            << "payload_bytes=" << kPayloadBytes << '\n'
@@ -129,8 +129,8 @@ int main(int argc, char **argv)
     }
     if (key.empty() || package.empty() || descriptor.empty() || package == descriptor)
     {
-        std::cerr << "usage: mtfs-kat-package --key fleet.key --package MTFSKAT.MTF "
-                     "--descriptor MTFSKAT.TXT [--overwrite]\n";
+        std::cerr << "usage: mtfs-test-package --key fleet.key --package MTFSTEST.MTF "
+                     "--descriptor MTFSTEST.TXT [--overwrite]\n";
         return 2;
     }
     std::error_code path_error;
@@ -157,7 +157,7 @@ int main(int argc, char **argv)
     if (random.fill(suffix.data(), suffix.size()) != mtfs::sealed::Status::ok)
         return mtfs_report(mtfs::sealed::Status::rng, "temporary name generation");
     TemporaryFile payload(std::filesystem::temp_directory_path() /
-                          ("mtfs-kat-" + hex_string(suffix.data(), suffix.size()) + ".bin"));
+                          ("mtfs-test-" + hex_string(suffix.data(), suffix.size()) + ".bin"));
     if (!write_payload(payload.path()))
     {
         std::cerr << "payload staging failed\n";
@@ -175,8 +175,8 @@ int main(int argc, char **argv)
     options.metadata = {
         0x01, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x04, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00,
-        'f', 'l', 'e', 'e', 't', '-', 'k', 'a', 't', 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00,
+        'f', 'l', 'e', 'e', 't', '-', 't', 'e', 's', 't', 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00
     };
     if (random.fill(options.model_id.data(), options.model_id.size()) != mtfs::sealed::Status::ok)
@@ -188,7 +188,7 @@ int main(int argc, char **argv)
     const auto status = mtfs::sealed::seal_file(
         key, payload.path().string(), package.string(), options, random, aead);
     if (status != mtfs::sealed::Status::ok)
-        return mtfs_report(status, "KAT package creation");
+        return mtfs_report(status, "test package creation");
 
     std::array<std::uint8_t, 32> package_sha{};
     std::array<std::uint8_t, 32> payload_sha{};
@@ -212,7 +212,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    std::cout << "fleet-specific KAT package created and self-verified\n"
+    std::cout << "fleet-specific test package created and self-verified\n"
               << "copy " << package.string() << " and " << descriptor.string()
               << " to the SD card root; fleet.key is not included\n";
     return 0;

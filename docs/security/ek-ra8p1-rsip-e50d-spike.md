@@ -54,7 +54,7 @@ CPU RAMに一時的に存在するため、この構成をhardware隔離済みpr
 crypto-info
 crypto-consistency
 crypto-negative
-crypto-kat
+crypto-package-test
 ```
 
 `crypto-info`はCompatibility Mode、OSPI status、valid slot数、key ID/version、generation、slot、
@@ -69,8 +69,9 @@ encrypt/decryptし、さらにhandleをdestroyしてOSPIを再読込み・再imp
 Phase 4.1B-RA core acceptanceでは37-byte plaintextのtag/ciphertext改変拒否と出力zeroizeを実機で
 確認済みである。Phase 4.1B-RA2の現行`crypto-negative`はその上位統合試験として、実際のfleet keyで
 Host生成したSD packageのenvelope tag、chunk ciphertext、chunk tagをRAM上で改変する。
-`crypto-kat`は同packageのenvelope、raw `K_model`の即時HUK wrap/zeroize、4096/904-byte payload
-chunkの既知解を検証する。
+`crypto-package-test`は同packageのenvelope、raw `K_model`の即時HUK wrap/zeroize、4096/904-byte
+payload chunkの既知plaintext照合を検証する。これは固定key/ciphertextのKATではなく、fleet-specific
+sealed packageのend-to-end integration testである。
 詳細は[`ek-ra8p1-phase-4.1b-ra2.md`](ek-ra8p1-phase-4.1b-ra2.md)を参照する。
 
 ## Build確認
@@ -80,7 +81,7 @@ chunkの既知解を検証する。
 | image | text | data | BSS |
 |---|---:|---:|---:|
 | dedicated provisioner | 221,720 | 88 | 33,549 |
-| basic runtime + crypto tests | 321,164 | 88 | 306,185 |
+| basic runtime + crypto tests | 321,280 | 88 | 306,185 |
 
 両buildともapplication errorはない。両projectともFSP 6.5.0の
 `ra/fsp/src/rm_psa_crypto`だけ既知のunused-variable/function warningを局所抑制し、

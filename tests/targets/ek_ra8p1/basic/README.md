@@ -5,7 +5,7 @@ Phase 4.1B-RAのRSIP-E50D Compatibility Mode、OSPI鍵保存、console手順は
 を参照してください。UARTで受信した`K_fleet`をHUK-wrapしてboard上OSPIへ保存するcontest profileは
 [`docs/security/ek-ra8p1-ospi-key-provisioning.md`](../../../../docs/security/ek-ra8p1-ospi-key-provisioning.md)
 に記録しています。provision、reset後および完全電源断後のOSPI検証、通常版GCM consistency/negative試験は実機PASS済みです。
-Phase 4.1B-RA2のfleet固有SD packageによるenvelope/model-key wrap/payload KATと改ざん拒否も実機PASS済みです。
+Phase 4.1B-RA2のfleet固有sealed packageによるend-to-end integration testと改ざん拒否も実機PASS済みです。
 `src/ports/ra_fsp/crypto`はDebug/Release source対象に含めます。
 
 FATで事前フォーマットしたDigilent Pmod MicroSD Revision AをPMOD2へ接続し、microT-FSのBlock Device、FatFs round-trip、microT-Kernel 2タスク並行アクセス、P409/IRQ6による挿入・抜去・再挿入、FSP RTCからFatFs timestampへの反映を確認するe² studioプロジェクトです。テストはカードをフォーマットしません。
@@ -62,14 +62,15 @@ SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマッ�
 - **Set Source Clock in Open** はDisabled。providerが`VBTBPSR.VBPORF`でバックアップdomain喪失を検出した時だけ`clockSourceSet`を呼ぶ
 - RSIP-E50D Compatibility Mode、Arm PSA Crypto、key injection
 - OSPI_B unit 0/channel 1、standard SPI。onboard flash末尾8 KiBをHUK-wrapped fleet key専用に予約
-- `MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1`で`crypto-info`、`crypto-consistency`、`crypto-negative`、`crypto-kat`を公開
+- `MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1`で`crypto-info`、`crypto-consistency`、`crypto-negative`、`crypto-package-test`を公開
 - flat build専用として`MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS`を定義し、PSAのwhole-message境界copyを省く
 
-`crypto-kat`と`crypto-negative`はPhase 4.1B-RA2のコマンドです。実際にprovisionした`fleet.key`で
-Host生成したSD上の`0:/MTFSKAT.MTF`を使い、OSPI `K_fleet`によるenvelope復号、raw `K_model`の
-即時HUK wrap/zeroize、2 payload chunkの既知解、3種類の改ざん拒否を検証します。生成・コピー手順は
+`crypto-package-test`と`crypto-negative`はPhase 4.1B-RA2のコマンドです。実際にprovisionした
+`fleet.key`でHost生成したSD上の`0:/MTFSTEST.MTF`を使い、OSPI `K_fleet`によるenvelope復号、
+raw `K_model`の即時HUK wrap/zeroize、2 payload chunkの既知plaintext照合、3種類の改ざん拒否を
+検証します。生成・コピー手順は
 [`docs/security/ek-ra8p1-phase-4.1b-ra2.md`](../../../../docs/security/ek-ra8p1-phase-4.1b-ra2.md)
-を参照してください。KAT専用の固定profile readerだけを使用し、汎用FatFs model storeはPhase 4.2です。
+を参照してください。integration test専用の固定profile readerだけを使用し、汎用FatFs model storeはPhase 4.2です。
 
 Card Detectは100 msのsoftware debounceを既定とし、edge後だけoptional media service taskが再確認します。`MTFS_RA8P1_CD_DEBOUNCE_MS`で変更できます。実機で未挿入`raw=1`、挿入`raw=0`を確認済みのため、`MTFS_RA8P1_CD_ACTIVE_LOW=1`を既定としています。
 

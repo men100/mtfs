@@ -9,7 +9,7 @@
 - `security/host-sealed-model-tools.md`: Phase 4.1A Host toolのbuild、運用、test vector、制限
 - `security/ek-ra8p1-rsip-e50d-spike.md`: Phase 4.1B-RA RSIP-E50D Compatibility/OSPI hardware結果
 - `security/ek-ra8p1-ospi-key-provisioning.md`: UARTで受信したfleet keyをHUK-wrapし、board上OSPIへ保存するcontest profile
-- `security/ek-ra8p1-phase-4.1b-ra2.md`: fleet固有SD packageによるRA envelope/model-key wrap/payload KAT
+- `security/ek-ra8p1-phase-4.1b-ra2.md`: fleet固有sealed packageによるRA end-to-end integration test
 - `porting/README.md`: 新規ボードへのソース取り込みから実機testまでの移植ガイド
 - `porting/block-device-port.md`: Block Device operation、状態、error、contextの実装契約
 - `porting/microtkernel-integration.md`: mutex、IRQ、event flag、HAL timebase、task寿命
