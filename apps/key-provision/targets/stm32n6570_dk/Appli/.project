@@ -89,6 +89,7 @@
 			<locationURI>PARENT-5-PROJECT_LOC/boards/stm32n6570_dk/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_utils.c</locationURI>
 		</link>
 		<link><name>Application</name><type>2</type><locationURI>PARENT-1-PROJECT_LOC/application</locationURI></link>
+		<link><name>mtfs_stm32_common</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/common</locationURI></link>
 		<link><name>mtfs_stm32_crypto</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/crypto</locationURI></link>
 		<link><name>mtk3_bsp2</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/mtk3_bsp2</locationURI></link>
 		<link><name>CubeDrivers</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/boards/stm32n6570_dk/Drivers</locationURI></link>
