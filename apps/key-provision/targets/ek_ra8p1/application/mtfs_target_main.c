@@ -1,9 +1,4 @@
-/*
- * CONTEST PROVISIONING TOOL - NOT FOR PRODUCTION.
- *
- * Dedicated firmware that copies an RFP-injected, HUK-wrapped AES-256 key
- * from a temporary MRAM address to an SD card.  It never handles a raw key.
- */
+/* Dedicated trusted-UART raw key -> HUK-wrapped key provisioner. */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -13,419 +8,453 @@
 #include <tm/tmonitor.h>
 #include <mtkernel/lib/libtm/libtm.h>
 
-#include "bsp_pin_cfg.h"
-#include "ff.h"
 #include "hal_data.h"
-#include "mtfs_block_device.h"
-#include "mtfs_block_registry.h"
-#include "mtfs_ra_rsip_key_file.h"
-#include "mtfs_ra_sd_spi.h"
-#include "mtfs_wrapped_key_fatfs.h"
+#include "mbedtls/platform.h"
+#include "psa/crypto.h"
+#include "r_rsip_key_injection.h"
+#include "mtfs_ra8p1_ospi_key_store.h"
 
 EXPORT INT usermain(void);
 
-#ifndef MTFS_RA8P1_PROVISION_KEY_ADDRESS
-#define MTFS_RA8P1_PROVISION_KEY_ADDRESS (UINT32_C(0))
-#endif
+#define RAW_KEY_BYTES             (32U)
+#define XMODEM_128_BLOCK_BYTES    (128U)
+#define XMODEM_1K_BLOCK_BYTES     (1024U)
+#define XMODEM_MAX_BLOCK_BYTES    XMODEM_1K_BLOCK_BYTES
+#define XMODEM_C_INTERVAL_MS (1000U)
+#define XMODEM_START_TIMEOUT_MS (60000U)
+#define LINE_BYTES          (64U)
+#define TAG_BYTES           (16U)
+#define TEST_BYTES          (37U)
+#define ALIGN               __attribute__((aligned(16)))
 
-#ifndef MTFS_RA8P1_PROVISION_KEY_ID
-#define MTFS_RA8P1_PROVISION_KEY_ID (UINT32_C(1))
-#endif
+#define X_SOH  (0x01)
+#define X_STX  (0x02)
+#define X_EOT  (0x04)
+#define X_ACK  (0x06)
+#define X_NAK  (0x15)
+#define X_CAN  (0x18)
+#define X_CRC  ('C')
 
-#ifndef MTFS_RA8P1_PROVISION_KEY_VERSION
-#define MTFS_RA8P1_PROVISION_KEY_VERSION (UINT32_C(1))
-#endif
+static mbedtls_platform_context platform_context;
+static uint8_t crypto_ready;
 
-#define PROVISION_KEY_PATH      MTFS_RA_RSIP_FLEET_KEY_PATH
-#define PROVISION_TEMP_PATH     "0:/MTFSKEY.TMP"
-#define PROVISION_BLOB_BYTES    MTFS_WRAPPED_KEY_RECORD_RSIP_AES256_BLOB_BYTES
-#define PROVISION_RECORD_BYTES  MTFS_WRAPPED_KEY_RECORD_RSIP_AES256_BYTES
-#define PROVISION_TAG_BYTES     (16U)
-#define PROVISION_TEXT_BYTES    (37U)
-#define PROVISION_LINE_BYTES    (64U)
-#define PROVISION_ALIGN         __attribute__((aligned(16)))
+extern INT mtfs_ra8p1_tm_try_getchar(void);
 
-typedef struct provision_storage
+static uint16_t crc16(const uint8_t *data, size_t bytes)
 {
-    mtfs_ra_sd_spi_context_t sd;
-    FATFS filesystem;
-    mtfs_block_device_t *device;
-    uint8_t context_ready;
-    uint8_t registered;
-    uint8_t mounted;
-} provision_storage_t;
-
-static uint8_t record_work[PROVISION_RECORD_BYTES] PROVISION_ALIGN;
-static uint8_t crypto_ciphertext[PROVISION_TEXT_BYTES + PROVISION_TAG_BYTES]
-    PROVISION_ALIGN;
-static uint8_t crypto_plaintext[PROVISION_TEXT_BYTES + PROVISION_TAG_BYTES]
-    PROVISION_ALIGN;
-static uint8_t crypto_output[PROVISION_TEXT_BYTES + PROVISION_TAG_BYTES]
-    PROVISION_ALIGN;
-
-static void secure_zero(void *data, size_t data_bytes)
-{
-    volatile uint8_t *cursor = (volatile uint8_t *)data;
-
-    while (data_bytes != 0U) {
-        *cursor++ = 0U;
-        --data_bytes;
-    }
-    __asm volatile ("" : : "r" (data) : "memory");
-}
-
-static int card_present(void *context)
-{
-    bsp_io_level_t level = BSP_IO_LEVEL_HIGH;
-    (void)context;
-
-    if (g_ioport.p_api->pinRead(g_ioport.p_ctrl,
-            PMOD2_GPIO1, &level) != FSP_SUCCESS) {
-        return 0;
-    }
-    return level == BSP_IO_LEVEL_LOW;
-}
-
-static void storage_config(mtfs_ra_sd_spi_config_t *config)
-{
-    memset(config, 0, sizeof(*config));
-    config->device_name = "hspia";
-    config->spi = &g_sci_spi0;
-    config->ioport = &g_ioport;
-    config->chip_select_pin = PMOD2_CTS;
-    config->initialization_bitrate_hz = 400000U;
-    config->data_bitrate_hz = 4000000U;
-    config->initialization_timeout_ms = 1000U;
-    config->transfer_timeout_ms = 1000U;
-    config->card_present = card_present;
-}
-
-static mtfs_error_t storage_open(provision_storage_t *storage)
-{
-    mtfs_ra_sd_spi_config_t config;
-    mtfs_error_t error;
-
-    memset(storage, 0, sizeof(*storage));
-    storage_config(&config);
-    error = mtfs_ra_sd_spi_context_init(&storage->sd, &config);
-    if (error != MTFS_OK) {
-        return error;
-    }
-    storage->context_ready = 1U;
-    storage->device = mtfs_ra_sd_spi_block_device(&storage->sd);
-    error = mtfs_block_initialize(storage->device);
-    if (error != MTFS_OK) {
-        return error;
-    }
-    error = mtfs_block_registry_register(0U, storage->device);
-    if (error != MTFS_OK) {
-        return error;
-    }
-    storage->registered = 1U;
-    if (f_mount(&storage->filesystem, "0:", 1U) != FR_OK) {
-        return MTFS_ERROR_IO;
-    }
-    storage->mounted = 1U;
-    return MTFS_OK;
-}
-
-static void storage_close(provision_storage_t *storage)
-{
-    if (storage->mounted) {
-        (void)f_mount(NULL, "0:", 0U);
-        storage->mounted = 0U;
-    }
-    if (storage->registered) {
-        (void)mtfs_block_registry_unregister(0U);
-        storage->registered = 0U;
-    }
-    if (storage->context_ready) {
-        (void)mtfs_ra_sd_spi_context_deinit(&storage->sd);
-        storage->context_ready = 0U;
-    }
-}
-
-static int injected_blob_present(const uint8_t *blob)
-{
-    uint8_t all_zero = 0U;
-    uint8_t all_erased = 0xffU;
+    uint16_t crc = 0U;
     size_t index;
+    unsigned int bit;
 
-    for (index = 0U; index < PROVISION_BLOB_BYTES; ++index) {
-        all_zero |= blob[index];
-        all_erased &= blob[index];
-    }
-    return (all_zero != 0U) && (all_erased != 0xffU);
-}
-
-static fsp_err_t crypto_decrypt(
-    const rsip_wrapped_key_t *key,
-    const uint8_t *nonce,
-    const uint8_t *aad,
-    uint32_t aad_bytes,
-    const uint8_t *ciphertext,
-    uint32_t ciphertext_bytes,
-    const uint8_t *tag,
-    uint8_t *output)
-{
-    uint32_t update_bytes = 0U;
-    uint32_t finish_bytes = 0U;
-    fsp_err_t error = R_RSIP_AES_AEAD_Init(g_rsip.p_ctrl,
-        RSIP_AES_AEAD_MODE_GCM_DEC, key, nonce, 12U);
-
-    if (error == FSP_SUCCESS) {
-        error = R_RSIP_AES_AEAD_AADUpdate(g_rsip.p_ctrl,
-            aad, aad_bytes);
-    }
-    if (error == FSP_SUCCESS) {
-        error = R_RSIP_AES_AEAD_Update(g_rsip.p_ctrl,
-            ciphertext, ciphertext_bytes, output, &update_bytes);
-    }
-    if (error == FSP_SUCCESS) {
-        error = R_RSIP_AES_AEAD_Verify(g_rsip.p_ctrl,
-            output + update_bytes, &finish_bytes, tag,
-            PROVISION_TAG_BYTES);
-    }
-    if ((error == FSP_SUCCESS) &&
-        ((update_bytes + finish_bytes) != ciphertext_bytes)) {
-        return FSP_ERR_CRYPTO_UNKNOWN;
-    }
-    return error;
-}
-
-static int crypto_validate_blob(const uint8_t *blob, fsp_err_t *last_error)
-{
-    static const uint8_t nonce[12] PROVISION_ALIGN = {
-        0x4dU, 0x54U, 0x46U, 0x53U, 0x2dU, 0x50U,
-        0x52U, 0x4fU, 0x56U, 0x2dU, 0x30U, 0x31U
-    };
-    static const uint8_t aad[16] PROVISION_ALIGN = {
-        'M', 'T', 'F', 'S', '-', 'P', 'R', 'O',
-        'V', 'I', 'S', 'I', 'O', 'N', '-', '1'
-    };
-    uint8_t tag[PROVISION_TAG_BYTES] PROVISION_ALIGN = {0U};
-    uint8_t bad_tag[PROVISION_TAG_BYTES] PROVISION_ALIGN = {0U};
-    uint32_t update_bytes = 0U;
-    uint32_t finish_bytes = 0U;
-    rsip_wrapped_key_t key = {RSIP_KEY_TYPE_AES_256, (void *)blob};
-    fsp_err_t error;
-    size_t index;
-    int opened = 0;
-    int valid = 0;
-
-    for (index = 0U; index < PROVISION_TEXT_BYTES; ++index) {
-        crypto_plaintext[index] = (uint8_t)(index * 9U + 5U);
-    }
-    secure_zero(crypto_ciphertext, sizeof(crypto_ciphertext));
-    secure_zero(crypto_output, sizeof(crypto_output));
-    error = R_RSIP_Open(g_rsip.p_ctrl, g_rsip.p_cfg);
-    if (error == FSP_SUCCESS) {
-        opened = 1;
-        error = R_RSIP_AES_AEAD_Init(g_rsip.p_ctrl,
-            RSIP_AES_AEAD_MODE_GCM_ENC, &key, nonce, sizeof(nonce));
-    }
-    if (error == FSP_SUCCESS) {
-        error = R_RSIP_AES_AEAD_AADUpdate(g_rsip.p_ctrl,
-            aad, sizeof(aad));
-    }
-    if (error == FSP_SUCCESS) {
-        error = R_RSIP_AES_AEAD_Update(g_rsip.p_ctrl,
-            crypto_plaintext, PROVISION_TEXT_BYTES,
-            crypto_ciphertext, &update_bytes);
-    }
-    if (error == FSP_SUCCESS) {
-        error = R_RSIP_AES_AEAD_Finish(g_rsip.p_ctrl,
-            crypto_ciphertext + update_bytes, &finish_bytes, tag);
-    }
-    if ((error == FSP_SUCCESS) &&
-        ((update_bytes + finish_bytes) == PROVISION_TEXT_BYTES)) {
-        error = crypto_decrypt(&key, nonce, aad, sizeof(aad),
-            crypto_ciphertext, PROVISION_TEXT_BYTES, tag, crypto_output);
-    }
-    if ((error == FSP_SUCCESS) &&
-        (memcmp(crypto_output, crypto_plaintext,
-            PROVISION_TEXT_BYTES) == 0)) {
-        memcpy(bad_tag, tag, sizeof(bad_tag));
-        bad_tag[0] ^= 1U;
-        secure_zero(crypto_output, sizeof(crypto_output));
-        error = crypto_decrypt(&key, nonce, aad, sizeof(aad),
-            crypto_ciphertext, PROVISION_TEXT_BYTES,
-            bad_tag, crypto_output);
-        if (error == FSP_ERR_CRYPTO_RSIP_AUTHENTICATION) {
-            valid = 1;
+    for (index = 0U; index < bytes; ++index) {
+        crc ^= (uint16_t)data[index] << 8;
+        for (bit = 0U; bit < 8U; ++bit) {
+            crc = (crc & UINT16_C(0x8000)) != 0U
+                ? (uint16_t)((crc << 1) ^ UINT16_C(0x1021))
+                : (uint16_t)(crc << 1);
         }
     }
-    *last_error = error;
-    if (opened) {
-        (void)R_RSIP_Close(g_rsip.p_ctrl);
-    }
-    secure_zero(tag, sizeof(tag));
-    secure_zero(bad_tag, sizeof(bad_tag));
-    secure_zero(crypto_plaintext, sizeof(crypto_plaintext));
-    secure_zero(crypto_ciphertext, sizeof(crypto_ciphertext));
-    secure_zero(crypto_output, sizeof(crypto_output));
-    return valid;
+    return crc;
 }
 
-static const uint8_t *injected_blob(void)
+static void xmodem_cancel(void)
 {
-    if (MTFS_RA8P1_PROVISION_KEY_ADDRESS == 0U) {
-        return NULL;
+    tm_putchar(X_CAN);
+    tm_putchar(X_CAN);
+}
+
+static int xmodem_now_ms(uint32_t *now_ms)
+{
+    SYSTIM time = {0};
+
+    if ((now_ms == NULL) || (tk_get_otm(&time) != E_OK)) {
+        return 0;
     }
-    return (const uint8_t *)(uintptr_t)MTFS_RA8P1_PROVISION_KEY_ADDRESS;
+    *now_ms = time.lo;
+    return 1;
+}
+
+static void xmodem_drain_command_terminator(void)
+{
+    while (mtfs_ra8p1_tm_try_getchar() >= 0) {
+        /* The sender cannot start before the first CRC request is emitted. */
+    }
+}
+
+static int xmodem_wait_for_start(void)
+{
+    uint32_t start_ms;
+    uint32_t last_request_ms;
+
+    if (!xmodem_now_ms(&start_ms)) {
+        return -2;
+    }
+    last_request_ms = start_ms;
+    tm_putchar(X_CRC);
+
+    for (;;) {
+        uint32_t now_ms;
+        int character = mtfs_ra8p1_tm_try_getchar();
+
+        if (character >= 0) {
+            return character;
+        }
+        if (!xmodem_now_ms(&now_ms)) {
+            return -2;
+        }
+        if ((uint32_t)(now_ms - start_ms) >= XMODEM_START_TIMEOUT_MS) {
+            return -1;
+        }
+        if ((uint32_t)(now_ms - last_request_ms) >= XMODEM_C_INTERVAL_MS) {
+            tm_putchar(X_CRC);
+            last_request_ms = now_ms;
+        }
+    }
+
+    /* Kept for e2 studio's flow analyzer; the loop exits only by return. */
+    return -2;
+}
+
+static int xmodem_receive_key(uint8_t raw_key[RAW_KEY_BYTES])
+{
+    uint8_t block[XMODEM_MAX_BLOCK_BYTES] ALIGN;
+    uint8_t number;
+    uint8_t inverse;
+    uint16_t received_crc;
+    size_t block_bytes;
+    size_t index;
+    int character;
+    int padding_ok = 1;
+
+    tm_printf((UB *)"[provision] XMODEM-CRC ready: send an exactly 32-byte binary key file now\n");
+    tm_printf((UB *)"[provision] plaintext exists only in RAM during this command\n");
+    tm_printf((UB *)"[provision] waiting up to 60 seconds; repeated 'C' is the CRC handshake\n");
+    xmodem_drain_command_terminator();
+    character = xmodem_wait_for_start();
+    if (character == -1) {
+        xmodem_cancel();
+        tm_printf((UB *)"\n[provision] XMODEM FAIL sender did not start within 60 seconds\n");
+        return 0;
+    }
+    if (character == -2) {
+        xmodem_cancel();
+        tm_printf((UB *)"\n[provision] XMODEM FAIL monotonic clock unavailable\n");
+        return 0;
+    }
+    if (character == X_CAN) {
+        tm_printf((UB *)"\n[provision] XMODEM cancelled by sender\n");
+        return 0;
+    }
+    if (character == X_SOH) {
+        block_bytes = XMODEM_128_BLOCK_BYTES;
+    } else if (character == X_STX) {
+        block_bytes = XMODEM_1K_BLOCK_BYTES;
+    } else {
+        xmodem_cancel();
+        tm_printf((UB *)"\n[provision] XMODEM FAIL expected SOH/STX, got=0x%02x\n",
+            (UW)(character & 0xff));
+        return 0;
+    }
+    number = (uint8_t)tm_getchar(1);
+    inverse = (uint8_t)tm_getchar(1);
+    for (index = 0U; index < block_bytes; ++index) {
+        block[index] = (uint8_t)tm_getchar(1);
+    }
+    received_crc = (uint16_t)((uint16_t)(uint8_t)tm_getchar(1) << 8);
+    received_crc |= (uint16_t)(uint8_t)tm_getchar(1);
+    if ((number != 1U) || ((uint8_t)(number + inverse) != UINT8_MAX) ||
+        (received_crc != crc16(block, block_bytes))) {
+        tm_putchar(X_NAK);
+        xmodem_cancel();
+        mtfs_ra8p1_ospi_key_store_zero(block, sizeof(block));
+        tm_printf((UB *)"\n[provision] XMODEM FAIL block/CRC error\n");
+        return 0;
+    }
+    for (index = RAW_KEY_BYTES; index < block_bytes; ++index) {
+        if ((block[index] != 0x1aU) && (block[index] != 0U)) {
+            padding_ok = 0;
+        }
+    }
+    if (!padding_ok) {
+        tm_putchar(X_NAK);
+        xmodem_cancel();
+        mtfs_ra8p1_ospi_key_store_zero(block, sizeof(block));
+        tm_printf((UB *)"\n[provision] XMODEM FAIL file must be exactly 32 bytes\n");
+        return 0;
+    }
+    memcpy(raw_key, block, RAW_KEY_BYTES);
+    mtfs_ra8p1_ospi_key_store_zero(block, sizeof(block));
+    tm_putchar(X_ACK);
+    character = tm_getchar(1);
+    if (character != X_EOT) {
+        xmodem_cancel();
+        mtfs_ra8p1_ospi_key_store_zero(raw_key, RAW_KEY_BYTES);
+        tm_printf((UB *)"\n[provision] XMODEM FAIL extra data; expected EOT\n");
+        return 0;
+    }
+    tm_putchar(X_ACK);
+    tm_printf((UB *)"\n[provision] XMODEM receive PASS bytes=32 block=%u\n",
+        (UW)block_bytes);
+    return 1;
+}
+
+static psa_status_t crypto_initialize(void)
+{
+    psa_status_t status;
+
+    if (crypto_ready != 0U) {
+        return PSA_SUCCESS;
+    }
+    if (mbedtls_platform_setup(&platform_context) != 0) {
+        return PSA_ERROR_HARDWARE_FAILURE;
+    }
+    status = psa_crypto_init();
+    if (status != PSA_SUCCESS) {
+        mbedtls_platform_teardown(&platform_context);
+        return status;
+    }
+    crypto_ready = 1U;
+    return PSA_SUCCESS;
+}
+
+static psa_status_t import_wrapped_key(
+    const rsip_aes_wrapped_key_t *wrapped_key,
+    psa_key_handle_t *key_handle)
+{
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_status_t status;
+
+    psa_set_key_usage_flags(&attributes,
+        PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT);
+    psa_set_key_algorithm(&attributes, PSA_ALG_GCM);
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_AES_WRAPPED);
+    psa_set_key_bits(&attributes, 256U);
+    psa_set_key_lifetime(&attributes, PSA_KEY_LIFETIME_VOLATILE);
+    status = psa_import_key(&attributes,
+        (const uint8_t *)wrapped_key->value,
+        MTFS_RA8P1_AES256_WRAPPED_BYTES, key_handle);
+    psa_reset_key_attributes(&attributes);
+    return status;
+}
+
+static int authentication_rejected(psa_status_t status)
+{
+    /*
+     * FSP 6.5.0 gcm_alt_process.c maps
+     * FSP_ERR_CRYPTO_SCE_AUTHENTICATION to
+     * MBEDTLS_ERR_PLATFORM_HW_ACCEL_FAILED, which PSA exposes as
+     * PSA_ERROR_HARDWARE_FAILURE.  Accept that value only at the deliberate
+     * negative-decrypt step, after the positive decrypt above has passed.
+     */
+    return (status == PSA_ERROR_INVALID_SIGNATURE) ||
+        (status == PSA_ERROR_HARDWARE_FAILURE);
+}
+
+static int validate_wrapped_key(const rsip_aes_wrapped_key_t *wrapped_key,
+    psa_status_t *last_status, const char **last_stage)
+{
+    static const uint8_t nonce[12] = {
+        0x4dU, 0x54U, 0x46U, 0x53U, 0x2dU, 0x50U,
+        0x52U, 0x4fU, 0x56U, 0x2dU, 0x30U, 0x32U
+    };
+    static const uint8_t aad[16] = {
+        'M', 'T', 'F', 'S', '-', 'P', 'R', 'O',
+        'V', 'I', 'S', 'I', 'O', 'N', '-', '2'
+    };
+    uint8_t plain[TEST_BYTES] ALIGN;
+    uint8_t recovered[TEST_BYTES] ALIGN;
+    uint8_t cipher[TEST_BYTES + TAG_BYTES] ALIGN;
+    uint8_t damaged[TEST_BYTES + TAG_BYTES] ALIGN;
+    psa_key_handle_t handle = 0;
+    psa_status_t status;
+    size_t cipher_bytes = 0U;
+    size_t plain_bytes = 0U;
+    size_t index;
+    const char *stage = "import";
+    int valid = 0;
+
+    for (index = 0U; index < sizeof(plain); ++index) {
+        plain[index] = (uint8_t)(index * 9U + 5U);
+    }
+    status = import_wrapped_key(wrapped_key, &handle);
+    if (status == PSA_SUCCESS) {
+        stage = "encrypt";
+        status = psa_aead_encrypt(handle, PSA_ALG_GCM,
+            nonce, sizeof(nonce), aad, sizeof(aad), plain, sizeof(plain),
+            cipher, sizeof(cipher), &cipher_bytes);
+    }
+    if (status == PSA_SUCCESS) {
+        stage = "decrypt";
+        status = psa_aead_decrypt(handle, PSA_ALG_GCM,
+            nonce, sizeof(nonce), aad, sizeof(aad), cipher, cipher_bytes,
+            recovered, sizeof(recovered), &plain_bytes);
+    }
+    if ((status == PSA_SUCCESS) && (plain_bytes == sizeof(plain)) &&
+        (memcmp(plain, recovered, sizeof(plain)) == 0)) {
+        stage = "negative";
+        memcpy(damaged, cipher, cipher_bytes);
+        damaged[cipher_bytes - 1U] ^= 1U;
+        plain_bytes = 0U;
+        status = psa_aead_decrypt(handle, PSA_ALG_GCM,
+            nonce, sizeof(nonce), aad, sizeof(aad), damaged, cipher_bytes,
+            recovered, sizeof(recovered), &plain_bytes);
+        valid = authentication_rejected(status) && (plain_bytes == 0U);
+    }
+    if (handle != 0U) {
+        (void)psa_destroy_key(handle);
+    }
+    *last_status = status;
+    *last_stage = stage;
+    mtfs_ra8p1_ospi_key_store_zero(plain, sizeof(plain));
+    mtfs_ra8p1_ospi_key_store_zero(recovered, sizeof(recovered));
+    mtfs_ra8p1_ospi_key_store_zero(cipher, sizeof(cipher));
+    mtfs_ra8p1_ospi_key_store_zero(damaged, sizeof(damaged));
+    return valid;
 }
 
 static void print_info(void)
 {
-    tm_printf((UB *)"[provision] CONTEST TOOL - NOT FOR PRODUCTION\n");
-    tm_printf((UB *)"[provision] source=RFP-injected MRAM address=0x%08x bytes=%u configured=%s\n",
-        (UW)MTFS_RA8P1_PROVISION_KEY_ADDRESS,
-        (UW)PROVISION_BLOB_BYTES,
-        MTFS_RA8P1_PROVISION_KEY_ADDRESS != 0U
-            ? (UB *)"yes" : (UB *)"no");
-    tm_printf((UB *)"[provision] destination=%s temporary=%s key_id=%u key_version=%u overwrite=no format=no\n",
-        (UB *)PROVISION_KEY_PATH, (UB *)PROVISION_TEMP_PATH,
-        (UW)MTFS_RA8P1_PROVISION_KEY_ID,
-        (UW)MTFS_RA8P1_PROVISION_KEY_VERSION);
+    tm_printf((UB *)"[provision] mode=RSIP-E50D Compatibility source=UART/XMODEM raw-bytes=32\n");
+    tm_printf((UB *)"[provision] destination=onboard-OSPI base=0x90000000 flash-bytes=%u\n",
+        (UW)MTFS_RA8P1_OSPI_FLASH_BYTES);
+    tm_printf((UB *)"[provision] reserved offsets=0x%08x,0x%08x sector-bytes=%u key-id=%u\n",
+        (UW)MTFS_RA8P1_OSPI_KEY_OFFSET_A,
+        (UW)MTFS_RA8P1_OSPI_KEY_OFFSET_B,
+        (UW)MTFS_RA8P1_OSPI_KEY_SECTOR_BYTES,
+        (UW)MTFS_RA8P1_FLEET_KEY_ID);
 }
 
-static int verify_injected(void)
+static int load_and_verify(mtfs_ra8p1_key_metadata_t *metadata)
 {
-    const uint8_t *blob = injected_blob();
-    fsp_err_t error = FSP_SUCCESS;
+    rsip_aes_wrapped_key_t wrapped_key;
+    mtfs_ra8p1_key_store_diagnostics_t diagnostics = {0};
+    mtfs_ra8p1_key_store_status_t store_status;
+    psa_status_t psa_status = PSA_SUCCESS;
+    const char *psa_stage = "not-run";
+    int valid = 0;
 
-    if (blob == NULL) {
-        tm_printf((UB *)"[provision] BLOCKED: MTFS_RA8P1_PROVISION_KEY_ADDRESS is not configured\n");
-        return 0;
-    }
-    if (((uintptr_t)blob & 15U) != 0U) {
-        tm_printf((UB *)"[provision] BLOCKED: injected wrapped-key address is not 16-byte aligned\n");
-        return 0;
-    }
-    if (!injected_blob_present(blob)) {
-        tm_printf((UB *)"[provision] FAIL: injection area is zero/erased; no SD write performed\n");
-        return 0;
-    }
-    if (!crypto_validate_blob(blob, &error)) {
-        tm_printf((UB *)"[provision] FAIL: injected wrapped key rejected by RSIP fsp=%d; no SD write performed\n",
-            error);
-        return 0;
-    }
-    tm_printf((UB *)"[provision] injected wrapped-key GCM positive/negative PASS\n");
-    return 1;
-}
-
-static void verify_sd(void)
-{
-    provision_storage_t storage;
-    mtfs_ra_rsip_key_file_t key_file;
-    mtfs_error_t error;
-    fsp_err_t fsp_error = FSP_SUCCESS;
-
-    mtfs_ra_rsip_key_file_init(&key_file);
-    error = storage_open(&storage);
-    if (error == MTFS_OK) {
-        error = mtfs_ra_rsip_key_file_load(&key_file,
-            PROVISION_KEY_PATH);
-    }
-    if ((error == MTFS_OK) &&
-        crypto_validate_blob(
-            (const uint8_t *)mtfs_ra_rsip_key_file_key(&key_file)->p_value,
-            &fsp_error)) {
-        tm_printf((UB *)"[provision] SD wrapped-key key_id=%u key_version=%u RSIP PASS\n",
-            (UW)key_file.metadata.key_id,
-            (UW)key_file.metadata.key_version);
+    memset(&wrapped_key, 0, sizeof(wrapped_key));
+    store_status = mtfs_ra8p1_ospi_key_store_load(&wrapped_key,
+        metadata, &diagnostics);
+    if ((store_status == MTFS_RA8P1_KEY_STORE_OK) &&
+        validate_wrapped_key(&wrapped_key, &psa_status, &psa_stage)) {
+        valid = 1;
+        tm_printf((UB *)"[provision] OSPI verify PASS generation=%u key-id=%u key-version=%u slot=0x%08x valid-slots=%u\n",
+            (UW)metadata->generation, (UW)metadata->key_id,
+            (UW)metadata->key_version, (UW)metadata->slot_offset,
+            (UW)diagnostics.valid_slots);
     } else {
-        tm_printf((UB *)"[provision] SD verify FAIL mtfs=%d storage=%s fatfs=%u record=%s fsp=%d\n",
-            error,
-            (UB *)mtfs_wrapped_key_fatfs_status_string(
-                key_file.last_load_status),
-            (UW)key_file.diagnostics.last_fatfs_result,
-            (UB *)mtfs_wrapped_key_record_status_string(
-                key_file.diagnostics.last_record_status),
-            fsp_error);
+        tm_printf((UB *)"[provision] OSPI verify FAIL store=%s fsp=%d psa-stage=%s psa=%d valid-slots=%u\n",
+            (UB *)mtfs_ra8p1_key_store_status_string(store_status),
+            (INT)diagnostics.last_fsp_error, (UB *)psa_stage,
+            (INT)psa_status,
+            (UW)diagnostics.valid_slots);
     }
-    mtfs_ra_rsip_key_file_unload(&key_file);
-    storage_close(&storage);
+    mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
+    return valid;
 }
 
-static void provision_sd(void)
+static void provision_xmodem(int allow_update)
 {
-    provision_storage_t storage;
-    mtfs_ra_rsip_key_file_t key_file;
-    mtfs_wrapped_key_metadata_t metadata = {
-        MTFS_WRAPPED_KEY_PROVIDER_RA_RSIP_E50D,
-        MTFS_WRAPPED_KEY_TYPE_AES_256,
-        MTFS_RA8P1_PROVISION_KEY_ID,
-        MTFS_RA8P1_PROVISION_KEY_VERSION
-    };
-    mtfs_wrapped_key_fatfs_diagnostics_t diagnostics = {0};
-    const uint8_t *blob = injected_blob();
-    mtfs_wrapped_key_fatfs_status_t status;
-    mtfs_error_t error;
-    fsp_err_t fsp_error = FSP_SUCCESS;
+    uint8_t raw_key[RAW_KEY_BYTES] ALIGN;
+    rsip_aes_wrapped_key_t wrapped_key;
+    mtfs_ra8p1_key_metadata_t current = {0U};
+    mtfs_ra8p1_key_metadata_t committed = {0U};
+    mtfs_ra8p1_key_store_diagnostics_t diagnostics = {0};
+    mtfs_ra8p1_key_store_status_t store_status;
+    psa_status_t psa_status = PSA_SUCCESS;
+    const char *psa_stage = "not-run";
+    fsp_err_t fsp_status;
+    uint32_t key_version = 1U;
 
-    if (!verify_injected()) {
+    memset(raw_key, 0, sizeof(raw_key));
+    memset(&wrapped_key, 0, sizeof(wrapped_key));
+    store_status = mtfs_ra8p1_ospi_key_store_load(&wrapped_key,
+        &current, &diagnostics);
+    mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
+    if ((store_status == MTFS_RA8P1_KEY_STORE_OK) && !allow_update) {
+        tm_printf((UB *)"[provision] BLOCKED: key already exists; use update-xmodem for intentional replacement\n");
         return;
     }
-    mtfs_ra_rsip_key_file_init(&key_file);
-    error = storage_open(&storage);
-    if (error != MTFS_OK) {
-        tm_printf((UB *)"[provision] SD setup FAIL mtfs=%d\n", error);
-        storage_close(&storage);
+    if (store_status == MTFS_RA8P1_KEY_STORE_OK) {
+        key_version = current.key_version + 1U;
+        if (key_version == 0U) {
+            tm_printf((UB *)"[provision] BLOCKED: key-version exhausted\n");
+            return;
+        }
+    } else if (store_status != MTFS_RA8P1_KEY_STORE_NOT_FOUND) {
+        tm_printf((UB *)"[provision] BLOCKED: OSPI unavailable store=%s fsp=%d\n",
+            (UB *)mtfs_ra8p1_key_store_status_string(store_status),
+            (INT)diagnostics.last_fsp_error);
         return;
     }
-    status = mtfs_wrapped_key_fatfs_create(PROVISION_KEY_PATH,
-        PROVISION_TEMP_PATH, &metadata, blob, PROVISION_BLOB_BYTES,
-        record_work, sizeof(record_work), &diagnostics);
-    if (status != MTFS_WRAPPED_KEY_FATFS_OK) {
-        tm_printf((UB *)"[provision] SD create FAIL status=%s fatfs=%u record=%s; existing files were not changed\n",
-            (UB *)mtfs_wrapped_key_fatfs_status_string(status),
-            (UW)diagnostics.last_fatfs_result,
-            (UB *)mtfs_wrapped_key_record_status_string(
-                diagnostics.last_record_status));
-        storage_close(&storage);
+    if (!xmodem_receive_key(raw_key)) {
         return;
     }
-    error = mtfs_ra_rsip_key_file_load(&key_file, PROVISION_KEY_PATH);
-    if ((error != MTFS_OK) ||
-        !crypto_validate_blob(
-            (const uint8_t *)mtfs_ra_rsip_key_file_key(&key_file)->p_value,
-            &fsp_error)) {
-        tm_printf((UB *)"[provision] FAIL after commit: keep SD for inspection mtfs=%d fsp=%d\n",
-            error, fsp_error);
-    } else {
-        tm_printf((UB *)"[provision] PASS destination=%s key_id=%u key_version=%u writes=%u sync=%u readback=%u\n",
-            (UB *)PROVISION_KEY_PATH,
-            (UW)key_file.metadata.key_id,
-            (UW)key_file.metadata.key_version,
-            (UW)diagnostics.create_count,
-            (UW)diagnostics.sync_count,
+    fsp_status = R_RSIP_AES256_InitialKeyWrap(
+        RSIP_KEY_INJECTION_TYPE_PLAIN, NULL, NULL, raw_key, &wrapped_key);
+    mtfs_ra8p1_ospi_key_store_zero(raw_key, sizeof(raw_key));
+    if (fsp_status != FSP_SUCCESS) {
+        mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
+        tm_printf((UB *)"[provision] FAIL HUK wrap fsp=%d; OSPI unchanged\n",
+            fsp_status);
+        return;
+    }
+    tm_printf((UB *)"[provision] plaintext zeroized; validating device-bound wrapped key\n");
+    if (!validate_wrapped_key(&wrapped_key, &psa_status, &psa_stage)) {
+        mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
+        tm_printf((UB *)"[provision] FAIL wrapped-key GCM positive/negative stage=%s psa=%d; OSPI unchanged\n",
+            (UB *)psa_stage, (INT)psa_status);
+        return;
+    }
+    if (psa_status == PSA_ERROR_HARDWARE_FAILURE) {
+        tm_printf((UB *)"[provision] negative authentication rejection accepted via FSP 6.5 mapping psa=%d\n",
+            (INT)psa_status);
+    }
+    memset(&diagnostics, 0, sizeof(diagnostics));
+    store_status = mtfs_ra8p1_ospi_key_store_commit(&wrapped_key,
+        MTFS_RA8P1_FLEET_KEY_ID, key_version, allow_update,
+        &committed, &diagnostics);
+    mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
+    if (store_status != MTFS_RA8P1_KEY_STORE_OK) {
+        tm_printf((UB *)"[provision] FAIL OSPI commit store=%s fsp=%d erase=%u write=%u verify=%u\n",
+            (UB *)mtfs_ra8p1_key_store_status_string(store_status),
+            (INT)diagnostics.last_fsp_error,
+            (UW)diagnostics.erase_count, (UW)diagnostics.write_count,
             (UW)diagnostics.verify_count);
+        return;
     }
-    mtfs_ra_rsip_key_file_unload(&key_file);
-    storage_close(&storage);
+    tm_printf((UB *)"[provision] OSPI commit PASS generation=%u key-id=%u key-version=%u slot=0x%08x erase=%u write=%u verify=%u\n",
+        (UW)committed.generation, (UW)committed.key_id,
+        (UW)committed.key_version, (UW)committed.slot_offset,
+        (UW)diagnostics.erase_count, (UW)diagnostics.write_count,
+        (UW)diagnostics.verify_count);
+    if (!load_and_verify(&current)) {
+        tm_printf((UB *)"[provision] CRITICAL: committed record failed crypto readback validation\n");
+    }
 }
 
 static void print_help(void)
 {
-    tm_printf((UB *)"info             show public provisioning configuration\n");
-    tm_printf((UB *)"verify-injected  validate the RFP-injected wrapped key; no write\n");
-    tm_printf((UB *)"verify-sd        validate an existing MTFSKEY.BIN; no write\n");
-    tm_printf((UB *)"provision-sd     create MTFSKEY.BIN once; never overwrite or format\n");
-    tm_printf((UB *)"help             show this help\n");
+    tm_printf((UB *)"info              show public provisioning configuration\n");
+    tm_printf((UB *)"verify-ospi       validate the active wrapped key; no write\n");
+    tm_printf((UB *)"provision-xmodem  create the first key from a 32-byte file\n");
+    tm_printf((UB *)"update-xmodem     intentionally replace the key; version increments\n");
+    tm_printf((UB *)"help              show this help\n");
 }
 
 static void dispatch(const char *line)
 {
+    mtfs_ra8p1_key_metadata_t metadata = {0U};
+
     if (strcmp(line, "info") == 0) {
         print_info();
-    } else if (strcmp(line, "verify-injected") == 0) {
-        (void)verify_injected();
-    } else if (strcmp(line, "verify-sd") == 0) {
-        verify_sd();
-    } else if (strcmp(line, "provision-sd") == 0) {
-        provision_sd();
+    } else if (strcmp(line, "verify-ospi") == 0) {
+        (void)load_and_verify(&metadata);
+    } else if (strcmp(line, "provision-xmodem") == 0) {
+        provision_xmodem(0);
+    } else if (strcmp(line, "update-xmodem") == 0) {
+        provision_xmodem(1);
     } else if (strcmp(line, "help") == 0) {
         print_help();
     } else if (line[0] != '\0') {
@@ -435,14 +464,20 @@ static void dispatch(const char *line)
 
 static void console_task(INT start_code, void *context)
 {
-    char line[PROVISION_LINE_BYTES];
+    char line[LINE_BYTES];
     size_t length = 0U;
     int previous_cr = 0;
+    psa_status_t status;
     (void)start_code;
     (void)context;
 
-    tm_printf((UB *)"\nmicroT-FS EK-RA8P1 dedicated wrapped-key provisioner\n");
-    tm_printf((UB *)"CONTEST TOOL - NOT FOR PRODUCTION; no raw key input\n");
+    tm_printf((UB *)"\nmicroT-FS EK-RA8P1 dedicated fleet-key provisioner\n");
+    tm_printf((UB *)"Trusted local UART provisioning; plaintext key is transient\n");
+    status = crypto_initialize();
+    if (status != PSA_SUCCESS) {
+        tm_printf((UB *)"[provision] BLOCKED: Compatibility crypto init psa=%d\n",
+            (INT)status);
+    }
     print_info();
     print_help();
     tm_printf((UB *)"> ");
@@ -456,7 +491,11 @@ static void console_task(INT start_code, void *context)
             previous_cr = character == '\r';
             line[length] = '\0';
             tm_printf((UB *)"\n");
-            dispatch(line);
+            if (crypto_ready != 0U) {
+                dispatch(line);
+            } else if (line[0] != '\0') {
+                tm_printf((UB *)"[provision] BLOCKED: crypto initialization failed\n");
+            }
             length = 0U;
             tm_printf((UB *)"> ");
         } else if ((character == '\b') || (character == 0x7f)) {
@@ -481,7 +520,7 @@ EXPORT INT usermain(void)
         .tskatr = TA_HLNG | TA_RNG3,
         .task = console_task,
         .itskpri = 9,
-        .stksz = 16U * 1024U
+        .stksz = 24U * 1024U
     };
     ID task_id = tk_cre_tsk(&task);
 

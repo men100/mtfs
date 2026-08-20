@@ -72,6 +72,7 @@
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="_RAFSP_EK_RA8P1_"/>
 									<listOptionValue builtIn="false" value="MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="ilg.gnuarmeclipse.managedbuild.cross.option.assembler.include.paths.984811376" name="Include paths (-I)" superClass="ilg.gnuarmeclipse.managedbuild.cross.option.assembler.include.paths" valueType="includePath">
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/fsp_cfg/bsp}&quot;"/>
@@ -93,22 +94,22 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/os/microtkernel}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/sd_spi}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/rtc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/crypto}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_rtc_set_app}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_framework}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_cases}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_benchmarks}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/sb_lib/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/rsip/ra_rsip_e50d/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/common}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/primitive/ra_rsip_e50d}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/inc/instances}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/private}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/primitive}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/inc/api}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/library}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/private/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/public/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/primitive}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/rm_psa_crypto/inc}&quot;"/>
 								</option>
 								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input.550048598" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input"/>
 							</tool>
@@ -128,6 +129,7 @@
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="_RAFSP_EK_RA8P1_"/>
+									<listOptionValue builtIn="false" value="MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS"/>
 									<listOptionValue builtIn="false" value="MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.include.paths.2015310944" name="Include paths (-I)" superClass="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.include.paths" useByScannerDiscovery="false" valueType="includePath">
@@ -151,22 +153,22 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/os/microtkernel}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/sd_spi}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/rtc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/crypto}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_rtc_set_app}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_framework}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_cases}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_benchmarks}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/sb_lib/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/rsip/ra_rsip_e50d/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/common}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/primitive/ra_rsip_e50d}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/inc/instances}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/private}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/primitive}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/inc/api}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/library}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/private/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/public/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/primitive}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/rm_psa_crypto/inc}&quot;"/>
 								</option>
 								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input.300038807" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input"/>
 							</tool>
@@ -212,6 +214,24 @@
 							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize.1383546189" name="GNU Arm Cross Print Size" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize">
 								<option id="ilg.gnuarmeclipse.managedbuild.cross.option.printsize.format.266192096" name="Size format" superClass="ilg.gnuarmeclipse.managedbuild.cross.option.printsize.format"/>
 							</tool>
+						</toolChain>
+					</folderInfo>
+					<folderInfo id="com.renesas.cdt.managedbuild.gnuarm.config.elf.debug.821674671./ra/fsp/src/rm_psa_crypto" name="rm_psa_crypto" resourcePath="ra/fsp/src/rm_psa_crypto">
+						<toolChain id="com.renesas.cdt.managedbuild.gnuarm.toolchain.elf.debug.mtfs.rm_psa_crypto" name="GCC ARM Embedded" superClass="com.renesas.cdt.managedbuild.gnuarm.toolchain.elf.debug" unusedChildren="">
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.mtfs.rm_psa_crypto.debug" name="GNU Arm Cross C Compiler" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.1844887109">
+								<option id="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.otherwarnings.mtfs.rm_psa_crypto.debug" name="Other warning flags" superClass="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.otherwarnings" useByScannerDiscovery="true" value="-Wno-stringop-overflow -Wno-format-truncation -Wno-unused-variable -Wno-unused-function" valueType="string"/>
+								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input.mtfs.rm_psa_crypto.debug" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input"/>
+							</tool>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.79011403" name="GNU Arm Cross Assembler" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler">
+								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input.1603067926" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input"/>
+							</tool>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.compiler.282888922" name="GNU Arm Cross C++ Compiler" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.compiler"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.linker.1329532567" name="GNU Arm Cross C Linker" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.linker"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.linker.943997567" name="GNU Arm Cross C++ Linker" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.linker"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.archiver.683992704" name="GNU Arm Cross Archiver" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.archiver"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.createflash.1754790706" name="GNU Arm Cross Create Flash Image" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.createflash"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.createlisting.837429688" name="GNU Arm Cross Create Listing" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.createlisting"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize.1050922845" name="GNU Arm Cross Print Size" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize"/>
 						</toolChain>
 					</folderInfo>
 					<folderInfo id="com.renesas.cdt.managedbuild.gnuarm.config.elf.debug.821674671./ra/arm" name="arm" resourcePath="ra/arm">
@@ -276,7 +296,7 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtk3_bsp2"/>
-						<entry excluding="extensions|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/crypto|ports/ra_fsp/trustzone|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
+						<entry excluding="extensions|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/trustzone|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_framework"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_benchmarks"/>
 						<entry excluding="test_fatfs_concurrent.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_cases"/>
@@ -387,17 +407,16 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_cases}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_benchmarks}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/sb_lib/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/rsip/ra_rsip_e50d/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/common}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/primitive/ra_rsip_e50d}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/inc/instances}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/private}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/primitive}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/inc/api}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/library}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/private/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/public/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/primitive}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/rm_psa_crypto/inc}&quot;"/>
 								</option>
 								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input.1601756558" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input"/>
 							</tool>
@@ -444,17 +463,16 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_cases}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_benchmarks}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/sb_lib/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/rsip/ra_rsip_e50d/inc}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx/lib/common}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/private/ra_rsip_e5xx}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/primitive/ra_rsip_e50d}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/ra/inc/instances}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/public}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/private}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/primitive}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_rsip_protected/crypto_procedures_protected/src/rsip/common/inc/api}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/library}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/private/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/public/inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/crypto_procedures/src/rsip_e50d/plainkey/primitive}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/r_sce}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/fsp/src/rm_psa_crypto/inc}&quot;"/>
 								</option>
 								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input.1964404437" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input"/>
 							</tool>
@@ -500,6 +518,24 @@
 							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize.646830288" name="GNU Arm Cross Print Size" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize">
 								<option id="ilg.gnuarmeclipse.managedbuild.cross.option.printsize.format.1151721016" name="Size format" superClass="ilg.gnuarmeclipse.managedbuild.cross.option.printsize.format"/>
 							</tool>
+						</toolChain>
+					</folderInfo>
+					<folderInfo id="com.renesas.cdt.managedbuild.gnuarm.config.elf.release.1833451207./ra/fsp/src/rm_psa_crypto" name="rm_psa_crypto" resourcePath="ra/fsp/src/rm_psa_crypto">
+						<toolChain id="com.renesas.cdt.managedbuild.gnuarm.toolchain.elf.release.mtfs.rm_psa_crypto" name="GCC ARM Embedded" superClass="com.renesas.cdt.managedbuild.gnuarm.toolchain.elf.release" unusedChildren="">
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.mtfs.rm_psa_crypto.release" name="GNU Arm Cross C Compiler" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.2095561717">
+								<option id="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.otherwarnings.mtfs.rm_psa_crypto.release" name="Other warning flags" superClass="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.otherwarnings" useByScannerDiscovery="true" value="-Wno-stringop-overflow -Wno-format-truncation -Wno-unused-variable -Wno-unused-function" valueType="string"/>
+								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input.mtfs.rm_psa_crypto.release" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.compiler.input"/>
+							</tool>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.681722707" name="GNU Arm Cross Assembler" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler">
+								<inputType id="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input.214488347" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.assembler.input"/>
+							</tool>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.compiler.750066879" name="GNU Arm Cross C++ Compiler" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.compiler"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.c.linker.2011983260" name="GNU Arm Cross C Linker" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.c.linker"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.linker.320070726" name="GNU Arm Cross C++ Linker" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.cpp.linker"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.archiver.1017549891" name="GNU Arm Cross Archiver" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.archiver"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.createflash.1968160423" name="GNU Arm Cross Create Flash Image" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.createflash"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.createlisting.1643539372" name="GNU Arm Cross Create Listing" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.createlisting"/>
+							<tool id="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize.1248113386" name="GNU Arm Cross Print Size" superClass="ilg.gnuarmeclipse.managedbuild.cross.tool.printsize"/>
 						</toolChain>
 					</folderInfo>
 					<folderInfo id="com.renesas.cdt.managedbuild.gnuarm.config.elf.release.1833451207./ra/arm" name="arm" resourcePath="ra/arm">
@@ -564,7 +600,7 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtk3_bsp2"/>
-						<entry excluding="extensions|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/crypto|ports/ra_fsp/trustzone|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
+						<entry excluding="extensions|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/trustzone|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_framework"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_benchmarks"/>
 						<entry excluding="test_fatfs_concurrent.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_cases"/>

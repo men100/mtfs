@@ -1,15 +1,18 @@
-# RA FSP RSIP wrapped-key file
+# RA8P1 wrapped-key storage
 
-`mtfs_ra_rsip_key_file`は、FatFsでマウント済みのSDから
-`MTFSKEY.BIN`を読み、RSIP-E50D Protected Modeの
-`rsip_wrapped_key_t`として公開する薄いadapterです。
+`mtfs_ra8p1_ospi_key_store`は、EK-RA8P1 onboard 64 MiB Octo-SPI NORの末尾8 KiBを
+HUK-wrapped AES-256 fleet key専用領域として扱うtarget adapterです。
 
-- default path: `0:/MTFSKEY.BIN`
-- provider: RA RSIP-E50D
-- key type: AES-256
-- wrapped blob: 52 bytes
-- record/blob buffer: 16-byte aligned
+- OSPI memory-map base: `0x90000000`
+- slot A/B offsets: `0x03FFE000` / `0x03FFF000`
+- erase unit: 4096 bytes
+- wrapped value: 52 bytes (`rsip_aes_wrapped_key_t`)
+- record: versioned metadata + CRC32、explicit little-endian
 
-loaderはファイル形式とCRCを検査しますが、HUKによる真正性の最終判定はRSIP operationが
-行います。失敗時とunload時はrecord bufferをzeroizeし、鍵handleを返しません。
-SDの初期化、Block Device登録、FatFs mount、RSIP open/closeはapplicationの責務です。
+初回commitは既存recordを上書きしません。更新はinactive slotへ書いてreadback検証するため、
+旧slotを先に壊しません。loaderはvalidな最大generationを選びます。CRCは偶発的破損の検出であり、
+攻撃者に対するMACやanti-rollbackではありません。wrapped keyのdevice bindingと最終的な有効性は
+RSIP-E50D/PSA operationで確認します。
+
+この領域を他のOSPI用途、filesystem、全chip eraseと共有してはいけません。鍵素材を保持する
+一時bufferは`mtfs_ra8p1_ospi_key_store_zero()`で明示的にzeroizeします。

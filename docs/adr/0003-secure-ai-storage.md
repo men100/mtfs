@@ -87,13 +87,13 @@ provider APIはraw keyを返さず、key handle、AEAD operation、sign operatio
 HUK/DHUKは読出し可能な鍵として扱わない。providerがhardware key selectionまたはwrapped key
 importに使うrootであり、microT-FS APIへbyte列として現れない。
 
-EK-RA8P1のcontest profileでは、ボードごとの初回処理をtrusted環境のRFP/SKMTと専用
-provisioning firmwareで行い、52-byte HUK-wrapped `K_fleet`をSD上のversioned record
-`0:/MTFSKEY.BIN`へ保存する。通常版はrecordをaligned SRAMへloadしてRSIPへ渡し、MRAMへ
-永続鍵領域を予約しない。KUK、remote update、anti-rollbackは採用せず、SD fileを失った場合は
-trusted環境で再provisioningする。programming interfaceを維持するため、このprofileは
-production provisioningではない。詳細は
-[`../security/ek-ra8p1-sd-key-provisioning.md`](../security/ek-ra8p1-sd-key-provisioning.md)に定める。
+EK-RA8P1のcontest profileでは、ボードごとの初回処理をtrusted環境のUART/XMODEMと専用
+provisioning firmwareで行う。RSIP-E50D Compatibility ModeのInitialKeyWrap APIでraw
+`K_fleet`を52-byte HUK-wrapped keyへ変換し、board上OSPI末尾8 KiBのdual-slot recordへ保存する。
+通常版はrecordをSRAMへloadしてPSAのvolatile wrapped-key handleへimportする。KUK、RFP/SKMT、
+内部MRAM予約、remote update、anti-rollbackは採用しない。OSPI recordを失った場合はtrusted環境で
+再provisioningする。plaintext inputを許すため、このprofileはproduction provisioningではない。
+詳細は[`../security/ek-ra8p1-ospi-key-provisioning.md`](../security/ek-ra8p1-ospi-key-provisioning.md)に定める。
 
 ### 3. sealed modelはchunked AES-256-GCMとする
 

@@ -1,7 +1,7 @@
 #ifndef MTFS_RA8P1_CRYPTO_SPIKE_H
 #define MTFS_RA8P1_CRYPTO_SPIKE_H
 
-/* TEST ONLY - NOT FOR PRODUCTION. */
+/* RSIP Compatibility Mode provisioned-key validation commands. */
 
 #ifndef MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
 #define MTFS_RA8P1_CRYPTO_SPIKE_ENABLE (0)

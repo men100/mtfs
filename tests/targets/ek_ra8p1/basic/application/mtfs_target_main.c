@@ -241,8 +241,8 @@ static void target_command_console(void)
         "diag-help                 explain diagnostic commands\r\n"
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
         "crypto-info               show RSIP spike configuration and diagnostics\r\n"
-        "crypto-kat                run generated-key GCM smoke test\r\n"
-        "crypto-negative           run generated-key GCM negative smoke test\r\n"
+        "crypto-consistency        test provisioned-key GCM consistency\r\n"
+        "crypto-negative           test GCM tamper rejection and zeroization\r\n"
 #endif
         );
     mtfs_rtc_set_tmonitor_write(NULL,

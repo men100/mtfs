@@ -1,95 +1,94 @@
 # EK-RA8P1 dedicated key provisioner
 
-## 状態
+信頼できるローカル環境で、32-byteのraw AES-256 `K_fleet`をUART/XMODEM-CRCで一度だけ受信し、
+RA8P1のRSIP-E50D Compatibility Modeで直ちにHUK-wrapped keyへ変換する専用アプリです。
+変換後の52-byte blobは、EK-RA8P1上の64 MiB Octo-SPI flashへ保存します。
 
-単独import可能なe² studio project、source実装、target非依存のSD record/FatFs層は完成している。
-FSP 6.5.0／Arm GCC 13.2.1のDebug clean buildは0 errors、0 warningsで完了した。
-RFP/SKMTがこのPCへ未導入であり、RA8P1 RSIP-E50D Protected ModeのAES-256 `.rkey`生成・
-boot interface注入、実際の注入address、実機起動とprovisioningは未完了である。
+これはコンテスト用の運用です。正規firmware、接続PC、作業場所を信頼し、remote provisioning、
+operator認証、debug lock、anti-rollback、lifecycle管理は対象外とします。raw keyを通常版firmware、
+SDカード、repository、ログへ保存しません。
 
-`application/mtfs_target_main.c`は通常版test runnerへ組み込まない。専用e² studio projectは
-`tests/targets/ek_ra8p1/basic/configuration.xml`と同じSCI_B SPI、PMOD2 pin、RSIP-E50D
-Protected Mode構成を基にし、test case、benchmark、RTC consoleはリンクしない。現在のFSP
-configurationには検証済みbasic構成を安全に再利用するため、appがopenしないRTCとcard-detect
-instanceも残している。
+## 保存領域
 
-専用projectで直接使用するmicroT-FS側の主要sourceは次のとおり。
+OSPIは`0x90000000`にmemory-mapされます。末尾8 KiBを鍵専用として予約します。
 
-- `application/mtfs_target_main.c`
-- `src/block/mtfs_block_device.c`、`src/block/mtfs_block_registry.c`、`src/block/mtfs_block_diagnostics.c`
-- `src/fatfs/ff.c`、`src/fatfs/mtfs_diskio.c`
-- `src/extensions/security/wrapped_key/mtfs_wrapped_key_record.c`
-- `src/extensions/security/wrapped_key/mtfs_wrapped_key_fatfs.c`
-- `src/ports/ra_fsp/crypto/mtfs_ra_rsip_key_file.c`
-- `src/ports/ra_fsp/sd_spi/`のRA SD SPI port
-- microT-Kernel用FatFs mutex adapter、EK-RA8P1のvector cache/T-Monitor workaround
+- slot A: offset `0x03FFE000`、address `0x93FFE000`
+- slot B: offset `0x03FFF000`、address `0x93FFF000`
+- sector size: 4096 bytes
+- record: magic、format version、generation、key ID/version、52-byte wrapped key、CRC32
+- program: 84-byte logical recordを88 bytesへpaddingし、64 + 24 bytesでpage write
 
-既存basic applicationをprovisionerとして配布せず、project名とELF名にも`key_provision`を含める。
+初回はslot Aへ書きます。更新時はinactive slotをerase/write/readback検証してから新generationを
+採用するため、途中で電源断しても以前のvalid slotを残します。通常アプリを含め、他の用途が
+この末尾8 KiBを消去または書換えてはいけません。失った場合は同じボードを再provisioningできます。
+blobを別のRA8P1へコピーしても、そのMCUのHUKでは利用できません。
 
-## Importと安全なbuild
+## Importとbuild
 
 1. e² studioで **File > Import > General > Existing Projects into Workspace** を選ぶ。
-2. この`apps/key-provision/targets/ek_ra8p1` directoryを指定する。
-3. project名が`mtfs_ek_ra8p1_key_provision`であることを確認する。
-4. `configuration.xml`を開き、FSP 6.5.0を選んで **Generate Project Content** を実行する。
-5. Debugをclean buildする。
+2. このdirectoryを指定し、project名`mtfs_ek_ra8p1_key_provision`を確認する。
+3. `configuration.xml`を開き、FSP 6.5.0で **Generate Project Content** を実行する。
+4. Debugをclean buildする。
+5. `Debug/mtfs_ek_ra8p1_key_provision.srec`または`.elf`をボードへ書く。
 
-既定の`MTFS_RA8P1_PROVISION_KEY_ADDRESS=0`を変更せずbuildする。生成物は
-`Debug/mtfs_ek_ra8p1_key_provision.elf`と`.srec`である。確認済みDebug sizeは
-text 145,424 bytes、data 0 bytes、BSS 14,173 bytesである。
+構成はRSIP-E50D Compatibility Mode、Arm PSA Crypto、key injection、OSPI_Bを使用します。
+RFP、SKMT、UFPK/W-UFPK、`.rkey`、MRAM予約は不要です。PSA Cryptoがwrapped-key importと
+GCM検証で動的memoryを使うため、BSP heapは`0x3000`（12 KiB）です。`0x200`では
+`PSA_ERROR_INSUFFICIENT_MEMORY`（`-141`）になりました。2026-08-20時点のDebug buildは
+Arm GCC 13.2.1で成功し、sizeはtext 221,720 bytes、data 88 bytes、BSS 33,549 bytesでした。
+FSP 6.5.0の`ra/fsp/src/rm_psa_crypto`だけ既知のunused-variable/function warningを局所抑制し、
+applicationを含むそれ以外のsourceでは`-Wall`を維持しています。clean buildはwarning/errorなしです。
 
-この既定imageは起動確認用である。`info`と`help`は使用できるが、`verify-injected`は
-address未設定としてBLOCKEDになる。`provision-sd`も同じ検査でSDをopenする前に停止する。
-`verify-sd`だけは既存fileの読取りを試すため、カードへアクセスする。
+## raw key file
 
-## 必須build定義
-
-RFP projectで確定した実際の注入addressを、Cとassemblerの両方へ設定する。
-addressを推測してはならない。未設定のimageはbuildできるが、注入鍵を読む全commandを
-BLOCKEDにする。
-
-```text
-MTFS_RA8P1_PROVISION_KEY_ADDRESS=0x........
-MTFS_RA8P1_PROVISION_KEY_ID=1
-MTFS_RA8P1_PROVISION_KEY_VERSION=1
-MTFS_FF_FS_REENTRANT=1
-MTFS_FATFS_MUTEX_ADAPTER=2
-MTFS_FF_FS_NORTC=1
-```
-
-注入領域はこの専用imageと重ならないMRAM範囲に限定する。通常版microT-FSではこの領域を
-予約しない。SDへの保存と検証が終わった後、通常版を書き込むことで一時copyが消えてもよい。
+送信ファイルはヘッダーや改行を含まない正確に32 bytesのbinaryです。HostのCSPRNGで生成し、
+画面やshell historyへhex表示しないでください。アクセス制限した一時ファイルとして扱い、
+必要な全ボードのprovisioningが終わったらHost側の正式なkey vault方針に従って保管または破棄します。
 
 ## Console
 
 ```text
 info
-verify-injected
-verify-sd
-provision-sd
+verify-ospi
+provision-xmodem
+update-xmodem
 help
 ```
 
-`provision-sd`は次の順序で動く。
+初回手順は次のとおりです。
 
-1. 注入addressが設定され、16-byte alignedで、52-byte blobがerased patternでないことを確認
-2. 注入blobを使ったAES-256-GCM positive/negative test
-3. 既存`MTFSKEY.BIN`と`MTFSKEY.TMP`がないことを確認
-4. `MTFSKEY.TMP`へ100% writeし、`f_sync()`、close、readback、CRC検証
-5. `MTFSKEY.BIN`へrename
-6. SDから再loadしたblobを使って同じRSIP test
+1. `verify-ospi`で`not-found`を確認する。
+2. `provision-xmodem`を実行する。
+3. `XMODEM-CRC ready`表示後、60秒以内に端末ソフトから32-byte binaryをXMODEM-CRCで送信する。
+   受信側は送信開始を示す`SOH`または`STX`が届くまで1秒ごとに`C`（CRC request）を再送する。
+   128-byte blockと、CoolTermが使用することがあるXMODEM-1Kの1024-byte blockの両方を受け付ける。
+4. アプリはraw keyをRAMで受信し、`R_RSIP_AES256_InitialKeyWrap()`でHUK-wrapして直ちにzeroizeする。
+5. wrapped keyをvolatile PSA handleへimportし、AES-256-GCMの正例と改変tag拒否を確認する。
+6. OSPIへcommitし、readbackしたblobでも同じ暗号試験を行う。
+7. `OSPI provision PASS`と`OSPI verify PASS`を確認する。
 
-途中で失敗したtemporary fileは自動削除しない。カードをPCで調査し、必要なら明示的に
-削除してから再試行する。`MTFSKEY.BIN`が存在する場合も上書きせず停止する。
+PSA検証に失敗した場合は、ログの`stage=import`、`encrypt`、`decrypt`、`negative`と
+`psa=...`で失敗箇所を確認できます。
 
-## RFP/SKMT preflight gate
+FSP 6.5.0の`gcm_alt_process.c`はRSIPの`FSP_ERR_CRYPTO_SCE_AUTHENTICATION`を
+`MBEDTLS_ERR_PLATFORM_HW_ACCEL_FAILED`へ一律変換するため、改変tag拒否はPSA標準の
+`PSA_ERROR_INVALID_SIGNATURE`（`-149`）ではなく`PSA_ERROR_HARDWARE_FAILURE`（`-147`）に
+なります。本実装は、直前の正例decryptが成功した後の意図的なnegative stepに限って
+`-147`を認証拒否として受理し、通常の暗号処理で発生した`-147`は失敗のまま扱います。
 
-実行前に、導入したRFP/SKMTで以下を確認する。
+既存recordがある場合、`provision-xmodem`は上書きしません。鍵更新を意図するときだけ
+`update-xmodem`を使用し、key versionとgenerationが増えたことを確認します。
+更新後は旧`K_fleet`でsealしたmodel packageを復号できないため、新しいfleet keyでmodelを
+再sealしてSDを入れ替えてください。dual slotの旧recordは電源断復旧用であり、通常loaderから
+旧keyを選択するrotation機能ではありません。
 
-- targetがRA8P1 / RSIP-E50D Protected Modeである
-- initial AES-256 user keyの`.rkey`生成とboot interface注入が選択可能である
-- RFP verifyが成功し、注入後の52 bytesをapplicationからwrapped keyとして利用できる
-- programming interfaceとOEM lifecycleをcontestの再provision方針に合う状態で維持する
+プロビジョニング後は通常版`tests/targets/ek_ra8p1/basic`を書き込み、完全電源断後に次を実行します。
 
-このgateが通るまで、アドレスを定義して実機で`verify-injected`または`provision-sd`を
-実行してはならない。
+```text
+crypto-info
+crypto-consistency
+crypto-negative
+```
+
+`crypto-consistency`はprovisioned keyによるGCM一貫性試験で、公開された固定ciphertextとの厳密な
+NIST KATではありません。`crypto-negative`はtag/ciphertext改ざんの拒否と出力zeroizeを検証します。

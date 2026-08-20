@@ -72,16 +72,15 @@ domain separationは構造で強制する。各鍵は別用途のoperationでは
 2. userは`key_id=1`、`key_version=1`を割り当てる。v1が扱うactive keyは1個だけとする。
 3. provisioningではtargetを認証し、`K_fleet`をdevice固有のprovider blobへ変換する。
    - RA production経路では、Renesas UFPK/W-UFPK secure injectionとRSIP-E50D protected key形式を
-     優先する。EK-RA8P1 contest profileでは、信頼できる場所でRFP/SKMTを使って初期鍵を注入し、
-     専用provisioning appだけがHUK-wrapped blobをSDへcopyする。raw鍵を通常版firmwareやSDへ置かない。
-     開発専用のplaintext injection経路でFSP InitialKeyWrap APIを呼ぶ構成は、trusted provisioning
-     RAMへ入力鍵が現れるため、production profileからcompile outする。
+     優先する。EK-RA8P1 contest profileでは、信頼できる場所で専用appへraw keyをUART転送し、
+     Compatibility ModeのFSP InitialKeyWrap APIでHUK-wrapped blobへ変換する。raw鍵を通常版firmwareや
+     SDへ置かない。この経路ではtrusted provisioning RAMへ入力鍵が現れるためproduction profileではない。
    - STM32開発経路では、device上のSAESが入力鍵をDHUKでwrapする。production provisioningと
      lifecycle/HDPL policyは製品ごとの判断とし、Phase 4.0ではOTP programmingもlifecycle変更も行わない。
 4. provider blob、algorithm/version、非secretのchecksumをtarget管理下のnonvolatile storageへ保存する。
-   RA8P1の選択デバイスにはData Flashがない。EK-RA8P1 contest profileでは、可用性、rollback、媒体交換を
-   threat model外とする明示的なtrade-offにより、removable SDを唯一のblob保存先として採用する。
-   SDの紛失・破損時は同じボードを再provisioningする。production profileではremovable SDだけに依存せず、
+   RA8P1の選択デバイスにはData Flashがない。EK-RA8P1 contest profileでは、board上の64 MiB OSPI
+   flash末尾8 KiBをdual-slot blob保存領域として予約する。OSPIの消去・破損時は同じボードを
+   再provisioningする。production profileではこのcontest予約だけに依存せず、
    lifecycle、更新認証、anti-rollbackを含め、予約済み内部領域、board上のexternal NVM、secure element等を
    製品要件に合わせて選ぶ。STM32N657ではDHUKで保護したblobをboard上のexternal flash等へ保存する候補がある。
 5. boot時または利用時にproviderがblob構造を検証し、opaqueな`K_fleet` handleをopenする。
@@ -473,8 +472,8 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 
 ### Provisioning支援
 
-- RA adapterはRenesas SKMT/RFP secure injectionが要求するinputを準備するか、開発用であることを
-  明記したUART injection flowを提供する。irreversible programmingは自動実行しない。
+- RA contest adapterは開発用であることを明記したUART/XMODEM injection flowを提供する。
+  production adapterでは必要に応じてRenesas secure injectionを選び、irreversible programmingを自動実行しない。
 - STM32 adapterは認証済みdevelopment commandを送るか、device固有のwrapping requestを構築する。
   targetなしでHostがDHUK-wrapped blobを生成できるとは仮定しない。
 - provisioning transcriptにはdevice ID、public metadata、statusだけを記録し、raw key byteは含めない。
@@ -483,10 +482,10 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 
 | capability | Host | EK-RA8P1 / RSIP-E50D | STM32N657 / SAES | 状態 |
 |---|---|---|---|---|
-| AES-256-GCM、16-byte tag | standard library | FSP protected modeはGCM 128/192/256対応 | SAESはGCM 128/256対応 | 文書確認済み |
-| multi-shot AEAD | library依存、必須 | FSP Init/AADUpdate/Update/Verifyは文書化済み | HAL sequenceの検証が必要 | RA可、ST spike待ち |
+| AES-256-GCM、16-byte tag | standard library | Compatibility + PSA hardware acceleration | SAESはGCM 128/256対応 | RA build済み、実機待ち |
+| multi-shot AEAD | library依存、必須 | PSA multipartは後続integrationで検証 | HAL sequenceの検証が必要 | target spike待ち |
 | applicationからのHUK/DHUK読出し | 該当なし | 不可。hardware wrapping rootとして使用 | 不可。SAES内部のderived key | 設計上禁止 |
-| device-bound `K_fleet` blob | test時だけemulate | RSIP wrapped key、256-bit HUK | DHUKを使うSAES wrapped-key mode | 文書確認済み、統合spike待ち |
+| device-bound `K_fleet` blob | test時だけemulate | Compatibility InitialKeyWrap + OSPI record | DHUKを使うSAES wrapped-key mode | RA build済み、実機待ち |
 | envelopeからopaque `K_model`への変換 | software handle | 復号直後のInitialKeyWrap/importが候補 | 復号直後のSAES wrap/importが候補 | 両targetでspike待ち |
 | tag失敗時cleanup | 決定的test | Verify error + middleware scratch zeroization | HAL error + middleware scratch zeroization | target spike待ち |
 | device evidence署名 | software test key | wrapped ECC/Ed25519 capability | PKA + SAES/CCBが候補 | 後続evidence spike |
@@ -546,12 +545,11 @@ firmwareを含むthreat model、version付きpointer-validation ABI、dual-image
 - [RA8P1 memory architecture application note](https://www.renesas.com/en/document/apn/getting-started-ra8p1-memory-architecture-configurations-and-topologies)
 - [RA8 MCUでのEthos-U NPU利用](https://www.renesas.com/en/document/apn/using-ethos-u-npu-ra8-mcus)
 
-FSP資料で、RSIP-E50D protected modeのAES-GCMとmulti-shot AEAD APIを確認した。key-injection APIは
-provider wrapped keyを出力し、AES-256に対応する。Renesas資料には256-bit HUK wrapping rootが記載され、
-copyしたwrapped keyを別MCUでは利用できないことが示されている。production provisioningでは
-開発用plaintext経路ではなく、UFPK/W-UFPK flowに従う。EK-RA8P1 contest profileの具体的な境界と
-未完了のRFP/SKMT gateは
-[`ek-ra8p1-sd-key-provisioning.md`](ek-ra8p1-sd-key-provisioning.md)に記録する。
+FSP資料とFSP 6.5.0 sampleで、Compatibility ModeのInitialKeyWrap、PSA wrapped-key import、
+AES-256-GCM経路を確認した。Renesas資料には256-bit HUK wrapping rootが記載され、copyしたwrapped keyを
+別MCUでは利用できないことが示されている。production provisioningでは開発用plaintext経路ではなく、
+UFPK/W-UFPK flowを検討する。EK-RA8P1 contest profileの境界と未完了の実機gateは
+[`ek-ra8p1-ospi-key-provisioning.md`](ek-ra8p1-ospi-key-provisioning.md)に記録する。
 
 ### STMicroelectronics
 

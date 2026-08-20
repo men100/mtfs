@@ -22,6 +22,22 @@
     ((UINT32_C(1) << 28) | (UINT32_C(1) << 27) | (UINT32_C(1) << 24))
 
 EXPORT void __wrap_tm_rcv_dat(UB *buffer, INT size);
+EXPORT INT mtfs_ra8p1_tm_try_getchar(void);
+
+/* Return one received byte, or -1 when no byte is currently available. */
+EXPORT INT mtfs_ra8p1_tm_try_getchar(void)
+{
+    UW status = in_w(MTFS_RA8P1_SCI8_CSR);
+
+    if ((status & MTFS_RA8P1_CSR_RDRF) != 0U) {
+        return (INT)in_b(MTFS_RA8P1_SCI8_RDR);
+    }
+    if ((status & MTFS_RA8P1_CSR_ERR) != 0U) {
+        out_w(MTFS_RA8P1_SCI8_CFCLR,
+            status & MTFS_RA8P1_CSR_ERR);
+    }
+    return -1;
+}
 
 EXPORT void __wrap_tm_rcv_dat(UB *buffer, INT size)
 {

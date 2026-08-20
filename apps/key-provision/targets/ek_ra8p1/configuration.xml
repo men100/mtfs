@@ -283,8 +283,8 @@
       <property id="config.bsp.option_setting_otp.zhuk.zhuken3" value="config.bsp.option_setting_otp.zhuk.zhuken3.disabled"/>
     </config>
     <config id="config.bsp.ra">
-      <property id="config.bsp.common.main" value="0x400"/>
-      <property id="config.bsp.common.heap" value="0"/>
+      <property id="config.bsp.common.main" value="0x1000"/>
+      <property id="config.bsp.common.heap" value="0x3000"/>
       <property id="config.bsp.common.bootloader.xip_enable" value="config.bsp.common.bootloader.xip_enable.disabled"/>
       <property id="config.bsp.common.vcc" value="3300"/>
       <property id="config.bsp.common.checking" value="config.bsp.common.checking.disabled"/>
@@ -322,7 +322,7 @@
     <node id="board.clock.pll2.display" option="board.clock.pll2.display.value"/>
     <node id="board.clock.pll2p.div" option="board.clock.pll2p.div.4"/>
     <node id="board.clock.pll2p.display" option="board.clock.pll2p.display.value"/>
-    <node id="board.clock.pll2q.div" option="board.clock.pll2q.div.3"/>
+    <node id="board.clock.pll2q.div" option="board.clock.pll2q.div.9"/>
     <node id="board.clock.pll2q.display" option="board.clock.pll2q.display.value"/>
     <node id="board.clock.pll2r.div" option="board.clock.pll2r.div.5"/>
     <node id="board.clock.pll2r.display" option="board.clock.pll2r.display.value"/>
@@ -388,8 +388,8 @@
     <node id="board.clock.u60ck.source" option="board.clock.u60ck.source.pll2r"/>
     <node id="board.clock.u60ck.div" option="board.clock.u60ck.div.8"/>
     <node id="board.clock.u60ck.display" option="board.clock.u60ck.display.value"/>
-    <node id="board.clock.octaspiclk.source" option="board.clock.octaspiclk.source.pll1q"/>
-    <node id="board.clock.octaspiclk.div" option="board.clock.octaspiclk.div.1"/>
+    <node id="board.clock.octaspiclk.source" option="board.clock.octaspiclk.source.pll2q"/>
+    <node id="board.clock.octaspiclk.div" option="board.clock.octaspiclk.div.3"/>
     <node id="board.clock.octaspiclk.display" option="board.clock.octaspiclk.display.value"/>
     <node id="board.clock.octaspiclk.om_sclk.display" option="board.clock.octaspiclk.om_sclk.display.value"/>
     <node id="board.clock.adcclk.source" option="board.clock.adcclk.source.pll2r"/>
@@ -466,8 +466,24 @@
       <description>Realtime Clock</description>
       <originalPack>Renesas.RA.6.5.0.pack</originalPack>
     </component>
-    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_rsip_e50d_protected" variant="" vendor="Renesas" version="6.5.0">
-      <description>Renesas Secure IP (RSIP-E50D) Protected Mode</description>
+    <component apiversion="" class="PSA" condition="" group="Crypto" subgroup="mbedCrypto" variant="" vendor="Arm" version="3.6.6+renesas.0.fsp.6.5.0">
+      <description>Arm PSA Crypto Implementation</description>
+      <originalPack>Arm.MbedCrypto.3.6.6+renesas.0.fsp.6.5.0.pack</originalPack>
+    </component>
+    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_ospi_b" variant="" vendor="Renesas" version="6.5.0">
+      <description>Octa Serial Peripheral Interface Flash</description>
+      <originalPack>Renesas.RA.6.5.0.pack</originalPack>
+    </component>
+    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_rsip_e50d_key_injection" variant="" vendor="Renesas" version="6.5.0">
+      <description>Renesas Security IP on RA8 (RSIP-E50D) Key Injection</description>
+      <originalPack>Renesas.RA.6.5.0.pack</originalPack>
+    </component>
+    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_rsip_e50d_ra8_plaintext" variant="" vendor="Renesas" version="6.5.0">
+      <description>Secure Cryptography Engine on RA8 (RSIP-E50D) Compatibility Mode</description>
+      <originalPack>Renesas.RA.6.5.0.pack</originalPack>
+    </component>
+    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="rm_psa_crypto" variant="" vendor="Renesas" version="6.5.0">
+      <description>MbedCrypto H/W Acceleration</description>
       <originalPack>Renesas.RA.6.5.0.pack</originalPack>
     </component>
   </raComponentSelection>
@@ -1286,8 +1302,49 @@
       <property id="module.driver.rtc.periodic_ipl" value="_disabled"/>
       <property id="module.driver.rtc.carry_ipl" value="board.icu.common.irq.priority12"/>
     </module>
-    <module id="module.driver.rsip_e50d_protected.410000001">
-      <property id="module.driver.rsip_protected.name" value="g_rsip"/>
+    <module id="module.driver.psa_crypto.1164453105"/>
+    <module id="module.driver.rm_psa_crypto.2078813637"/>
+    <module id="module.driver.rsip_e50d.plaintext.784804638"/>
+    <module id="module.driver.rsip_e50d_key_injection.1856649716">
+      <property id="module.driver.rsip_e50d_key_injection.name" value="g_rsip_e50d_key_install"/>
+    </module>
+    <module id="module.driver.ospi_on_ospi_b.2130627991">
+      <property id="module.driver.ospi_b.name" value="g_ospi0"/>
+      <property id="module.driver.ospi_b.unit" value="module.driver.ospi_b.unit.0"/>
+      <property id="module.driver.ospi_b.channel" value="module.driver.ospi_b.channel.1"/>
+      <property id="module.driver.ospi_b.write_status_bit" value="module.driver.ospi_b.bit_index.0"/>
+      <property id="module.driver.ospi_b.write_enable_bit" value="module.driver.ospi_b.bit_index.1"/>
+      <property id="module.driver.ospi_b.auto_callibration_address" value="0"/>
+      <property id="module.driver.ospi_b.command_set_table" value=""/>
+      <property id="module.driver.ospi_b.command_set_table_length" value="0"/>
+      <property id="module.driver.ospi_b.sector_erase_size" value="4096"/>
+      <property id="module.driver.ospi_b.block_erase_size" value="65536"/>
+      <property id="module.driver.ospi_b.spi_protocol" value="module.driver.ospi_b.protocol_mode.protocol_1S_1S_1S"/>
+      <property id="module.driver.ospi_b.cmd_set.initial.frame_format" value="module.driver.ospi_b.frame_format.standard"/>
+      <property id="module.driver.ospi_b.cmd_set.initial.latency_mode" value="module.driver.ospi_b.latency_mode.fixed"/>
+      <property id="module.driver.ospi_b.address_bytes" value="module.driver.ospi_b.address_bytes.address_bytes_4"/>
+      <property id="module.driver.ospi_b.cmd_set.initial.address_msb_mask" value="0xF0"/>
+      <property id="module.driver.ospi_b.command_bytes" value="module.driver.ospi_b.command_bytes.1"/>
+      <property id="module.driver.ospi_b.cmd_set.initial.status_address_bytes" value="module.driver.ospi_b.address_bytes.none"/>
+      <property id="module.driver.ospi_b.cmd_set.initial.status_address" value="0"/>
+      <property id="module.driver.ospi_b.spi_read_command" value="0x0C"/>
+      <property id="module.driver.ospi_b.default_mem_read_dummy_cycles" value="8"/>
+      <property id="module.driver.ospi_b.spi_page_program_command" value="0x12"/>
+      <property id="module.driver.ospi_b.cmd_set.initial.program.dummy_cycles" value="0"/>
+      <property id="module.driver.ospi_b.spi_write_enable_command" value="0x06"/>
+      <property id="module.driver.ospi_b.spi_status_command" value="0x05"/>
+      <property id="module.driver.ospi_b.default_status_read_dummy_cycles" value="0"/>
+      <property id="module.driver.ospi_b.sector_erase_command" value="0x21"/>
+      <property id="module.driver.ospi_b.block_erase_command" value="0xDC"/>
+      <property id="module.driver.ospi_b.chip_erase_command" value="0x60"/>
+      <property id="module.driver.ospi_b.high_speed_protocol" value="module.driver.ospi_b.protocol_mode.protocol_8D_8D_8D"/>
+      <property id="module.driver.ospi_b.command_interval_clocks" value="module.driver.ospi_b.command_interval_clocks.clocks_2"/>
+      <property id="module.driver.ospi_b.pull_up_timing" value="module.driver.ospi_b.pull_up_timing.clocks_5"/>
+      <property id="module.driver.ospi_b.pull_down_timing" value="module.driver.ospi_b.pull_down_timing.clocks_3"/>
+      <property id="module.driver.ospi_b.data_latch_delay_setting" value="module.driver.ospi_b.ds_timing.delay.none"/>
+      <property id="module.driver.ospi_b.sdr_timing.drive_timing" value="module.driver.ospi_b.sdr_timing.drive_timing.before_ck_rising"/>
+      <property id="module.driver.ospi_b.sdr_timing.ck_sampling_edge" value="module.driver.ospi_b.sdr_timing.ck_sampling_edge.falling"/>
+      <property id="module.driver.ospi_b.sdr_timing.sampling_delay" value="module.driver.ospi_b.sdr_timing.sampling_delay.none"/>
     </module>
     <context id="_hal.0">
       <stack module="module.driver.ioport_on_ioport.0"/>
@@ -1296,7 +1353,14 @@
       <stack module="module.driver.spi_on_sci_b_spi.111267621"/>
       <stack module="module.driver.external_irq_on_icu.320409006"/>
       <stack module="module.driver.rtc_on_rtc.330300001"/>
-      <stack module="module.driver.rsip_e50d_protected.410000001"/>
+      <stack module="module.driver.psa_crypto.1164453105">
+        <stack module="module.driver.rm_psa_crypto.2078813637" requires="module.driver.rm_psa_crypto">
+          <stack module="module.driver.rsip_e50d.plaintext.784804638" requires="module.driver.rm_psa_crypto.requires.sce">
+            <stack module="module.driver.rsip_e50d_key_injection.1856649716" requires="module.driver.sce.requires.rsip_e50d_key_injection"/>
+          </stack>
+        </stack>
+      </stack>
+      <stack module="module.driver.ospi_on_ospi_b.2130627991"/>
     </context>
     <config id="config.driver.iic_master">
       <property id="config.driver.iic_master.param_checking_enable" value="config.driver.iic_master.param_checking_enable.bsp"/>
@@ -1311,53 +1375,32 @@
     <config id="config.driver.icu">
       <property id="config.driver.icu.param_checking_enable" value="config.driver.icu.param_checking_enable.bsp"/>
     </config>
-    <config id="config.driver.rsip_e50d">
-      <property id="config.driver.rsip_e50d.param_checking_enable" value="config.driver.rsip_e50d.param_checking_enable.bsp"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes128" value="config.driver.rsip_e50d.algorithms_enable.aes128.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes192" value="config.driver.rsip_e50d.algorithms_enable.aes192.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes256" value="config.driver.rsip_e50d.algorithms_enable.aes256.enabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes_ecb_cbc_ctr" value="config.driver.rsip_e50d.algorithms_enable.aes_ecb_cbc_ctr.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes128xts" value="config.driver.rsip_e50d.algorithms_enable.aes128xts.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes256xts" value="config.driver.rsip_e50d.algorithms_enable.aes256xts.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes_xts" value="config.driver.rsip_e50d.algorithms_enable.aes_xts.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes_gcm" value="config.driver.rsip_e50d.algorithms_enable.aes_gcm.enabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes_ccm" value="config.driver.rsip_e50d.algorithms_enable.aes_ccm.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.aes_cmac" value="config.driver.rsip_e50d.algorithms_enable.aes_cmac.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.chacha20" value="config.driver.rsip_e50d.algorithms_enable.chacha20.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.chacha20_poly1305" value="config.driver.rsip_e50d.algorithms_enable.chacha20_poly1305.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.secp256r1" value="config.driver.rsip_e50d.algorithms_enable.secp256r1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.secp384r1" value="config.driver.rsip_e50d.algorithms_enable.secp384r1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.secp521r1" value="config.driver.rsip_e50d.algorithms_enable.secp521r1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.secp256k1" value="config.driver.rsip_e50d.algorithms_enable.secp256k1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.brainpoolp256r1" value="config.driver.rsip_e50d.algorithms_enable.brainpoolp256r1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.brainpoolp384r1" value="config.driver.rsip_e50d.algorithms_enable.brainpoolp384r1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.brainpoolp512r1" value="config.driver.rsip_e50d.algorithms_enable.brainpoolp512r1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.edwards25519" value="config.driver.rsip_e50d.algorithms_enable.edwards25519.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.rsa2048" value="config.driver.rsip_e50d.algorithms_enable.rsa2048.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.rsa3072" value="config.driver.rsip_e50d.algorithms_enable.rsa3072.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.rsa4096" value="config.driver.rsip_e50d.algorithms_enable.rsa4096.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha1" value="config.driver.rsip_e50d.algorithms_enable.sha1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha224" value="config.driver.rsip_e50d.algorithms_enable.sha224.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha256" value="config.driver.rsip_e50d.algorithms_enable.sha256.enabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha384" value="config.driver.rsip_e50d.algorithms_enable.sha384.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha512" value="config.driver.rsip_e50d.algorithms_enable.sha512.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha512_224" value="config.driver.rsip_e50d.algorithms_enable.sha512_224.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha512_256" value="config.driver.rsip_e50d.algorithms_enable.sha512_256.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha3_224" value="config.driver.rsip_e50d.algorithms_enable.sha3_224.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha3_256" value="config.driver.rsip_e50d.algorithms_enable.sha3_256.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha3_384" value="config.driver.rsip_e50d.algorithms_enable.sha3_384.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.sha3_512" value="config.driver.rsip_e50d.algorithms_enable.sha3_512.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha1" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha1.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha224" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha224.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha256" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha256.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha384" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha384.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha512" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha512.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha512_224" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha512_224.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha512_256" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha512_256.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_224" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_224.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_256" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_256.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_384" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_384.disabled"/>
-      <property id="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_512" value="config.driver.rsip_e50d.algorithms_enable.hmac_sha3_512.disabled"/>
+    <config id="config.driver.psa_crypto">
+      <property id="config.driver.psa_crypto.mbedtls_entropy_hardware_alt" value="config.driver.psa_crypto.mbedtls_entropy_hardware_alt.enabled"/>
+      <property id="config.driver.psa_crypto.aes_format" value="config.driver.psa_crypto.aes_format.vendor_plaintext_wrapped"/>
+      <property id="config.driver.psa_crypto.aes_alt" value="config.driver.psa_crypto.aes_alt.enabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_platform_setup_teardown_alt" value="config.driver.psa_crypto.mbedtls_platform_setup_teardown_alt.enabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_gcm_alt" value="config.driver.psa_crypto.aes_gcm_alt.enabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_gcm_c" value="config.driver.psa_crypto.mbedtls_gcm_c.enabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_threading_alt" value="config.driver.psa_crypto.mbedtls_threading_alt.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_threading_c" value="config.driver.psa_crypto.mbedtls_threading_c.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_platform_memory" value="config.driver.psa_crypto.mbedtls_platform_memory.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_ecp_c" value="config.driver.psa_crypto.mbedtls_ecp_c.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_ecdsa_c" value="config.driver.psa_crypto.mbedtls_ecdsa_c.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_rsa_c" value="config.driver.psa_crypto.mbedtls_rsa_c.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_pk_c" value="config.driver.psa_crypto.mbedtls_pk_c.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_pk_parse_c" value="config.driver.psa_crypto.mbedtls_pk_parse_c.disabled"/>
+      <property id="config.driver.psa_crypto.mbedtls_pk_write_c" value="config.driver.psa_crypto.mbedtls_pk_write_c.disabled"/>
+    </config>
+    <config id="config.driver.ospi_b">
+      <property id="config.driver.ospi_b.param_checking_enable" value="config.driver.ospi_b.param_checking_enable.bsp"/>
+      <property id="config.driver.ospi_b.dmac_support" value="config.driver.ospi_b.dmac_support.disabled"/>
+      <property id="config.driver.ospi_b.autocalibration_support" value="config.driver.ospi_b.autocalibration_support.disabled"/>
+      <property id="config.driver.ospi_b.prefetch_function" value="config.driver.ospi_b.prefetch_function.enabled"/>
+      <property id="config.driver.ospi_b.combination_function" value="config.driver.ospi_b.combination_function.64_BYTE"/>
+      <property id="config.driver.ospi_b.xip_support" value="config.driver.ospi_b.xip_support.disabled"/>
+      <property id="config.driver.ospi_b.dotf_support" value="config.driver.ospi_b.dotf_support.disabled"/>
+      <property id="config.driver.ospi_b.row_addressing_support" value="config.driver.ospi_b.row_addressing_support.disabled"/>
     </config>
     <config id="config.driver.ioport">
       <property id="config.driver.ioport.checking" value="config.driver.ioport.checking.system"/>
