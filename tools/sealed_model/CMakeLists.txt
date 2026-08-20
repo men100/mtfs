@@ -36,6 +36,10 @@ foreach(tool IN ITEMS keygen seal verify unseal)
     mtfs_sealed_set_warnings(mtfs-${tool})
 endforeach()
 
+add_executable(mtfs-kat-package src/mtfs_kat_package.cpp)
+target_link_libraries(mtfs-kat-package PRIVATE mtfs_sealed_host)
+mtfs_sealed_set_warnings(mtfs-kat-package)
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(mtfs_sealed_tests tests/test_sealed_model.cpp)

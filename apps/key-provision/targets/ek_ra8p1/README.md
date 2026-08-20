@@ -88,7 +88,10 @@ FSP 6.5.0の`gcm_alt_process.c`はRSIPの`FSP_ERR_CRYPTO_SCE_AUTHENTICATION`を
 crypto-info
 crypto-consistency
 crypto-negative
+crypto-kat
 ```
 
-`crypto-consistency`はprovisioned keyによるGCM一貫性試験で、公開された固定ciphertextとの厳密な
-NIST KATではありません。`crypto-negative`はtag/ciphertext改ざんの拒否と出力zeroizeを検証します。
+`crypto-consistency`はprovisioned keyによるGCM一貫性試験です。`crypto-kat`と`crypto-negative`は、
+同じHost `fleet.key`から生成してSD rootへ置いた`MTFSKAT.MTF`を使い、package既知解と改ざん拒否を
+検証します。公開テスト鍵への更新や試験後の鍵復元は不要です。生成手順は
+[`ek-ra8p1-phase-4.1b-ra2.md`](../../../../docs/security/ek-ra8p1-phase-4.1b-ra2.md)を参照してください。

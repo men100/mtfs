@@ -482,12 +482,12 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 
 | capability | Host | EK-RA8P1 / RSIP-E50D | STM32N657 / SAES | 状態 |
 |---|---|---|---|---|
-| AES-256-GCM、16-byte tag | standard library | Compatibility + PSA hardware acceleration | SAESはGCM 128/256対応 | RA build済み、実機待ち |
+| AES-256-GCM、16-byte tag | standard library | Compatibility + PSA hardware acceleration | SAESはGCM 128/256対応 | RA実機PASS、ST待ち |
 | multi-shot AEAD | library依存、必須 | PSA multipartは後続integrationで検証 | HAL sequenceの検証が必要 | target spike待ち |
 | applicationからのHUK/DHUK読出し | 該当なし | 不可。hardware wrapping rootとして使用 | 不可。SAES内部のderived key | 設計上禁止 |
-| device-bound `K_fleet` blob | test時だけemulate | Compatibility InitialKeyWrap + OSPI record | DHUKを使うSAES wrapped-key mode | RA build済み、実機待ち |
-| envelopeからopaque `K_model`への変換 | software handle | 復号直後のInitialKeyWrap/importが候補 | 復号直後のSAES wrap/importが候補 | 両targetでspike待ち |
-| tag失敗時cleanup | 決定的test | Verify error + middleware scratch zeroization | HAL error + middleware scratch zeroization | target spike待ち |
+| device-bound `K_fleet` blob | test時だけemulate | Compatibility InitialKeyWrap + OSPI record | DHUKを使うSAES wrapped-key mode | RA実機PASS、ST待ち |
+| envelopeからopaque `K_model`への変換 | software handle | 復号直後にInitialKeyWrap/import | 復号直後のSAES wrap/importが候補 | RA2実機PASS、ST待ち |
+| tag失敗時cleanup | 決定的test | PSA rejection + middleware scratch zeroization | HAL error + middleware scratch zeroization | RA2実機PASS、ST待ち |
 | device evidence署名 | software test key | wrapped ECC/Ed25519 capability | PKA + SAES/CCBが候補 | 後続evidence spike |
 | TrustZone NSC隔離 | 該当なし | 現行flat buildには存在しない | splitなし。現行imageはFullSecure | 将来のみ |
 | 現行storage I/O | file-backed block device | SD over SPI、4 KiB baselineで約274 KiB/s | SDMMC IDMA、4 KiB baselineで約4.0 MiB/s | 実機検証済み |

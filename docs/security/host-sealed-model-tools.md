@@ -84,6 +84,21 @@ prefixをOpenSSL CSPRNGで生成し、同じdirectoryのtemporary fileへsealす
 production CLIに固定key/nonce optionはない。CSPRNGがnonce重複を発生させないことに依存し、外部catalogが
 重複を発見した場合はそのpackageを配布せずfleet key運用を停止しなければならない。
 
+EK-RA8P1のfleet固有KAT artifactを生成する場合:
+
+```sh
+mtfs-kat-package \
+  --key fleet.key \
+  --package MTFSKAT.MTF \
+  --descriptor MTFSKAT.TXT
+```
+
+`MTFSKAT.MTF`は公開された5000-byte patternをpayloadとするPhase 4.1A形式のpackageであるが、
+`K_model`、package ID、nonceは毎回CSPRNG生成し、envelopeは指定した実運用`fleet.key`で作る。
+`MTFSKAT.TXT`はsize、公開pattern、package/payload SHA-256だけを含む非秘密のコピー確認用descriptorで、
+鍵や復号に必要な追加情報を含まない。2ファイルをSD rootへコピーし、raw `fleet.key`はコピーしない。
+既存出力は既定で置換せず、意図した再生成時だけ`--overwrite`を指定する。
+
 認証だけを行う場合:
 
 ```sh

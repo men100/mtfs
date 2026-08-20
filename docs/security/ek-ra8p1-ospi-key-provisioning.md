@@ -83,14 +83,17 @@ ciphertextを意図的に1 bit改変したnegative testだけとする。通常�
 outputへ書く。復号bufferとPSAへ渡すcapacityは常にその最終blockを含める。特に64 KiBの
 block-aligned入力でも追加16 bytesが必要である。
 
-## 実機受入れ条件
+## Contest core acceptance
 
 1. 未provision状態で`verify-ospi`が`not-found`になる。
 2. `provision-xmodem`で正確に32-byteのbinaryを送り、commit/verifyがPASSする。
 3. 同じcommandの再実行が`already-provisioned`で書込みなしに停止する。
 4. 完全電源断後、通常版の`crypto-info`がkey ID/version/generationを表示する。
 5. `crypto-consistency`がempty、37 byte、4/16/64 KiB、OSPI再読込み・再importをPASSする。
-6. `crypto-negative`が改変tagとciphertextを拒否し、出力zeroizeをPASSする。
+6. Phase 4.1B baselineの`crypto-negative`が改変tagとciphertextを拒否し、出力zeroizeをPASSする。
+
+## Extended acceptance
+
 7. wrapped recordを別のRA8P1へコピーした場合、key importまたはGCM operationが失敗する。
 8. `update-xmodem`中の各電源断点で、旧slotまたは新slotの少なくとも一方を利用できる。
 

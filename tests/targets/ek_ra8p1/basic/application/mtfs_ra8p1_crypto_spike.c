@@ -9,6 +9,7 @@
 #include <tm/tmonitor.h>
 
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
+#include "ff.h"
 #include "hal_data.h"
 #include "mbedtls/platform.h"
 #include "psa/crypto.h"
@@ -21,6 +22,23 @@
 #define CRYPTO_ALIGN        __attribute__((aligned(16)))
 #define CRYPTO_MAX_BYTES    (64U * 1024U)
 #define CRYPTO_TAG_BYTES    (16U)
+
+#define KAT_PACKAGE_PATH           "0:/MTFSKAT.MTF"
+#define KAT_PREAMBLE_BYTES         (160U)
+#define KAT_METADATA_BYTES         (40U)
+#define KAT_MANIFEST_BYTES         (KAT_PREAMBLE_BYTES + KAT_METADATA_BYTES)
+#define KAT_ENVELOPE_PLAIN_BYTES   (32U)
+#define KAT_ENVELOPE_BYTES         (KAT_ENVELOPE_PLAIN_BYTES + CRYPTO_TAG_BYTES)
+#define KAT_CHUNK0_PLAIN_BYTES     (4096U)
+#define KAT_CHUNK1_PLAIN_BYTES     (904U)
+#define KAT_PAYLOAD_PLAIN_BYTES    (5000U)
+#define KAT_CHUNK_COUNT            (2U)
+#define KAT_PACKAGE_BYTES          (KAT_MANIFEST_BYTES + KAT_ENVELOPE_BYTES + \
+                                    KAT_PAYLOAD_PLAIN_BYTES + \
+                                    KAT_CHUNK_COUNT * CRYPTO_TAG_BYTES)
+#define KAT_KEY_NONCE_OFFSET       (128U)
+#define KAT_PAYLOAD_PREFIX_OFFSET  (140U)
+#define KAT_AAD_MAX_BYTES          (14U + KAT_MANIFEST_BYTES + 8U)
 
 typedef struct crypto_diagnostics
 {
@@ -41,6 +59,14 @@ static uint8_t ciphertext[CRYPTO_MAX_BYTES + CRYPTO_TAG_BYTES] CRYPTO_ALIGN;
  * floor(payload_bytes / 16) * 16, including when the payload is block-aligned.
  */
 static uint8_t recovered[CRYPTO_MAX_BYTES + CRYPTO_TAG_BYTES] CRYPTO_ALIGN;
+static uint8_t kat_manifest[KAT_MANIFEST_BYTES] CRYPTO_ALIGN;
+static uint8_t kat_model_key[KAT_ENVELOPE_PLAIN_BYTES + CRYPTO_TAG_BYTES] CRYPTO_ALIGN;
+static uint8_t kat_aad[KAT_AAD_MAX_BYTES] CRYPTO_ALIGN;
+static rsip_aes_wrapped_key_t kat_wrapped_model_key CRYPTO_ALIGN;
+static FATFS kat_filesystem;
+static FIL kat_file;
+static uint8_t kat_mounted;
+static uint8_t kat_file_open;
 static mbedtls_platform_context platform_context;
 static crypto_diagnostics_t crypto_diag;
 static uint8_t crypto_ready;
@@ -155,6 +181,178 @@ static size_t decrypt_capacity(size_t payload_bytes)
 {
     return (payload_bytes & ~(size_t)(CRYPTO_TAG_BYTES - 1U)) +
         CRYPTO_TAG_BYTES;
+}
+
+static uint32_t read_le32(const uint8_t *data)
+{
+    return (uint32_t)data[0] |
+        ((uint32_t)data[1] << 8) |
+        ((uint32_t)data[2] << 16) |
+        ((uint32_t)data[3] << 24);
+}
+
+static uint16_t read_le16(const uint8_t *data)
+{
+    return (uint16_t)((uint16_t)data[0] |
+        ((uint16_t)data[1] << 8));
+}
+
+static uint64_t read_le64(const uint8_t *data)
+{
+    return (uint64_t)read_le32(data) |
+        ((uint64_t)read_le32(data + 4U) << 32);
+}
+
+static void write_le32(uint8_t *data, uint32_t value)
+{
+    data[0] = (uint8_t)value;
+    data[1] = (uint8_t)(value >> 8);
+    data[2] = (uint8_t)(value >> 16);
+    data[3] = (uint8_t)(value >> 24);
+}
+
+static int pattern_matches_at(const uint8_t *data, size_t bytes,
+    size_t payload_offset)
+{
+    size_t index;
+
+    for (index = 0U; index < bytes; ++index) {
+        if (data[index] !=
+            (uint8_t)((payload_offset + index) * 7U + 3U)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int kat_package_layout_valid(FSIZE_t file_bytes)
+{
+    static const uint8_t magic[8] = {
+        'M','T','F','S','M','O','D',0U
+    };
+    static const uint8_t metadata[KAT_METADATA_BYTES] = {
+        0x01U, 0x00U, 0x01U, 0x00U, 0x04U, 0x00U, 0x00U, 0x00U,
+        0x00U, 0x00U, 0x01U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+        0x04U, 0x00U, 0x00U, 0x00U, 0x09U, 0x00U, 0x00U, 0x00U,
+        'f', 'l', 'e', 'e', 't', '-', 'k', 'a', 't', 0U, 0U, 0U,
+        0U, 0U, 0U, 0U
+    };
+
+    return (file_bytes == (FSIZE_t)KAT_PACKAGE_BYTES) &&
+        (memcmp(kat_manifest, magic, sizeof(magic)) == 0) &&
+        (read_le16(&kat_manifest[8]) == 1U) &&
+        (read_le16(&kat_manifest[10]) == 0U) &&
+        (read_le32(&kat_manifest[12]) == KAT_PREAMBLE_BYTES) &&
+        (read_le32(&kat_manifest[16]) == KAT_MANIFEST_BYTES) &&
+        (read_le32(&kat_manifest[20]) == 1U) &&
+        (read_le32(&kat_manifest[24]) == 1U) &&
+        (read_le16(&kat_manifest[28]) == 1U) &&
+        (read_le16(&kat_manifest[30]) == 1U) &&
+        (read_le32(&kat_manifest[32]) == 1U) &&
+        (read_le32(&kat_manifest[36]) == 1U) &&
+        (read_le32(&kat_manifest[80]) == 0x11U) &&
+        (read_le32(&kat_manifest[84]) == 0x22U) &&
+        (read_le32(&kat_manifest[88]) == 0x33U) &&
+        (read_le64(&kat_manifest[96]) == KAT_PAYLOAD_PLAIN_BYTES) &&
+        (read_le64(&kat_manifest[104]) == KAT_PAYLOAD_PLAIN_BYTES) &&
+        (read_le32(&kat_manifest[112]) == KAT_CHUNK0_PLAIN_BYTES) &&
+        (read_le32(&kat_manifest[116]) == KAT_CHUNK_COUNT) &&
+        (read_le32(&kat_manifest[120]) == KAT_METADATA_BYTES) &&
+        (read_le32(&kat_manifest[124]) == KAT_ENVELOPE_BYTES) &&
+        (memcmp(&kat_manifest[KAT_PREAMBLE_BYTES], metadata,
+            sizeof(metadata)) == 0);
+}
+
+static size_t kat_build_envelope_aad(void)
+{
+    static const uint8_t domain[] = "MTFS-KEY-v1";
+
+    memcpy(kat_aad, domain, sizeof(domain));
+    memcpy(&kat_aad[sizeof(domain)], kat_manifest,
+        KAT_MANIFEST_BYTES);
+    return sizeof(domain) + KAT_MANIFEST_BYTES;
+}
+
+static size_t kat_build_chunk_aad(uint32_t chunk_index,
+    uint32_t plain_bytes)
+{
+    static const uint8_t domain[] = "MTFS-CHUNK-v1";
+    size_t suffix = sizeof(domain) + KAT_MANIFEST_BYTES;
+
+    memcpy(kat_aad, domain, sizeof(domain));
+    memcpy(&kat_aad[sizeof(domain)], kat_manifest,
+        KAT_MANIFEST_BYTES);
+    write_le32(&kat_aad[suffix], chunk_index);
+    write_le32(&kat_aad[suffix + 4U], plain_bytes);
+    return suffix + 8U;
+}
+
+static void kat_build_chunk_nonce(uint8_t nonce[12], uint32_t chunk_index)
+{
+    memcpy(nonce, &kat_manifest[KAT_PAYLOAD_PREFIX_OFFSET], 8U);
+    write_le32(&nonce[8], chunk_index);
+}
+
+static int kat_read_exact(void *destination, UINT bytes, FRESULT *result)
+{
+    UINT transferred = 0U;
+
+    *result = f_read(&kat_file, destination, bytes, &transferred);
+    return (*result == FR_OK) && (transferred == bytes);
+}
+
+static void kat_close(void)
+{
+    if (kat_file_open != 0U) {
+        (void)f_close(&kat_file);
+        kat_file_open = 0U;
+    }
+    if (kat_mounted != 0U) {
+        (void)f_mount(NULL, "0:", 0U);
+        kat_mounted = 0U;
+    }
+}
+
+static int kat_open(const char **stage, FRESULT *result)
+{
+    memset(&kat_filesystem, 0, sizeof(kat_filesystem));
+    memset(&kat_file, 0, sizeof(kat_file));
+    memset(kat_manifest, 0, sizeof(kat_manifest));
+    kat_file_open = 0U;
+    kat_mounted = 0U;
+
+    *stage = "mount";
+    *result = f_mount(&kat_filesystem, "0:", 1U);
+    if (*result != FR_OK) {
+        return 0;
+    }
+    kat_mounted = 1U;
+    *stage = "open";
+    *result = f_open(&kat_file, KAT_PACKAGE_PATH, FA_READ);
+    if (*result != FR_OK) {
+        kat_close();
+        return 0;
+    }
+    kat_file_open = 1U;
+    *stage = "manifest-read";
+    if (!kat_read_exact(kat_manifest, sizeof(kat_manifest), result)) {
+        kat_close();
+        return 0;
+    }
+    *stage = "package-layout";
+    if (!kat_package_layout_valid(f_size(&kat_file))) {
+        *result = FR_INVALID_OBJECT;
+        kat_close();
+        return 0;
+    }
+    return 1;
+}
+
+static int kat_seek(FSIZE_t offset, const char **stage, FRESULT *result)
+{
+    *stage = "package-seek";
+    *result = f_lseek(&kat_file, offset);
+    return *result == FR_OK;
 }
 
 static mtfs_ra8p1_key_store_status_t load_key(
@@ -302,112 +500,335 @@ static int run_positive_suite(void)
     return failed;
 }
 
-static int decrypt_rejects(psa_key_handle_t handle,
-    const uint8_t nonce[12], const uint8_t *aad, size_t aad_bytes,
-    size_t cipher_bytes, psa_status_t *rejection_status,
-    int *output_zeroized)
+static int kat_open_model_key(psa_key_handle_t fleet_handle,
+    psa_key_handle_t *model_handle, psa_status_t *last_status,
+    fsp_err_t *wrap_status, FRESULT *fs_result, const char **stage,
+    int *raw_zeroized)
 {
+    uint8_t nonce[12] CRYPTO_ALIGN;
+    size_t aad_bytes = kat_build_envelope_aad();
+    size_t plain_bytes = 0U;
     psa_status_t status;
-    size_t output_bytes = 0U;
-    size_t payload_bytes = cipher_bytes - CRYPTO_TAG_BYTES;
-    size_t recovered_capacity = decrypt_capacity(payload_bytes);
 
-    memset(recovered, 0xa5, recovered_capacity);
-    status = psa_aead_decrypt(handle, PSA_ALG_GCM,
-        nonce, 12U, aad, aad_bytes, ciphertext, cipher_bytes,
-        recovered, recovered_capacity, &output_bytes);
+    *model_handle = 0U;
+    *stage = "envelope-read";
+    *wrap_status = FSP_SUCCESS;
+    *raw_zeroized = 0;
+    if (!kat_read_exact(ciphertext, KAT_ENVELOPE_BYTES, fs_result)) {
+        return 0;
+    }
+    *stage = "envelope-auth";
+    memcpy(nonce, &kat_manifest[KAT_KEY_NONCE_OFFSET], sizeof(nonce));
+    memset(kat_model_key, 0xa5, sizeof(kat_model_key));
+    status = psa_aead_decrypt(fleet_handle, PSA_ALG_GCM,
+        nonce, sizeof(nonce), kat_aad, aad_bytes,
+        ciphertext, KAT_ENVELOPE_BYTES,
+        kat_model_key, sizeof(kat_model_key), &plain_bytes);
     ++crypto_diag.decrypt_count;
     crypto_diag.last_psa_status = status;
-    *rejection_status = status;
-    *output_zeroized = buffer_is_zero(recovered, recovered_capacity);
+    *last_status = status;
+    if ((status != PSA_SUCCESS) ||
+        (plain_bytes != KAT_ENVELOPE_PLAIN_BYTES)) {
+        if (status == PSA_SUCCESS) {
+            *stage = "envelope-length";
+        }
+        crypto_zero(kat_model_key, sizeof(kat_model_key));
+        *raw_zeroized = buffer_is_zero(kat_model_key,
+            sizeof(kat_model_key));
+        return 0;
+    }
+
+    *stage = "model-wrap";
+    memset(&kat_wrapped_model_key, 0, sizeof(kat_wrapped_model_key));
+    *wrap_status = R_RSIP_AES256_InitialKeyWrap(
+        RSIP_KEY_INJECTION_TYPE_PLAIN, NULL, NULL, kat_model_key,
+        &kat_wrapped_model_key);
+    crypto_zero(kat_model_key, sizeof(kat_model_key));
+    *raw_zeroized = buffer_is_zero(kat_model_key,
+        sizeof(kat_model_key));
+    if ((*wrap_status != FSP_SUCCESS) || !*raw_zeroized) {
+        crypto_zero(&kat_wrapped_model_key,
+            sizeof(kat_wrapped_model_key));
+        return 0;
+    }
+
+    *stage = "model-import";
+    status = import_wrapped_key(&kat_wrapped_model_key, model_handle);
+    *last_status = status;
+    crypto_zero(&kat_wrapped_model_key, sizeof(kat_wrapped_model_key));
+    return status == PSA_SUCCESS;
+}
+
+static int kat_decrypt_chunk(psa_key_handle_t model_handle,
+    uint32_t chunk_index, size_t plain_bytes, size_t payload_offset,
+    psa_status_t *last_status, FRESULT *fs_result, const char **stage)
+{
+    uint8_t nonce[12] CRYPTO_ALIGN;
+    size_t aad_bytes = kat_build_chunk_aad(chunk_index,
+        (uint32_t)plain_bytes);
+    size_t output_bytes = 0U;
+    size_t output_capacity = decrypt_capacity(plain_bytes);
+    psa_status_t status;
+    int valid;
+
+    kat_build_chunk_nonce(nonce, chunk_index);
+    *stage = "chunk-read";
+    if (!kat_read_exact(ciphertext,
+        (UINT)(plain_bytes + CRYPTO_TAG_BYTES), fs_result)) {
+        return 0;
+    }
+    *stage = "chunk-auth";
+    memset(recovered, 0xa5, output_capacity);
+    status = psa_aead_decrypt(model_handle, PSA_ALG_GCM,
+        nonce, sizeof(nonce), kat_aad, aad_bytes,
+        ciphertext, plain_bytes + CRYPTO_TAG_BYTES,
+        recovered, output_capacity, &output_bytes);
+    ++crypto_diag.decrypt_count;
+    crypto_diag.last_psa_status = status;
+    *last_status = status;
+    valid = (status == PSA_SUCCESS) && (output_bytes == plain_bytes) &&
+        pattern_matches_at(recovered, plain_bytes, payload_offset);
+    crypto_zero(recovered, output_capacity);
+    return valid && buffer_is_zero(recovered, output_capacity);
+}
+
+static int kat_negative_loaded(psa_key_handle_t handle,
+    const uint8_t nonce[12], size_t aad_bytes, size_t plain_bytes,
+    size_t damage_index, psa_status_t *last_status,
+    int *output_zeroized)
+{
+    size_t combined_bytes = plain_bytes + CRYPTO_TAG_BYTES;
+    size_t output_capacity = decrypt_capacity(plain_bytes);
+    size_t output_bytes = 0U;
+    psa_status_t status;
+    int rejected;
+
+    ciphertext[damage_index] ^= 1U;
+    memset(recovered, 0xa5, output_capacity);
+    status = psa_aead_decrypt(handle, PSA_ALG_GCM,
+        nonce, 12U, kat_aad, aad_bytes, ciphertext, combined_bytes,
+        recovered, output_capacity, &output_bytes);
+    ++crypto_diag.decrypt_count;
+    crypto_diag.last_psa_status = status;
+    *last_status = status;
+    *output_zeroized = buffer_is_zero(recovered, output_capacity);
+    rejected = authentication_rejected(status) && (output_bytes == 0U);
     if (authentication_rejected(status)) {
         ++crypto_diag.auth_fail_count;
     }
-    crypto_zero(recovered, recovered_capacity);
-    return authentication_rejected(status) && (output_bytes == 0U) &&
-        *output_zeroized;
+    crypto_zero(recovered, output_capacity);
+    return rejected && *output_zeroized &&
+        buffer_is_zero(recovered, output_capacity);
 }
 
-static int run_negative_case(int damage_tag,
-    const uint8_t nonce[12], const uint8_t *aad, size_t aad_bytes,
-    mtfs_ra8p1_key_metadata_t *metadata, psa_status_t *rejection_status,
-    int *output_zeroized)
+static void kat_clear_scratch(void)
 {
-    mtfs_ra8p1_key_store_diagnostics_t store_diag;
-    psa_key_handle_t handle = 0U;
-    psa_status_t status;
-    size_t cipher_bytes = 0U;
-    size_t plain_bytes = 0U;
-    size_t recovered_capacity = decrypt_capacity(37U);
-    int rejected = 0;
-
-    if (!prepare_key(&handle, metadata, &store_diag)) {
-        *rejection_status = crypto_diag.last_psa_status;
-        return 0;
-    }
-    fill_pattern(plaintext, 37U);
-    status = psa_aead_encrypt(handle, PSA_ALG_GCM,
-        nonce, 12U, aad, aad_bytes, plaintext, 37U,
-        ciphertext, 37U + CRYPTO_TAG_BYTES, &cipher_bytes);
-    ++crypto_diag.encrypt_count;
-    crypto_diag.last_psa_status = status;
-    if (status == PSA_SUCCESS) {
-        memset(recovered, 0xa5, recovered_capacity);
-        status = psa_aead_decrypt(handle, PSA_ALG_GCM,
-            nonce, 12U, aad, aad_bytes, ciphertext, cipher_bytes,
-            recovered, recovered_capacity, &plain_bytes);
-        ++crypto_diag.decrypt_count;
-        crypto_diag.last_psa_status = status;
-    }
-    if ((status == PSA_SUCCESS) && (plain_bytes == 37U) &&
-        pattern_matches(recovered, 37U)) {
-        size_t damage_offset = damage_tag ? cipher_bytes - 1U : 0U;
-
-        ciphertext[damage_offset] ^= 1U;
-        rejected = decrypt_rejects(handle, nonce, aad, aad_bytes,
-            cipher_bytes, rejection_status, output_zeroized);
-        ciphertext[damage_offset] ^= 1U;
-    } else {
-        *rejection_status = status;
-        tm_printf((UB *)"[crypto] negative baseline FAIL mutation=%s psa=%d plain-bytes=%u\n",
-            damage_tag ? (UB *)"tag" : (UB *)"ciphertext",
-            (INT)status, (UW)plain_bytes);
-    }
-    destroy_key(&handle);
-    return rejected;
-}
-
-static int run_negative_suite(void)
-{
-    static const uint8_t aad[] = {
-        'm','i','c','r','o','T','-','F','S',' ','n','e','g'
-    };
-    static const uint8_t nonce[12] CRYPTO_ALIGN = {
-        0x4dU, 0x54U, 0x46U, 0x53U, 0x2dU, 0x4eU,
-        0x45U, 0x47U, 0x2dU, 0x30U, 0x30U, 0x31U
-    };
-    mtfs_ra8p1_key_metadata_t metadata = {0U};
-    psa_status_t tag_status = PSA_ERROR_GENERIC_ERROR;
-    psa_status_t cipher_status = PSA_ERROR_GENERIC_ERROR;
-    int tag_rejected = 0;
-    int cipher_rejected = 0;
-    int tag_zeroized = 0;
-    int cipher_zeroized = 0;
-
-    tag_rejected = run_negative_case(1, nonce, aad, sizeof(aad),
-        &metadata, &tag_status, &tag_zeroized);
-    cipher_rejected = run_negative_case(0, nonce, aad, sizeof(aad),
-        &metadata, &cipher_status, &cipher_zeroized);
-    crypto_zero(plaintext, sizeof(plaintext));
+    crypto_zero(kat_model_key, sizeof(kat_model_key));
+    crypto_zero(&kat_wrapped_model_key, sizeof(kat_wrapped_model_key));
+    crypto_zero(kat_aad, sizeof(kat_aad));
+    crypto_zero(kat_manifest, sizeof(kat_manifest));
     crypto_zero(ciphertext, sizeof(ciphertext));
     crypto_zero(recovered, sizeof(recovered));
-    tm_printf((UB *)"[crypto] provisioned-key GCM negative tag=%s ciphertext=%s output-zeroize=%s %s key-version=%u status=%d/%d\n",
-        tag_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
+}
+
+static int run_package_kat_suite(void)
+{
+    mtfs_ra8p1_key_metadata_t metadata = {0U};
+    mtfs_ra8p1_key_store_diagnostics_t store_diag;
+    psa_key_handle_t fleet_handle = 0U;
+    psa_key_handle_t model_handle = 0U;
+    psa_status_t status = PSA_SUCCESS;
+    fsp_err_t wrap_status = FSP_SUCCESS;
+    FRESULT fs_result = FR_OK;
+    const char *stage = "open";
+    int raw_zeroized = 0;
+    int failed = 0;
+
+    tm_printf((UB *)"[crypto-kat] source=%s fleet-specific package bytes=%u chunks=%u\n",
+        (UB *)KAT_PACKAGE_PATH, (UW)KAT_PACKAGE_BYTES,
+        (UW)KAT_CHUNK_COUNT);
+    if (!kat_open(&stage, &fs_result)) {
+        tm_printf((UB *)"[crypto-kat] FAIL stage=%s fatfs=%d\n",
+            (UB *)stage, (INT)fs_result);
+        return 1;
+    }
+    if (!prepare_key(&fleet_handle, &metadata, &store_diag)) {
+        kat_close();
+        kat_clear_scratch();
+        return 1;
+    }
+    if (metadata.key_id != read_le32(&kat_manifest[32])) {
+        uint32_t package_key_id = read_le32(&kat_manifest[32]);
+
+        destroy_key(&fleet_handle);
+        kat_close();
+        kat_clear_scratch();
+        tm_printf((UB *)"[crypto-kat] FAIL stage=key-id package=%u ospi=%u\n",
+            (UW)package_key_id, (UW)metadata.key_id);
+        return 1;
+    }
+    tm_printf((UB *)"[crypto-kat] selector package-key=%u/%u ospi-key=%u/%u version-policy=Phase-4.2\n",
+        (UW)read_le32(&kat_manifest[32]),
+        (UW)read_le32(&kat_manifest[36]),
+        (UW)metadata.key_id, (UW)metadata.key_version);
+    if (!kat_open_model_key(fleet_handle, &model_handle, &status,
+        &wrap_status, &fs_result, &stage, &raw_zeroized)) {
+        destroy_key(&fleet_handle);
+        kat_close();
+        kat_clear_scratch();
+        if ((strcmp(stage, "envelope-auth") == 0) &&
+            authentication_rejected(status)) {
+            tm_printf((UB *)"[crypto-kat] FAIL stage=fleet-key-mismatch psa=%d; regenerate MTFSKAT.MTF with the provisioned fleet.key\n",
+                (INT)status);
+        } else {
+            tm_printf((UB *)"[crypto-kat] FAIL stage=%s fatfs=%d psa=%d fsp=%d raw-k-model-zeroize=%s\n",
+                (UB *)stage, (INT)fs_result, (INT)status,
+                (INT)wrap_status,
+                raw_zeroized ? (UB *)"PASS" : (UB *)"FAIL");
+        }
+        return 1;
+    }
+    destroy_key(&fleet_handle);
+    tm_printf((UB *)"[crypto-kat] envelope PASS model-wrap=PASS raw-k-model-zeroize=%s\n",
+        raw_zeroized ? (UB *)"PASS" : (UB *)"FAIL");
+
+    stage = "chunk-0";
+    if (!kat_decrypt_chunk(model_handle, 0U, KAT_CHUNK0_PLAIN_BYTES,
+        0U, &status, &fs_result, &stage)) {
+        failed = 1;
+    } else {
+        tm_printf((UB *)"[crypto-kat] payload chunk=0 bytes=%u PASS\n",
+            (UW)KAT_CHUNK0_PLAIN_BYTES);
+    }
+    stage = "chunk-1";
+    if (!failed && !kat_decrypt_chunk(model_handle, 1U,
+        KAT_CHUNK1_PLAIN_BYTES, KAT_CHUNK0_PLAIN_BYTES,
+        &status, &fs_result, &stage)) {
+        failed = 1;
+    } else if (!failed) {
+        tm_printf((UB *)"[crypto-kat] payload chunk=1 bytes=%u PASS\n",
+            (UW)KAT_CHUNK1_PLAIN_BYTES);
+    }
+    destroy_key(&model_handle);
+    kat_close();
+    kat_clear_scratch();
+    if (failed) {
+        tm_printf((UB *)"[crypto-kat] fleet envelope/wrap/payload FAIL stage=%s fatfs=%d psa=%d fsp=%d\n",
+            (UB *)stage, (INT)fs_result, (INT)status,
+            (INT)wrap_status);
+        return 1;
+    }
+    tm_printf((UB *)"[crypto-kat] fleet envelope/wrap/payload PASS scratch-zeroize=PASS key-id=%u ospi-key-version=%u\n",
+        (UW)metadata.key_id, (UW)metadata.key_version);
+    return 0;
+}
+
+static int run_package_negative_suite(void)
+{
+    mtfs_ra8p1_key_metadata_t metadata = {0U};
+    mtfs_ra8p1_key_store_diagnostics_t store_diag;
+    psa_key_handle_t fleet_handle = 0U;
+    psa_key_handle_t model_handle = 0U;
+    psa_status_t status = PSA_SUCCESS;
+    psa_status_t envelope_status = PSA_SUCCESS;
+    psa_status_t cipher_status = PSA_SUCCESS;
+    psa_status_t tag_status = PSA_SUCCESS;
+    fsp_err_t wrap_status = FSP_SUCCESS;
+    FRESULT fs_result = FR_OK;
+    const char *stage = "open";
+    uint8_t nonce[12] CRYPTO_ALIGN;
+    size_t aad_bytes;
+    int raw_zeroized = 0;
+    int envelope_zeroized = 0;
+    int cipher_zeroized = 0;
+    int tag_zeroized = 0;
+    int envelope_rejected = 0;
+    int cipher_rejected = 0;
+    int tag_rejected = 0;
+    int baseline_ok = 0;
+
+    tm_printf((UB *)"[crypto-negative] source=%s mutation=in-RAM SD-unchanged\n",
+        (UB *)KAT_PACKAGE_PATH);
+    if (!kat_open(&stage, &fs_result) ||
+        !prepare_key(&fleet_handle, &metadata, &store_diag)) {
+        kat_close();
+        kat_clear_scratch();
+        tm_printf((UB *)"[crypto-negative] FAIL stage=%s fatfs=%d\n",
+            (UB *)stage, (INT)fs_result);
+        return 1;
+    }
+
+    if (kat_seek(KAT_MANIFEST_BYTES, &stage, &fs_result) &&
+        kat_open_model_key(fleet_handle, &model_handle, &status,
+            &wrap_status, &fs_result, &stage, &raw_zeroized)) {
+        aad_bytes = kat_build_envelope_aad();
+        memcpy(nonce, &kat_manifest[KAT_KEY_NONCE_OFFSET], sizeof(nonce));
+        if (kat_seek(KAT_MANIFEST_BYTES, &stage, &fs_result) &&
+            kat_read_exact(ciphertext, KAT_ENVELOPE_BYTES, &fs_result)) {
+            envelope_rejected = kat_negative_loaded(fleet_handle, nonce,
+                aad_bytes, KAT_ENVELOPE_PLAIN_BYTES,
+                KAT_ENVELOPE_BYTES - 1U, &envelope_status,
+                &envelope_zeroized);
+        }
+        destroy_key(&fleet_handle);
+        if (kat_seek(KAT_MANIFEST_BYTES + KAT_ENVELOPE_BYTES,
+                &stage, &fs_result) &&
+            kat_decrypt_chunk(model_handle, 0U,
+                KAT_CHUNK0_PLAIN_BYTES, 0U, &status, &fs_result,
+                &stage) &&
+            kat_seek(KAT_MANIFEST_BYTES + KAT_ENVELOPE_BYTES,
+                &stage, &fs_result) &&
+            kat_read_exact(ciphertext,
+                KAT_CHUNK0_PLAIN_BYTES + CRYPTO_TAG_BYTES,
+                &fs_result)) {
+            aad_bytes = kat_build_chunk_aad(0U,
+                KAT_CHUNK0_PLAIN_BYTES);
+            kat_build_chunk_nonce(nonce, 0U);
+            cipher_rejected = kat_negative_loaded(model_handle, nonce,
+                aad_bytes, KAT_CHUNK0_PLAIN_BYTES, 0U,
+                &cipher_status, &cipher_zeroized);
+        }
+        if (kat_seek(KAT_MANIFEST_BYTES + KAT_ENVELOPE_BYTES +
+                KAT_CHUNK0_PLAIN_BYTES + CRYPTO_TAG_BYTES,
+                &stage, &fs_result) &&
+            kat_decrypt_chunk(model_handle, 1U,
+                KAT_CHUNK1_PLAIN_BYTES, KAT_CHUNK0_PLAIN_BYTES,
+                &status, &fs_result, &stage) &&
+            kat_seek(KAT_MANIFEST_BYTES + KAT_ENVELOPE_BYTES +
+                KAT_CHUNK0_PLAIN_BYTES + CRYPTO_TAG_BYTES,
+                &stage, &fs_result) &&
+            kat_read_exact(ciphertext,
+                KAT_CHUNK1_PLAIN_BYTES + CRYPTO_TAG_BYTES,
+                &fs_result)) {
+            aad_bytes = kat_build_chunk_aad(1U,
+                KAT_CHUNK1_PLAIN_BYTES);
+            kat_build_chunk_nonce(nonce, 1U);
+            tag_rejected = kat_negative_loaded(model_handle, nonce,
+                aad_bytes, KAT_CHUNK1_PLAIN_BYTES,
+                KAT_CHUNK1_PLAIN_BYTES + CRYPTO_TAG_BYTES - 1U,
+                &tag_status, &tag_zeroized);
+        }
+        baseline_ok = envelope_rejected && cipher_rejected &&
+            tag_rejected;
+    }
+    destroy_key(&fleet_handle);
+    destroy_key(&model_handle);
+    kat_close();
+    kat_clear_scratch();
+
+    tm_printf((UB *)"[crypto-negative] envelope-tag=%s chunk-ciphertext=%s chunk-tag=%s output-zeroize=%s %s status=%d/%d/%d\n",
+        envelope_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
         cipher_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
-        (tag_zeroized && cipher_zeroized) ? (UB *)"PASS" : (UB *)"FAIL",
-        (tag_rejected && cipher_rejected) ? (UB *)"PASS" : (UB *)"FAIL",
-        (UW)metadata.key_version, (INT)tag_status, (INT)cipher_status);
-    return (tag_rejected && cipher_rejected) ? 0 : 1;
+        tag_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
+        (envelope_zeroized && cipher_zeroized && tag_zeroized &&
+            raw_zeroized) ? (UB *)"PASS" : (UB *)"FAIL",
+        (baseline_ok &&
+            envelope_zeroized && cipher_zeroized && tag_zeroized &&
+            raw_zeroized) ? (UB *)"PASS" : (UB *)"FAIL",
+        (INT)envelope_status, (INT)cipher_status, (INT)tag_status);
+    return (baseline_ok &&
+        envelope_zeroized && cipher_zeroized && tag_zeroized &&
+        raw_zeroized) ? 0 : 1;
 }
 
 static void print_info(void)
@@ -460,7 +881,11 @@ int mtfs_ra8p1_crypto_spike_command(const char *line)
         return 1;
     }
     if (strcmp(line, "crypto-negative") == 0) {
-        (void)run_negative_suite();
+        (void)run_package_negative_suite();
+        return 1;
+    }
+    if (strcmp(line, "crypto-kat") == 0) {
+        (void)run_package_kat_suite();
         return 1;
     }
 #else

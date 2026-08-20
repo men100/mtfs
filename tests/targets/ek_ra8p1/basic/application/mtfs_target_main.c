@@ -242,7 +242,8 @@ static void target_command_console(void)
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
         "crypto-info               show RSIP spike configuration and diagnostics\r\n"
         "crypto-consistency        test provisioned-key GCM consistency\r\n"
-        "crypto-negative           test GCM tamper rejection and zeroization\r\n"
+        "crypto-negative           reject SD KAT package tampering in RAM\r\n"
+        "crypto-kat                verify fleet-specific SD KAT package\r\n"
 #endif
         );
     mtfs_rtc_set_tmonitor_write(NULL,
@@ -952,6 +953,65 @@ cleanup:
 static int target_console_command(void *opaque, const char *line)
 {
     (void)opaque;
+#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
+    if ((strcmp(line, "crypto-kat") == 0) ||
+        (strcmp(line, "crypto-negative") == 0)) {
+        mtfs_ra_sd_spi_config_t config;
+        mtfs_block_device_t *device = NULL;
+        mtfs_error_t error;
+        int registered = 0;
+        int context_ready = 0;
+        int media_ready = 0;
+
+        mtfs_ra8p1_sd_spi_config(&config);
+        error = mtfs_ra_sd_spi_context_init(&sd_context, &config);
+        if (error != MTFS_OK) {
+            tm_printf((UB *)"[crypto] SD setup FAIL stage=context mtfs=%d\n",
+                error);
+            goto crypto_sd_cleanup;
+        }
+        context_ready = 1;
+        error = mtfs_ra8p1_card_detect_start(&media_context,
+            &media_service, &sd_context, target_media_event, NULL);
+        if (error != MTFS_OK) {
+            tm_printf((UB *)"[crypto] SD setup FAIL stage=card-detect mtfs=%d\n",
+                error);
+            goto crypto_sd_cleanup;
+        }
+        media_ready = 1;
+        device = mtfs_ra_sd_spi_block_device(&sd_context);
+        error = mtfs_block_initialize(device);
+        if (error != MTFS_OK) {
+            tm_printf((UB *)"[crypto] SD setup FAIL stage=initialize mtfs=%d\n",
+                error);
+            goto crypto_sd_cleanup;
+        }
+        error = mtfs_block_registry_register(0U, device);
+        if (error != MTFS_OK) {
+            tm_printf((UB *)"[crypto] SD setup FAIL stage=register mtfs=%d\n",
+                error);
+            goto crypto_sd_cleanup;
+        }
+        registered = 1;
+        (void)mtfs_ra8p1_crypto_spike_command(line);
+
+crypto_sd_cleanup:
+        (void)f_mount(NULL, "0:", 0U);
+        if (media_ready &&
+            (mtfs_ra8p1_card_detect_stop() != MTFS_OK)) {
+            tm_printf((UB *)"[crypto] SD cleanup FAIL stage=card-detect\n");
+        }
+        if (registered &&
+            (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
+            tm_printf((UB *)"[crypto] SD cleanup FAIL stage=registry\n");
+        }
+        if (context_ready &&
+            (mtfs_ra_sd_spi_context_deinit(&sd_context) != MTFS_OK)) {
+            tm_printf((UB *)"[crypto] SD cleanup FAIL stage=context\n");
+        }
+        return 1;
+    }
+#endif
     if (mtfs_ra8p1_crypto_spike_command(line)) {
         return 1;
     }

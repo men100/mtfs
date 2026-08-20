@@ -54,6 +54,7 @@ CPU RAMに一時的に存在するため、この構成をhardware隔離済みpr
 crypto-info
 crypto-consistency
 crypto-negative
+crypto-kat
 ```
 
 `crypto-info`はCompatibility Mode、OSPI status、valid slot数、key ID/version、generation、slot、
@@ -65,9 +66,12 @@ encrypt/decryptし、さらにhandleをdestroyしてOSPIを再読込み・再imp
 復号できることを確認する。未知のprovisioned keyを使うround-trip/consistency testであり、
 公開固定vectorとの厳密なknown-answer test（KAT）ではない。
 
-`crypto-negative`は37-byte plaintextを暗号化し、tagの1 bit改変とciphertextの1 bit改変を
-それぞれ`PSA_ERROR_INVALID_SIGNATURE`として拒否することを確認する。失敗時はdestination全体を
-明示的にzeroizeし、出力長が0であることを確認する。
+Phase 4.1B-RA core acceptanceでは37-byte plaintextのtag/ciphertext改変拒否と出力zeroizeを実機で
+確認済みである。Phase 4.1B-RA2の現行`crypto-negative`はその上位統合試験として、実際のfleet keyで
+Host生成したSD packageのenvelope tag、chunk ciphertext、chunk tagをRAM上で改変する。
+`crypto-kat`は同packageのenvelope、raw `K_model`の即時HUK wrap/zeroize、4096/904-byte payload
+chunkの既知解を検証する。
+詳細は[`ek-ra8p1-phase-4.1b-ra2.md`](ek-ra8p1-phase-4.1b-ra2.md)を参照する。
 
 ## Build確認
 
@@ -76,7 +80,7 @@ encrypt/decryptし、さらにhandleをdestroyしてOSPIを再読込み・再imp
 | image | text | data | BSS |
 |---|---:|---:|---:|
 | dedicated provisioner | 221,720 | 88 | 33,549 |
-| basic runtime + crypto tests | 315,300 | 88 | 304,497 |
+| basic runtime + crypto tests | 321,164 | 88 | 306,185 |
 
 両buildともapplication errorはない。両projectともFSP 6.5.0の
 `ra/fsp/src/rm_psa_crypto`だけ既知のunused-variable/function warningを局所抑制し、
@@ -92,4 +96,6 @@ whole-message境界copyを省き、12 KiB heapのまま16/64 KiBを処理でき�
 実機ではUART/XMODEM-1K受信、HUK wrap、OSPI erase/write/readback、reset後および完全電源断後の再読込み、
 provisioned keyのempty/37 byte/4/16/64 KiB GCM consistencyと再import、tag/ciphertext改ざん拒否、
 出力zeroizeをPASSした。contest threat modelのcore crypto pathはhardware-validatedとする。
+さらにPhase 4.1B-RA2で、実運用fleet keyからHost生成したSD packageの`K_model` envelope、raw keyの
+即時InitialKeyWrap/zeroize、4096/904-byte payload chunk、envelope/chunkの3種改ざん拒否も実機PASSした。
 cross-device rejectionとkey更新中の電源断耐性は、現在のcontest scopeを妨げないoptional extended testとして残る。
