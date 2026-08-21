@@ -101,6 +101,64 @@ static void target_rtc_unlock(void *opaque)
 #if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
 static int target_console_command(void *opaque, const char *line);
 
+static int target_crypto_command_uses_storage(const char *line)
+{
+    return (strcmp(line, "crypto-negative") == 0) ||
+        (strcmp(line, "crypto-package-test") == 0);
+}
+
+static void target_run_crypto_storage_command(const char *line)
+{
+    mtfs_stm32_sdmmc_config_t config;
+    mtfs_block_device_t *device = NULL;
+    mtfs_error_t error = MTFS_OK;
+    const char *stage = "context-init";
+    int registered = 0;
+    int context_ready = 0;
+    int media_ready = 0;
+    int setup_failed = 1;
+
+    mtfs_stm32n6570_dk_sdmmc_config(&config);
+    error = mtfs_stm32_sdmmc_context_init(&sd_context, &config);
+    if (error != MTFS_OK) goto cleanup;
+    context_ready = 1;
+
+    stage = "card-detect";
+    error = mtfs_stm32n6570_dk_card_detect_start(&media_context,
+        &media_service, &sd_context, target_media_event, NULL);
+    if (error != MTFS_OK) goto cleanup;
+    media_ready = 1;
+
+    stage = "initialize";
+    device = mtfs_stm32_sdmmc_block_device(&sd_context);
+    error = mtfs_block_initialize(device);
+    if (error != MTFS_OK) goto cleanup;
+
+    stage = "registry";
+    error = mtfs_block_registry_register(0U, device);
+    if (error != MTFS_OK) goto cleanup;
+    registered = 1;
+    setup_failed = 0;
+    (void)mtfs_stm32n6570_crypto_command(line);
+
+cleanup:
+    if (setup_failed) {
+        tm_printf((UB *)"[crypto] storage setup FAIL stage=%s mtfs=%d\n",
+            (UB *)stage, error);
+    }
+    if (media_ready &&
+        (mtfs_stm32n6570_dk_card_detect_stop() != MTFS_OK)) {
+        tm_printf((UB *)"[crypto] storage cleanup FAIL stage=card-detect\n");
+    }
+    if (registered && (mtfs_block_registry_unregister(0U) != MTFS_OK)) {
+        tm_printf((UB *)"[crypto] storage cleanup FAIL stage=registry\n");
+    }
+    if (context_ready &&
+        (mtfs_stm32_sdmmc_context_deinit(&sd_context) != MTFS_OK)) {
+        tm_printf((UB *)"[crypto] storage cleanup FAIL stage=context\n");
+    }
+}
+
 static void target_benchmark_log(void *opaque, const char *line)
 {
     (void)opaque;
@@ -891,6 +949,10 @@ static int target_console_command(void *opaque, const char *line)
     }
     if (strcmp(line, "test-hotplug") == 0) {
         (void)target_run_storage_test(1U, 1);
+        return 1;
+    }
+    if (target_crypto_command_uses_storage(line)) {
+        target_run_crypto_storage_command(line);
         return 1;
     }
     if (mtfs_stm32n6570_crypto_command(line)) {

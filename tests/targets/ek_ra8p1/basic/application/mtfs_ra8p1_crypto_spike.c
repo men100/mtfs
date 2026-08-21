@@ -816,10 +816,10 @@ static int run_package_negative_suite(void)
     test_package_close();
     test_package_clear_scratch();
 
-    tm_printf((UB *)"[crypto-negative] envelope-tag=%s chunk-ciphertext=%s chunk-tag=%s output-zeroize=%s %s status=%d/%d/%d\n",
-        envelope_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
-        cipher_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
-        tag_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
+    tm_printf((UB *)"[crypto-negative] package envelope-tag-tamper=%s chunk-ciphertext-tamper=%s chunk-tag-tamper=%s output-zeroize=%s overall=%s status=%d/%d/%d\n",
+        envelope_rejected ? (UB *)"PASS" : (UB *)"FAIL",
+        cipher_rejected ? (UB *)"PASS" : (UB *)"FAIL",
+        tag_rejected ? (UB *)"PASS" : (UB *)"FAIL",
         (envelope_zeroized && cipher_zeroized && tag_zeroized &&
             raw_zeroized) ? (UB *)"PASS" : (UB *)"FAIL",
         (baseline_ok &&

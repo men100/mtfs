@@ -144,7 +144,7 @@ static int init_and_wrap(void)
     return 0;
 }
 
-static int consistency_case(size_t bytes, uint32_t sequence)
+static int consistency_case(size_t bytes, uint32_t sequence, int reinitialized)
 {
     static const uint8_t aad[] = "microT-FS STM32N657 SAES consistency";
     uint8_t nonce[MTFS_STM32_SAES_GCM_NONCE_BYTES] = {
@@ -180,21 +180,75 @@ static int consistency_case(size_t bytes, uint32_t sequence)
     mtfs_stm32_saes_zeroize(tag, sizeof(tag));
     mtfs_stm32_saes_zeroize(test_plaintext, bytes);
     mtfs_stm32_saes_zeroize(test_ciphertext, bytes);
-    tm_printf((UB *)"[crypto] consistency bytes=%u %s hal=%u error=0x%08x\n",
+    tm_printf((UB *)"[crypto] consistency%s bytes=%u %s hal=%u error=0x%08x\n",
+        reinitialized ? (UB *)" reinit" : (UB *)"",
         (uint32_t)bytes, status == MTFS_STM32_SAES_OK ? (UB *)"PASS" :
         (UB *)"FAIL", crypto_context.last_hal_status,
         crypto_context.last_hal_error);
     return status == MTFS_STM32_SAES_OK ? 0 : 1;
 }
 
+static int interoperability_case(void)
+{
+    static const uint8_t aad[] = "microT-FS STM32N657 SAES consistency";
+    static const uint8_t nonce[MTFS_STM32_SAES_GCM_NONCE_BYTES] = {
+        0x4d, 0x54, 0x46, 0x53, 0x53, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
+    };
+    /* OpenSSL AES-256-GCM result for disposable_key and pattern_byte(). */
+    static const uint8_t expected_ciphertext[37] = {
+        0xee, 0x2b, 0x46, 0x2e, 0xd4, 0x72, 0x2c, 0xc4,
+        0x6e, 0x30, 0x2d, 0x96, 0xa2, 0x1d, 0x69, 0x03,
+        0xc0, 0xcf, 0x9a, 0xc2, 0x84, 0xe8, 0xf6, 0xa5,
+        0xd1, 0x15, 0xda, 0xf0, 0xb1, 0x3b, 0xa2, 0xed,
+        0x5c, 0x80, 0xe8, 0x2f, 0x1c
+    };
+    static const uint8_t expected_tag[MTFS_STM32_SAES_GCM_TAG_BYTES] = {
+        0x7d, 0x47, 0x18, 0xa8, 0x44, 0x03, 0x70, 0x6c,
+        0xda, 0x77, 0x37, 0x43, 0x86, 0x3a, 0x29, 0xbc
+    };
+    uint8_t tag[MTFS_STM32_SAES_GCM_TAG_BYTES];
+    mtfs_stm32_saes_status_t status;
+    size_t index;
+    int cipher_matches;
+    int tag_matches;
+    int failed;
+
+    for (index = 0U; index < sizeof(expected_ciphertext); ++index) {
+        test_plaintext[index] = pattern_byte(index);
+    }
+    status = mtfs_stm32_saes_encrypt_wrapped(&crypto_context,
+        &test_wrapped_key, nonce, aad, sizeof(aad) - 1U,
+        test_plaintext, sizeof(expected_ciphertext), test_ciphertext, tag);
+    cipher_matches = (status == MTFS_STM32_SAES_OK) &&
+        (memcmp(test_ciphertext, expected_ciphertext,
+            sizeof(expected_ciphertext)) == 0);
+    tag_matches = (status == MTFS_STM32_SAES_OK) &&
+        (memcmp(tag, expected_tag, sizeof(expected_tag)) == 0);
+    failed = !cipher_matches || !tag_matches;
+    mtfs_stm32_saes_zeroize(tag, sizeof(tag));
+    mtfs_stm32_saes_zeroize(test_plaintext, sizeof(expected_ciphertext));
+    mtfs_stm32_saes_zeroize(test_ciphertext, sizeof(expected_ciphertext));
+    tm_printf((UB *)"[crypto] OpenSSL interoperability bytes=37 cipher=%s tag=%s overall=%s hal=%u error=0x%08x\n",
+        cipher_matches ? (UB *)"PASS" : (UB *)"FAIL",
+        tag_matches ? (UB *)"PASS" : (UB *)"FAIL",
+        failed ? (UB *)"FAIL" : (UB *)"PASS",
+        crypto_context.last_hal_status, crypto_context.last_hal_error);
+    return failed;
+}
+
 static int run_consistency(void)
 {
-    static const size_t sizes[] = {0U, 37U, 4096U, 16384U, 65536U};
+    static const size_t sizes[] = {
+        0U, 37U, 4096U, 16384U, MTFS_STM32_SAES_MAX_DATA_BYTES
+    };
     size_t index;
     int failed = init_and_wrap();
+    if (!failed) {
+        failed |= interoperability_case();
+    }
     for (index = 0U; (index < sizeof(sizes) / sizeof(sizes[0])) && !failed;
         ++index) {
-        failed |= consistency_case(sizes[index], (uint32_t)index + 1U);
+        failed |= consistency_case(sizes[index], (uint32_t)index + 1U, 0);
     }
     if (!failed) {
         /* Prove that the persisted blob is usable after handle reinitialization. */
@@ -202,7 +256,7 @@ static int run_consistency(void)
         failed |= mtfs_stm32_saes_init(&crypto_context) != MTFS_STM32_SAES_OK;
         test_wrapped_key = saved;
         mtfs_stm32_saes_zeroize(&saved, sizeof(saved));
-        failed |= consistency_case(37U, UINT32_C(0x80000001));
+        failed |= consistency_case(37U, UINT32_C(0x80000001), 1);
     }
     mtfs_stm32_saes_zeroize(&test_wrapped_key, sizeof(test_wrapped_key));
     tm_printf((UB *)"[crypto] consistency overall %s\n",
@@ -482,10 +536,10 @@ cleanup:
     mtfs_stm32_saes_zeroize(test_ciphertext, sizeof(test_ciphertext));
     if (opened) (void)f_close(&package_file);
     if (mounted) (void)f_mount(NULL, "0:", 0U);
-    tm_printf((UB *)"[crypto-negative] package envelope-tag=%s chunk-ciphertext=%s chunk-tag=%s output-zeroize=%s %s\n",
-        envelope_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
-        cipher_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
-        tag_rejected ? (UB *)"REJECT" : (UB *)"FAIL",
+    tm_printf((UB *)"[crypto-negative] package envelope-tag-tamper=%s chunk-ciphertext-tamper=%s chunk-tag-tamper=%s output-zeroize=%s overall=%s\n",
+        envelope_rejected ? (UB *)"PASS" : (UB *)"FAIL",
+        cipher_rejected ? (UB *)"PASS" : (UB *)"FAIL",
+        tag_rejected ? (UB *)"PASS" : (UB *)"FAIL",
         (envelope_rejected && cipher_rejected && tag_rejected) ?
             (UB *)"PASS" : (UB *)"FAIL",
         (envelope_rejected && cipher_rejected && tag_rejected) ?
@@ -506,8 +560,9 @@ static void print_info(void)
     tm_printf((UB *)"[crypto] build=FullSecure privileged=%u CONTROL=0x%08x SAES_CR=0x%08x SAES_SR=0x%08x\n",
         (__get_CONTROL() & CONTROL_nPRIV_Msk) == 0U ? 1U : 0U,
         __get_CONTROL(), SAES->CR, SAES->SR);
-    tm_printf((UB *)"[crypto] HAL-auth-policy=middleware-tag-compare publish-after-auth max-data=%u max-aad=%u\n",
-        MTFS_STM32_SAES_MAX_DATA_BYTES, MTFS_STM32_SAES_MAX_AAD_BYTES);
+    tm_printf((UB *)"[crypto] HAL-auth-policy=middleware-tag-compare publish-after-auth max-data=%u max-aad=%u hal-call-max=%u\n",
+        MTFS_STM32_SAES_MAX_DATA_BYTES, MTFS_STM32_SAES_MAX_AAD_BYTES,
+        UINT16_MAX);
     if (mtfs_stm32n6570_nor_open(&io, &bsp_error) == 0) {
         store_status = mtfs_stm32_nor_key_store_load(&io, &stored_key,
             &metadata, &diagnostics);

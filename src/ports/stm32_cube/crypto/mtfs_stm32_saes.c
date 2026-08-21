@@ -6,6 +6,9 @@
 #include "stm32n6xx_hal_rcc.h"
 
 #define MTFS_STM32_SAES_TIMEOUT_MS (1000U)
+/* HAL1 takes uint16_t Size.  Non-final GCM calls must end on a block. */
+#define MTFS_STM32_SAES_HAL_SEGMENT_BYTES \
+    ((uint16_t)(UINT16_MAX & ~(UINT16_C(16) - UINT16_C(1))))
 
 typedef union mtfs_stm32_saes_data_buffer
 {
@@ -111,16 +114,10 @@ static void select_byte_data_type(mtfs_stm32_saes_context_t *context)
         SAES_CONV_DATATYPE(CRYP_DATATYPE_8B));
 }
 
-static void unpack_tag(uint8_t tag[MTFS_STM32_SAES_GCM_TAG_BYTES])
+static void copy_tag(uint8_t tag[MTFS_STM32_SAES_GCM_TAG_BYTES])
 {
-    size_t word;
-    for (word = 0U; word < 4U; ++word) {
-        uint32_t value = tag_work[word];
-        tag[word * 4U] = (uint8_t)(value >> 24);
-        tag[word * 4U + 1U] = (uint8_t)(value >> 16);
-        tag[word * 4U + 2U] = (uint8_t)(value >> 8);
-        tag[word * 4U + 3U] = (uint8_t)value;
-    }
+    /* CRYP_DATATYPE_8B already converts DOUTR to byte-string memory order. */
+    memcpy(tag, tag_work, MTFS_STM32_SAES_GCM_TAG_BYTES);
 }
 
 static int constant_time_equal(const uint8_t *left, const uint8_t *right,
@@ -209,9 +206,45 @@ static mtfs_stm32_saes_status_t prepare(
      */
     context->cryp.Init.Algorithm = CRYP_AES_GCM;
     context->cryp.Init.KeyMode = CRYP_KEYMODE_NORMAL;
+    context->cryp.Init.KeyIVConfigSkip = CRYP_KEYIVCONFIG_ONCE;
+    context->cryp.KeyIVConfig = 0U;
+    context->cryp.SizesSum = 0U;
     MODIFY_REG(SAES->CR, SAES_CR_CHMOD | SAES_CR_KMOD,
         SAES_CR_CHMOD_AES_GCM | CRYP_KEYMODE_NORMAL);
     select_byte_data_type(context);
+    return MTFS_STM32_SAES_OK;
+}
+
+static mtfs_stm32_saes_status_t process_payload(
+    mtfs_stm32_saes_context_t *context, size_t bytes, int encrypt)
+{
+    size_t offset = 0U;
+
+    do {
+        size_t remaining = bytes - offset;
+        uint16_t segment = (remaining > UINT16_MAX) ?
+            MTFS_STM32_SAES_HAL_SEGMENT_BYTES : (uint16_t)remaining;
+        HAL_StatusTypeDef hal_status;
+
+        if (encrypt) {
+            hal_status = HAL_CRYP_Encrypt(&context->cryp,
+                input_work.words + (offset / sizeof(uint32_t)), segment,
+                output_work.words + (offset / sizeof(uint32_t)),
+                MTFS_STM32_SAES_TIMEOUT_MS);
+        } else {
+            hal_status = HAL_CRYP_Decrypt(&context->cryp,
+                input_work.words + (offset / sizeof(uint32_t)), segment,
+                output_work.words + (offset / sizeof(uint32_t)),
+                MTFS_STM32_SAES_TIMEOUT_MS);
+        }
+        if (record_hal(context, hal_status, encrypt ?
+            MTFS_STM32_SAES_HAL_ENCRYPT : MTFS_STM32_SAES_HAL_DECRYPT) !=
+            MTFS_STM32_SAES_OK) {
+            return MTFS_STM32_SAES_HAL_ERROR;
+        }
+        offset += segment;
+    } while (offset < bytes);
+
     return MTFS_STM32_SAES_OK;
 }
 
@@ -300,10 +333,7 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_encrypt_wrapped(
     }
     status = prepare(context, wrapped_key, nonce, aad, aad_bytes);
     if (status == MTFS_STM32_SAES_OK) {
-        hal_status = HAL_CRYP_Encrypt(&context->cryp, input_work.words,
-            (uint32_t)plaintext_bytes, output_work.words,
-            MTFS_STM32_SAES_TIMEOUT_MS);
-        status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_ENCRYPT);
+        status = process_payload(context, plaintext_bytes, 1);
     }
     if (status == MTFS_STM32_SAES_OK) {
         hal_status = HAL_CRYPEx_AESGCM_GenerateAuthTAG(&context->cryp,
@@ -314,7 +344,7 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_encrypt_wrapped(
         if (plaintext_bytes != 0U) {
             memcpy(ciphertext, output_work.bytes, plaintext_bytes);
         }
-        unpack_tag(tag);
+        copy_tag(tag);
     } else {
         mtfs_stm32_saes_zeroize(ciphertext, plaintext_bytes);
         mtfs_stm32_saes_zeroize(tag, MTFS_STM32_SAES_GCM_TAG_BYTES);
@@ -347,10 +377,7 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_decrypt_wrapped(
     }
     status = prepare(context, wrapped_key, nonce, aad, aad_bytes);
     if (status == MTFS_STM32_SAES_OK) {
-        hal_status = HAL_CRYP_Decrypt(&context->cryp, input_work.words,
-            (uint32_t)ciphertext_bytes, output_work.words,
-            MTFS_STM32_SAES_TIMEOUT_MS);
-        status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_DECRYPT);
+        status = process_payload(context, ciphertext_bytes, 0);
     }
     if (status == MTFS_STM32_SAES_OK) {
         hal_status = HAL_CRYPEx_AESGCM_GenerateAuthTAG(&context->cryp,
@@ -358,7 +385,7 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_decrypt_wrapped(
         status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_TAG);
     }
     if (status == MTFS_STM32_SAES_OK) {
-        unpack_tag(generated_tag);
+        copy_tag(generated_tag);
         if (!constant_time_equal(generated_tag, tag, sizeof(generated_tag))) {
             status = MTFS_STM32_SAES_AUTH_FAILED;
         }
