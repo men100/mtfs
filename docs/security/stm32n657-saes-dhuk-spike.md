@@ -2,10 +2,10 @@
 
 - Phase: 4.1B-ST
 - Baseline: STM32Cube FW_N6 V1.3.0, STM32N6570-DK FullSecure LRUN
-- Status: implementation/build ready; hardware pending
-- Safety: no NOR erase/program, OTP write, lifecycle change, tamper setup, or debug lock was performed during implementation
+- Status: **HARDWARE PASS** on STM32N6570-DK
+- Safety: key-store erase/program was limited to the reserved final two 4 KiB NOR subsectors; no OTP write, lifecycle change, tamper setup, or debug lock was performed
 
-This document separates facts confirmed from the official Cube sources from results that still require a board. A successful build is not a hardware result. Phase 4.1B-ST must not be called **HARDWARE PASS** until every hardware gate in this document has passed.
+This document records both the Cube-source mapping and the completed STM32N6570-DK hardware run. Build success alone was not treated as a hardware result; the status was changed to **HARDWARE PASS** only after provisioning, reset/power-cycle persistence, GCM interoperability/negative tests, and the sealed-package path passed on the board.
 
 ## SAES/DHUK mapping
 
@@ -14,13 +14,13 @@ The provider is implemented in `src/ports/stm32_cube/crypto/mtfs_stm32_saes.c`. 
 | Operation | Cube FW_N6 V1.3.0 path |
 |---|---|
 | Wrap a 32-byte AES-256 application key | `HAL_CRYPEx_WrapKey()` with `KeySelect=CRYP_KEYSEL_HW` (DHUK), `KeyMode=CRYP_KEYMODE_WRAPPED`, AES-256, and key protection disabled |
-| Use the wrapped key without returning plaintext to software | `KeyMode=CRYP_KEYMODE_WRAPPED`, followed by `HAL_CRYP_Encrypt()` or `HAL_CRYP_Decrypt()` |
+| Use the wrapped key without returning plaintext to software | `HAL_CRYPEx_UnwrapKey()` in ECB wrapped-key mode loads the key into write-only SAES state; GCM then runs with `KeyMode=CRYP_KEYMODE_NORMAL` without exporting the key to software |
 | GCM tag | `HAL_CRYPEx_AESGCM_GenerateAuthTAG()` after the payload operation |
 | Clear transient SAES state | `HAL_CRYP_DeInit()`, SAES peripheral force/release reset, context/buffer zeroization |
 
 The Cube API represents an AES-256 wrapped key as eight 32-bit words: exactly 32 bytes, with 4-byte alignment. Wrap and unwrap use the official example's 32-bit no-swap setting; the provider packs the raw AES byte string into words and switches to 8-bit data swapping only after unwrap for GCM byte-string input. The repository record provider ID is `MTFS_WRAPPED_KEY_PROVIDER_STM32_SAES_DHUK`; it is deliberately different from the 52-byte RA RSIP-E50D blob.
 
-For a 96-bit GCM nonce, the provider loads the three nonce words and the initial counter word `2`, as required by the STM32 HAL contract. AAD and non-block-multiple final payloads are passed through the HAL one-shot path. Current limits are 64 KiB payload and 4 KiB AAD per operation. Static aligned buffers make the spike single-threaded and non-reentrant; multipart, DMA, and shared-key optimizations are not part of this phase.
+For a 96-bit GCM nonce, the provider loads the three nonce words and the initial counter word `2`, as required by the STM32 HAL contract. AAD and non-block-multiple final payloads are passed through one logical AEAD operation. The provider limit is 64 KiB payload and 4 KiB AAD; because the HAL payload-length argument is 16 bit, exactly 64 KiB is submitted internally as 65,520 bytes plus 16 bytes with `CRYP_KEYIVCONFIG_ONCE`. This is not a 65,535-byte cryptographic limit. Static aligned buffers make the spike single-threaded and non-reentrant; DMA and shared-key optimizations are not part of this phase.
 
 ### Authentication failure behavior
 
@@ -32,7 +32,7 @@ The middleware always decrypts into private scratch, generates the tag, compares
 
 The provider enables and initializes SAES and RNG clocks and resets SAES after each operation. The current target remains the existing `FullSecure` LRUN application; it does not introduce a Secure/Non-Secure split. `crypto-info` reports the static FullSecure build identity, CPU privilege (`CONTROL`), selected SAES registers, and public NOR geometry.
 
-The build configuration alone does not prove runtime RIF/CID attribution or a compatible DHUK derivation context. The hardware run must capture the effective SAES/RNG/XSPI security and privilege attribution and the relevant STM32N6 security context. DHUK-wrapped data is expected to remain usable only on the same silicon and under a compatible lifecycle/tamper/HKLOCK/security context. Reset and complete-power-removal persistence are pending measurement. No H5-style HDPL claim is inferred for STM32N6.
+The hardware run reported `build=FullSecure`, `privileged=1`, and `CONTROL=0x00000000`. Successful SAES wrap/unwrap/GCM, RNG-backed provider initialization, XSPI2 NOR provisioning/readback, and SDMMC package access establish that the effective attribution permits the tested secure privileged image to access those resources. The same DHUK-wrapped record remained usable after normal restart and complete power removal/reapply, establishing a compatible derivation context for this board and configuration. No per-peripheral raw RIF/CID register dump or H5-style HDPL claim is inferred; STM32N6 product lifecycle, tamper, and HKLOCK hardening remain separate production decisions.
 
 The SESIP guidance also describes tamper, HKLOCK, redundant checks, and fault/side-channel hardening. Those production/certification measures are outside this contest spike and must not be inferred from the provider build.
 
@@ -49,7 +49,7 @@ The key store reserves the next two complete subsectors:
 
 This placement reserves the final 8 KiB of the 128 MiB MX66UW1G45G. It must remain excluded from every firmware image and explicit firmware erase range. Normal STM32CubeProgrammer image programming erases only the sectors needed by the image and does not touch these slots; an explicitly requested whole-chip erase does erase both slots and requires trusted reprovisioning.
 
-The N6570-DK BSP binding initializes XSPI2 and the NOR in OPI DTR mode and checks the detected 128 MiB/4 KiB/256-byte geometry before exposing read/erase/program callbacks. This supports LRUN/development startup without relying on an inherited memory-mapped state. Flash-boot behavior remains a hardware gate. During this implementation no board was detected and no NOR erase or write was issued.
+The N6570-DK BSP binding initializes XSPI2 and the NOR in OPI DTR mode and checks the detected 128 MiB/4 KiB/256-byte geometry before exposing read/erase/program callbacks. The first NOR open acquires the HAL timebase before BSP initialization, so `crypto-info` returns to the console instead of stalling in a BSP delay. Initial provisioning erased slot A only and committed generation 1/key version 1 with readback verification; the normal application subsequently loaded the same record after restart and complete power removal.
 
 ## Dual-slot record and commit
 
@@ -86,28 +86,32 @@ Unlike RA, STM32 uses a 32-byte SAES/DHUK blob rather than a 52-byte RSIP blob a
 
 ## Build and test result
 
-As of 2026-08-20:
+As of 2026-08-21:
 
-- Host CMake clean build and CTest: 2/2 PASS, including the simulated NOR tests.
-- Dedicated provisioning Appli Debug clean build: 0 errors, 0 warnings; text 55,860 bytes, data 3,412 bytes, BSS 147,292 bytes.
+- Host CMake clean build and CTest: 2/2 PASS under WSL with GCC 15.2.0 and OpenSSL 3.5.5, including the simulated NOR tests.
+- Dedicated provisioning Appli Debug clean build: 0 errors, 0 warnings; text 58,164 bytes, data 3,412 bytes, BSS 147,320 bytes.
 - Dedicated provisioning FSBL Debug clean build: 0 errors, 0 warnings; text 61,036 bytes, data 12 bytes, BSS 3,660 bytes.
-- Normal Appli Debug clean build: 0 errors, 0 warnings; text 201,676 bytes, data 3,412 bytes, BSS 358,940 bytes.
-- Normal Appli Release update build after the same provider change: 0 errors, 0 warnings; text 111,512 bytes, data 3,412 bytes, BSS 358,944 bytes.
-- No STM32N6570-DK was connected; all SAES, NOR, SD, RIF/security-context, reset, and power-removal claims remain hardware pending.
+- Normal Appli Debug clean build: 0 errors, 0 warnings; text 205,520 bytes, data 3,412 bytes, BSS 358,948 bytes.
+- STM32N6570-DK provisioning PASS: XMODEM received exactly 32 key bytes; NOR slot `0x07ffe000` committed generation 1/key version 1 and verified with one valid slot.
+- `crypto-consistency` PASS: OpenSSL 37-byte ciphertext/tag interoperability, payload sizes 0/37/4096/16384/65536 bytes, and a 37-byte provider-reinitialization check.
+- `crypto-negative` PASS: low-level tag/ciphertext mutation and package envelope-tag/chunk-ciphertext/chunk-tag mutation all failed closed; caller output and scratch were zeroized.
+- `crypto-package-test` PASS for `0:/MTFSTEST.MTF`: envelope, immediate model-key rewrap/raw-key zeroization, 4096- and 904-byte chunks, 5000-byte known plaintext, and SD/FatFs cleanup.
+- The NOR record and all normal-application crypto/package tests passed again after complete power removal/reapply. Existing SDMMC IDMA/IRQ, roundtrip, diagnostics-reset, and hot-plug regression records remain PASS.
+- Final repository checks found no secret-key file/signature, no actual Windows absolute path in target project files, and no tracked ELF/map/log/generated build artifact. The tracked `.hex`/`.bin` files under `tools/sealed_model/tests/vectors/` are intentional public test vectors.
 
-## Required hardware run
+## Hardware acceptance result
 
-Only after all of the following pass may the phase be marked **HARDWARE PASS**:
+All required Phase 4.1B-ST gates passed:
 
 - SAES/DHUK wrap and reuse; GCM empty/37-byte/4/16/64 KiB, AAD, partial block, reinitialization.
 - Tag/ciphertext rejection and caller-output zeroization, with observed HAL status/error recorded.
 - Initial NOR provisioning, readback, normal-app load, warm reset reuse, complete power removal/reapply reuse.
 - The exact fleet-specific `MTFSTEST.MTF`: envelope, immediate model-key wrap/zeroize, both payload chunks, known plaintext, all three RAM-only negative mutations, and FatFs cleanup.
-- FullSecure privilege plus effective SAES/RNG/XSPI RIF/CID/security-context diagnostics.
+- FullSecure privileged execution plus effective SAES/RNG/XSPI access and DHUK-context persistence. This is an operational attribution check, not a production RIF/lifecycle certification claim.
 - Existing STM32 SDMMC IDMA smoke regression.
 - Debug warning/error-free build and final ELF/map/log/repository secret scan.
 
-Optional and not performed: wrapped-record copy to a second N657, exhaustive update power-cut injection, anti-rollback, remote/production secure injection, TrustZone split, multipart/DMA/shared-key performance work, and certification hardening.
+Optional and not performed: wrapped-record copy to a second N657, exhaustive update power-cut injection, anti-rollback, remote/production secure injection, TrustZone split, DMA/shared-key performance work, and certification hardening.
 
 ## Official references
 

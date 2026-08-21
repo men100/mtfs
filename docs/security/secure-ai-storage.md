@@ -2,7 +2,7 @@
 
 この文書はPhase 4.0で確定した設計とPhase 4.1 provider spikeの結果を記録する。確定判断は
 [`ADR 0003`](../adr/0003-secure-ai-storage.md)に従う。Phase 4.1のtarget実装はRAとSTM32で進んでいるが、
-STM32はbuild ready/hardware pendingであり、実機PASSを意味しない。
+STM32N657も実機受入試験を完了し、RAとSTM32の両providerをHARDWARE PASSとした。
 
 ## 1. アーキテクチャ境界
 
@@ -477,12 +477,12 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 
 | capability | Host | EK-RA8P1 / RSIP-E50D | STM32N657 / SAES | 状態 |
 |---|---|---|---|---|
-| AES-256-GCM、16-byte tag | standard library | Compatibility + PSA hardware acceleration | Cube HAL SAES one-shot + middleware tag比較を実装 | RA実機PASS、ST build PASS/実機待ち |
-| chunk単位one-shot AEAD | v1必須経路 | PSA one-shotでRA2実機PASS | 64 KiB上限、AAD/partial対応を実装 | RA実機PASS、ST build PASS/実機待ち。multipartは将来最適化 |
+| AES-256-GCM、16-byte tag | standard library | Compatibility + PSA hardware acceleration | Cube HAL SAES + middleware tag比較 | RA/ST実機PASS |
+| chunk単位one-shot AEAD | v1必須経路 | PSA one-shotでRA2実機PASS | 64 KiB上限、AAD/partial対応。HAL 16-bit長は内部分割 | RA/ST実機PASS。DMAは将来最適化 |
 | applicationからのHUK/DHUK読出し | 該当なし | 不可。hardware wrapping rootとして使用 | 不可。SAES内部のderived key | 設計上禁止 |
-| device-bound `K_fleet` blob | test時だけemulate | Compatibility InitialKeyWrap + OSPI record | 32-byte SAES/DHUK blob + external NOR dual slotを実装 | RA実機PASS、ST Host/build PASS・実機待ち |
-| envelopeからopaque `K_model`への変換 | software handle | 復号直後にInitialKeyWrap/import | 復号直後にSAES wrapしrawをzeroize | RA2実機PASS、ST build PASS/実機待ち |
-| tag失敗時cleanup | 決定的test | PSA rejection + middleware scratch zeroization | scratch復号、生成tag定数時間比較、output zeroization | RA2実機PASS、ST build PASS/実機待ち |
+| device-bound `K_fleet` blob | test時だけemulate | Compatibility InitialKeyWrap + OSPI record | 32-byte SAES/DHUK blob + external NOR dual slot | RA/ST実機PASS |
+| envelopeからopaque `K_model`への変換 | software handle | 復号直後にInitialKeyWrap/import | 復号直後にSAES wrapしrawをzeroize | RA/ST実機PASS |
+| tag失敗時cleanup | 決定的test | PSA rejection + middleware scratch zeroization | scratch復号、生成tag定数時間比較、output zeroization | RA/ST実機PASS |
 | device evidence署名 | software test key | wrapped ECC/Ed25519 capability | PKA + SAES/CCBが候補 | 後続evidence spike |
 | TrustZone NSC隔離 | 該当なし | 現行flat buildには存在しない | splitなし。現行imageはFullSecure | 将来のみ |
 | 現行storage I/O | file-backed block device | SD over SPI、4 KiB baselineで約274 KiB/s | SDMMC IDMA、4 KiB baselineで約4.0 MiB/s | 実機検証済み |
@@ -501,8 +501,8 @@ semantic tag/sidecar、adaptive retention、event recorderは本設計の対象�
 2. TrustZone modeを変更せず、破棄可能なtarget branch/configでRA providerをspikeする。AES-256 wrapped keyの
    永続化、32-byte envelope import、4/16/64 KiB GCM、partial final block、tag失敗、abort、rebootを通す。
 3. 現行FullSecure LRUN AppliのSTM32 provider、専用provisioner、NOR dual-slot、package/negative commandを
-   実装した。Cube CRYP/CRYPEx/RNG/XSPIとN6570-DK NOR BSPを追加済みである。build後もSAES/RIF/security
-   context、reset、完全電源断、SD package、既存IDMA smokeは実機gateとして残る。
+   実装した。SAES/DHUK、NOR、reset/完全電源断、SD package、negative、OpenSSL相互運用を実機で確認し、
+   既存IDMA smoke regressionと合わせてPhase 4.1B-STをHARDWARE PASSとした。
 4. stack/BSS/scratch、crypto throughput、SD+crypto pipelineを測定する。合否条件は、link map上の重複なし、
    log/map/repository内のkeyなし、verify前のscratch外plaintextなし、payload I/O開始後の全failure injectionで
    destination先頭の`payload_plain_length` byteがzeroizeされ、余剰部分が変更されないこととする。
@@ -561,7 +561,7 @@ datasheetでSAES AES-128/256 GCM/CCMとDHUK/BHK hardware-key loadingを確認し
 softwareから読み出せないこと、wrapped-keyのunwrap結果がwrite-only SAES key registerへloadされることが
 記載されている。Cube FW_N6 V1.3.0では`HAL_CRYPEx_WrapKey()`、32-byte/4-byte aligned AES-256 blob、
 wrapped-key mode、および`HAL_CRYPEx_AESGCM_GenerateAuthTAG()`を確認して実装した。HAL自身は期待tagを
-照合しないためmiddleware比較が必要である。詳細と実機未完了gateは
+照合しないためmiddleware比較が必要である。実機結果と残るproduction上の対象外項目は
 [`stm32n657-saes-dhuk-spike.md`](stm32n657-saes-dhuk-spike.md)に記録する。
 
 ### 標準資料

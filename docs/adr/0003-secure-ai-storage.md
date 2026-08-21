@@ -1,6 +1,6 @@
 # ADR 0003: Secure AI Storage の初版境界と sealed model 形式
 
-- Status: Accepted; EK-RA8P1 provider hardware PASS; STM32N657 implementation/build ready, hardware pending
+- Status: Accepted; EK-RA8P1 and STM32N657 providers **HARDWARE PASS**
 - Date: 2026-08-18
 - Targets: EK-RA8P1 (RA FSP 6.5.0), STM32N6570-DK (STM32Cube FW_N6 V1.3.0), Host tests
 - Scope: architecture and interface design only
@@ -98,10 +98,10 @@ provisioning firmwareで行う。RSIP-E50D Compatibility ModeのInitialKeyWrap A
 STM32N657のcontest profileもFullSecure LRUNを維持し、専用UART/XMODEM firmwareで受けたraw
 `K_fleet`をSAESの`HAL_CRYPEx_WrapKey()`により32-byte DHUK-wrapped blobへ変換する。blobは
 MX66UW1G45Gの末尾に確保した4 KiB subsector 2個（offset `0x07FFE000`/
-`0x07FFF000`）へdual-slot保存する。通常版はwrapped modeのままGCMへ使用し、raw keyを再構成しない。
+`0x07FFF000`）へdual-slot保存する。通常版はSAES内でunwrapした鍵をsoftwareへ公開せずGCMへ使用する。
 HALは期待GCM tagを照合しないため、providerがprivate scratchへ復号し、生成tagを定数時間比較した後だけ
-caller outputへ公開する。実装、Host test、target buildまでは完了したが、SAES/NOR/SD、reset、完全電源断、
-RIF/security contextは実機未確認である。詳細は
+caller outputへ公開する。SAES/DHUK、NOR provisioning、reset/完全電源断後の再利用、OpenSSL相互運用、
+negative、SD package統合をSTM32N6570-DK実機で確認し、Phase 4.1B-STはHARDWARE PASSとした。詳細は
 [`../security/stm32n657-saes-dhuk-spike.md`](../security/stm32n657-saes-dhuk-spike.md)に定める。
 
 ### 3. sealed modelはchunked AES-256-GCMとする
