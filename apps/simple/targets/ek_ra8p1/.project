@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<projectDescription>
+	<name>mtfs_ek_ra8p1_simple</name>
+	<comment>microT-FS minimal FatFs read/write/delete sample</comment>
+	<projects></projects>
+	<buildSpec>
+		<buildCommand>
+			<name>com.renesas.cdt.ddsc.contentgen.ddscBuilder</name>
+			<arguments></arguments>
+		</buildCommand>
+		<buildCommand>
+			<name>org.eclipse.cdt.managedbuilder.core.genmakebuilder</name>
+			<triggers>clean,full,incremental,</triggers>
+			<arguments></arguments>
+		</buildCommand>
+		<buildCommand>
+			<name>org.eclipse.cdt.managedbuilder.core.ScannerConfigBuilder</name>
+			<triggers>full,incremental,</triggers>
+			<arguments></arguments>
+		</buildCommand>
+		<buildCommand>
+			<name>com.renesas.cdt.ddsc.contentgen.ddscInterlockBundleBuilder</name>
+			<arguments></arguments>
+		</buildCommand>
+		<buildCommand>
+			<name>com.renesas.cdt.managedbuild.jsoncdb.compilationdatabase.compilationDatabaseBuilder</name>
+			<arguments></arguments>
+		</buildCommand>
+	</buildSpec>
+	<natures>
+		<nature>org.eclipse.cdt.core.cnature</nature>
+		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
+		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
+		<nature>com.renesas.cdt.ddsc.contentgen.ddscNature</nature>
+		<nature>com.renesas.cdt.managedbuild.jsoncdb.compilationdatabase.CompileCommandsNature</nature>
+		<nature>com.renesas.cdt.ra.contentgen.raNature</nature>
+	</natures>
+	<linkedResources>
+		<link>
+			<name>mtfs_src</name>
+			<type>2</type>
+			<locationURI>PARENT-4-PROJECT_LOC/src</locationURI>
+		</link>
+		<link>
+			<name>mtk3_bsp2</name>
+			<type>2</type>
+			<locationURI>PARENT-4-PROJECT_LOC/mtk3_bsp2</locationURI>
+		</link>
+		<link>
+			<name>simple_app</name>
+			<type>2</type>
+			<locationURI>PARENT-2-PROJECT_LOC/application</locationURI>
+		</link>
+	</linkedResources>
+</projectDescription>
