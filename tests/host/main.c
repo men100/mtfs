@@ -18,7 +18,7 @@
 #include "test_ra_sd_spi_deadline.h"
 #include "test_benchmark.h"
 #include "test_block_diagnostics.h"
-#include "test_rtc_set_app.h"
+#include "test_console.h"
 #include "test_time_provider.h"
 #include "test_wrapped_key_record.h"
 
@@ -168,7 +168,7 @@ int main(void)
     if (test_ra_sd_spi_deadline(&test) != 0) {
         goto cleanup;
     }
-    if (test_rtc_set_app(&test) != 0) {
+    if (test_console(&test) != 0) {
         goto cleanup;
     }
     if (test_block_diagnostics(&test) != 0) {

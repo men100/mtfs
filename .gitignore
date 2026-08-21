@@ -67,10 +67,6 @@ tests/targets/stm32n6570_dk/basic/Appli/Debug/
 tests/targets/stm32n6570_dk/basic/Appli/Release/
 tests/targets/stm32n6570_dk/basic/FSBL/Debug/
 tests/targets/stm32n6570_dk/basic/FSBL/Release/
-apps/rtc-set/targets/stm32n6570_dk/Appli/Debug/
-apps/rtc-set/targets/stm32n6570_dk/Appli/Release/
-apps/rtc-set/targets/stm32n6570_dk/FSBL/Debug/
-apps/rtc-set/targets/stm32n6570_dk/FSBL/Release/
 apps/key-provision/targets/stm32n6570_dk/Appli/Debug/
 apps/key-provision/targets/stm32n6570_dk/Appli/Release/
 apps/key-provision/targets/stm32n6570_dk/FSBL/Debug/
@@ -78,7 +74,6 @@ apps/key-provision/targets/stm32n6570_dk/FSBL/Release/
 
 # STM32N6570-DK consumer-specific debug launch configurations are shared
 !tests/targets/stm32n6570_dk/basic/FSBL/*.launch
-!apps/rtc-set/targets/stm32n6570_dk/FSBL/*.launch
 !apps/key-provision/targets/stm32n6570_dk/FSBL/*.launch
 
 # 子プロジェクト配下を含む .settings は原則無視

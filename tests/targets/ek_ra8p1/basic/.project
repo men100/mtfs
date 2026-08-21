@@ -23,7 +23,7 @@
 		<link><name>FatFs</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/fatfs</locationURI></link>
 		<link><name>mtfs_block</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/block</locationURI></link>
 		<link><name>mtfs_os</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/os/microtkernel</locationURI></link>
-		<link><name>mtfs_rtc_set_app</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/apps/rtc-set/common</locationURI></link>
+		<link><name>mtfs_console</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/console</locationURI></link>
 		<link><name>mtfs_sd_spi</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/src/ports/ra_fsp/sd_spi</locationURI></link>
 		<link><name>mtfs_test_framework</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/framework</locationURI></link>
 		<link><name>mtfs_test_cases</name><type>2</type><locationURI>PARENT-4-PROJECT_LOC/tests/common/cases</locationURI></link>

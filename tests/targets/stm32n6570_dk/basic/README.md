@@ -171,7 +171,7 @@ source変更時はbackup domain/markerを明示的に無効化してください
 現在はFull Secure imageなのでRTC/TAMP secure aliasへ直接アクセスします。将来TrustZone化
 する場合は設定とmarker writeをSecure側へ残し、Non-Secure側には検証済みread serviceだけを
 公開します。Cube再生成後はHAL RTC module/source link、`MTFS_FF_FS_NORTC=0`、
-`MTFS_TARGET_RTC_CONSOLE`、`mtfs_stm32_rtc`/`mtfs_rtc_set_app` linked resourceを
+`MTFS_TARGET_RTC_CONSOLE`、`mtfs_stm32_rtc`/`mtfs_console` linked resourceを
 再確認してください。
 
 ## Card Detect構成

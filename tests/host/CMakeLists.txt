@@ -24,7 +24,7 @@ add_executable(mtfs_host_tests
     test_block_diagnostics.c
     test_media_lifecycle.c
     test_ra_sd_spi_deadline.c
-    test_rtc_set_app.c
+    test_console.c
     test_time_provider.c
     test_wrapped_key_record.c
     ../common/framework/mtfs_test.c
@@ -33,7 +33,7 @@ add_executable(mtfs_host_tests
     ../common/cases/test_fatfs_lfn.c
     ../common/cases/test_fatfs_roundtrip.c
     ../common/cases/test_fatfs_timestamp.c
-    ../../apps/rtc-set/common/mtfs_rtc_set_app.c
+    ../common/console/mtfs_console.c
     ../../src/block/mtfs_block_device.c
     ../../src/block/mtfs_block_diagnostics.c
     ../../src/block/mtfs_block_registry.c
@@ -70,7 +70,7 @@ target_include_directories(mtfs_host_tests PRIVATE
     ../../src/ports/host
     ../../src/ports/ra_fsp/sd_spi
     ../../src/ports/stm32_cube/crypto
-    ../../apps/rtc-set/common
+    ../common/console
     ../common/framework
     ../common/benchmarks
     ../common/cases

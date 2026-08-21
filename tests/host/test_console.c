@@ -1,21 +1,21 @@
-#include "test_rtc_set_app.h"
+#include "test_console.h"
 
 #include <stddef.h>
 #include <string.h>
 
-#include "mtfs_rtc_set_app.h"
+#include "mtfs_console.h"
 
-typedef struct rtc_set_fixture
+typedef struct console_fixture
 {
     char output[512];
     size_t output_length;
     char command[64];
     unsigned int command_count;
-} rtc_set_fixture_t;
+} console_fixture_t;
 
 static void fixture_write(void *opaque, const char *text)
 {
-    rtc_set_fixture_t *fixture = (rtc_set_fixture_t *)opaque;
+    console_fixture_t *fixture = (console_fixture_t *)opaque;
     size_t length = strlen(text);
     size_t remaining = sizeof(fixture->output) - fixture->output_length - 1U;
 
@@ -29,7 +29,7 @@ static void fixture_write(void *opaque, const char *text)
 
 static int fixture_command(void *opaque, const char *line)
 {
-    rtc_set_fixture_t *fixture = (rtc_set_fixture_t *)opaque;
+    console_fixture_t *fixture = (console_fixture_t *)opaque;
 
     ++fixture->command_count;
     strncpy(fixture->command, line, sizeof(fixture->command) - 1U);
@@ -37,23 +37,23 @@ static int fixture_command(void *opaque, const char *line)
     return 1;
 }
 
-static void fixture_feed(mtfs_rtc_set_app_t *app, const char *text)
+static void fixture_feed(mtfs_console_t *console, const char *text)
 {
     while (*text != '\0') {
-        mtfs_rtc_set_app_feed(app, *text++);
+        mtfs_console_feed(console, *text++);
     }
 }
 
-int test_rtc_set_app(mtfs_test_t *test)
+int test_console(mtfs_test_t *test)
 {
-    mtfs_rtc_set_app_t app;
-    rtc_set_fixture_t fixture;
+    mtfs_console_t console;
+    console_fixture_t fixture;
 
     memset(&fixture, 0, sizeof(fixture));
-    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
-    mtfs_rtc_set_app_set_extension(
-        &app, fixture_command, &fixture, NULL);
-    fixture_feed(&app, "probe\r\n");
+    mtfs_console_init(&console, fixture_write, &fixture);
+    mtfs_console_set_extension(
+        &console, fixture_command, &fixture, NULL);
+    fixture_feed(&console, "probe\r\n");
     if (!MTFS_TEST_CHECK(test,
             fixture.command_count == 1U &&
                 strcmp(fixture.command, "probe") == 0 &&
@@ -63,10 +63,10 @@ int test_rtc_set_app(mtfs_test_t *test)
     }
 
     memset(&fixture, 0, sizeof(fixture));
-    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
-    mtfs_rtc_set_app_set_extension(
-        &app, fixture_command, &fixture, "probe                     probe extension\r\n");
-    mtfs_rtc_set_app_execute(&app, "help");
+    mtfs_console_init(&console, fixture_write, &fixture);
+    mtfs_console_set_extension(
+        &console, fixture_command, &fixture, "probe                     probe extension\r\n");
+    mtfs_console_execute(&console, "help");
     if (!MTFS_TEST_CHECK(test,
             strncmp(fixture.output, "help ", 5U) == 0 &&
                 strstr(fixture.output, "rtc-get ") != NULL &&
@@ -79,11 +79,11 @@ int test_rtc_set_app(mtfs_test_t *test)
     }
 
     memset(&fixture, 0, sizeof(fixture));
-    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
-    mtfs_rtc_set_app_set_extension(
-        &app, fixture_command, &fixture, NULL);
-    mtfs_rtc_set_app_execute(&app, "rtc-status");
-    mtfs_rtc_set_app_execute(&app, "status");
+    mtfs_console_init(&console, fixture_write, &fixture);
+    mtfs_console_set_extension(
+        &console, fixture_command, &fixture, NULL);
+    mtfs_console_execute(&console, "rtc-status");
+    mtfs_console_execute(&console, "status");
     if (!MTFS_TEST_CHECK(test,
             strcmp(fixture.output, "status: UNAVAILABLE\r\n") == 0 &&
                 fixture.command_count == 1U &&
@@ -93,10 +93,10 @@ int test_rtc_set_app(mtfs_test_t *test)
     }
 
     memset(&fixture, 0, sizeof(fixture));
-    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
-    mtfs_rtc_set_app_set_extension(
-        &app, fixture_command, &fixture, NULL);
-    fixture_feed(&app, "\r\n");
+    mtfs_console_init(&console, fixture_write, &fixture);
+    mtfs_console_set_extension(
+        &console, fixture_command, &fixture, NULL);
+    fixture_feed(&console, "\r\n");
     if (!MTFS_TEST_CHECK(test,
             fixture.command_count == 0U &&
                 strcmp(fixture.output, "\r\n> ") == 0,
@@ -105,10 +105,10 @@ int test_rtc_set_app(mtfs_test_t *test)
     }
 
     memset(&fixture, 0, sizeof(fixture));
-    mtfs_rtc_set_app_init(&app, fixture_write, &fixture);
-    mtfs_rtc_set_app_set_extension(
-        &app, fixture_command, &fixture, NULL);
-    fixture_feed(&app, "abc\b\r");
+    mtfs_console_init(&console, fixture_write, &fixture);
+    mtfs_console_set_extension(
+        &console, fixture_command, &fixture, NULL);
+    fixture_feed(&console, "abc\b\r");
     if (!MTFS_TEST_CHECK(test,
             fixture.command_count == 1U &&
                 strcmp(fixture.command, "ab") == 0 &&

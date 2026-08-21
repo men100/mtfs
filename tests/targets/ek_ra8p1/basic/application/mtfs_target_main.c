@@ -30,8 +30,8 @@
 #define MTFS_TARGET_RTC_CONSOLE (0)
 #endif
 #if !MTFS_FF_FS_NORTC && MTFS_TARGET_RTC_CONSOLE
-#include "mtfs_rtc_set_app.h"
-#include "mtfs_rtc_set_tmonitor.h"
+#include "mtfs_console.h"
+#include "mtfs_console_tmonitor.h"
 #include "test_fatfs_timestamp.h"
 #define MTFS_TARGET_COMMAND_CONSOLE_ACTIVE (1)
 #else
@@ -211,9 +211,9 @@ cleanup:
 
 static void target_command_console(void)
 {
-    mtfs_rtc_set_app_t app;
-    mtfs_rtc_set_app_init(&app, mtfs_rtc_set_tmonitor_write, NULL);
-    mtfs_rtc_set_app_set_extension(&app, target_console_command, NULL,
+    mtfs_console_t console;
+    mtfs_console_init(&console, mtfs_console_tmonitor_write, NULL);
+    mtfs_console_set_extension(&console, target_console_command, NULL,
         "test-roundtrip [rounds]   run storage suite (default: profile)\r\n"
         "test-hotplug              run one remove/reinsert storage test\r\n"
         "test-fatfs-time           verify FatFs timestamp against RTC\r\n"
@@ -231,14 +231,14 @@ static void target_command_console(void)
         "crypto-package-test       verify fleet-specific SD test package\r\n"
 #endif
         );
-    mtfs_rtc_set_tmonitor_write(NULL,
+    mtfs_console_tmonitor_write(NULL,
         "microT-FS EK-RA8P1 command console\r\n"
         "Commands: RTC, storage tests, benchmark, and crypto diagnostics.\r\n"
         "RTC set uses local time; no timezone/DST conversion.\r\n"
         "Type help for commands.\r\n> ");
     for (;;) {
-        mtfs_rtc_set_app_feed(&app,
-            (char)mtfs_rtc_set_tmonitor_getchar());
+        mtfs_console_feed(&console,
+            (char)mtfs_console_tmonitor_getchar());
     }
 }
 #endif
