@@ -196,29 +196,40 @@ static int validate_key(const mtfs_stm32_saes_wrapped_key_t *key)
     static const uint8_t aad[] = "MTFS-PROVISION-v1";
     uint8_t plain[37], cipher[37], recovered[37], tag[16];
     mtfs_stm32_saes_status_t status;
+    const char *stage = "encrypt";
     size_t index;
     for (index = 0U; index < sizeof(plain); ++index)
         plain[index] = (uint8_t)(index * 9U + 5U);
     status = mtfs_stm32_saes_encrypt_wrapped(&crypto_context, key, nonce,
         aad, sizeof(aad) - 1U, plain, sizeof(plain), cipher, tag);
-    if (status == MTFS_STM32_SAES_OK) {
-        status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context, key, nonce,
-            aad, sizeof(aad) - 1U, cipher, sizeof(cipher), tag, recovered);
-    }
-    if ((status != MTFS_STM32_SAES_OK) ||
-        (memcmp(plain, recovered, sizeof(plain)) != 0)) goto fail;
-    tag[0] ^= 1U;
-    memset(recovered, 0xa5, sizeof(recovered));
+    if (status != MTFS_STM32_SAES_OK) goto fail;
+    stage = "positive-decrypt";
     status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context, key, nonce,
         aad, sizeof(aad) - 1U, cipher, sizeof(cipher), tag, recovered);
-    if ((status != MTFS_STM32_SAES_AUTH_FAILED) ||
-        !all_zero(recovered, sizeof(recovered))) goto fail;
+    if (status != MTFS_STM32_SAES_OK) goto fail;
+    stage = "positive-compare";
+    if (memcmp(plain, recovered, sizeof(plain)) != 0) goto fail;
+    tag[0] ^= 1U;
+    memset(recovered, 0xa5, sizeof(recovered));
+    stage = "negative-decrypt";
+    status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context, key, nonce,
+        aad, sizeof(aad) - 1U, cipher, sizeof(cipher), tag, recovered);
+    if (status != MTFS_STM32_SAES_AUTH_FAILED) goto fail;
+    stage = "negative-zeroize";
+    if (!all_zero(recovered, sizeof(recovered))) goto fail;
     mtfs_stm32_saes_zeroize(plain, sizeof(plain));
     mtfs_stm32_saes_zeroize(cipher, sizeof(cipher));
     mtfs_stm32_saes_zeroize(recovered, sizeof(recovered));
     mtfs_stm32_saes_zeroize(tag, sizeof(tag));
     return 1;
 fail:
+    tm_printf((UB *)"[provision] wrapped-key validation FAIL stage=%s status=%s hal-op=%s hal=%u error=0x%08x CR=0x%08x SR=0x%08x ISR=0x%08x\n",
+        (UB *)stage, (UB *)mtfs_stm32_saes_status_string(status),
+        (UB *)mtfs_stm32_saes_hal_operation_string(
+            crypto_context.last_hal_operation),
+        crypto_context.last_hal_status, crypto_context.last_hal_error,
+        crypto_context.last_saes_cr, crypto_context.last_saes_sr,
+        crypto_context.last_saes_isr);
     mtfs_stm32_saes_zeroize(plain, sizeof(plain));
     mtfs_stm32_saes_zeroize(cipher, sizeof(cipher));
     mtfs_stm32_saes_zeroize(recovered, sizeof(recovered));
@@ -304,8 +315,13 @@ static void provision(int allow_update)
     mtfs_stm32_saes_zeroize(raw_key, sizeof(raw_key));
     if ((crypto_status != MTFS_STM32_SAES_OK) ||
         !all_zero(raw_key, sizeof(raw_key))) {
-        tm_printf((UB *)"[provision] FAIL DHUK wrap status=%s; NOR unchanged\n",
-            (UB *)mtfs_stm32_saes_status_string(crypto_status));
+        tm_printf((UB *)"[provision] FAIL DHUK wrap status=%s hal-op=%s hal=%u error=0x%08x CR=0x%08x SR=0x%08x ISR=0x%08x; NOR unchanged\n",
+            (UB *)mtfs_stm32_saes_status_string(crypto_status),
+            (UB *)mtfs_stm32_saes_hal_operation_string(
+                crypto_context.last_hal_operation),
+            crypto_context.last_hal_status, crypto_context.last_hal_error,
+            crypto_context.last_saes_cr, crypto_context.last_saes_sr,
+            crypto_context.last_saes_isr);
         goto cleanup;
     }
     if (!validate_key(&wrapped)) {

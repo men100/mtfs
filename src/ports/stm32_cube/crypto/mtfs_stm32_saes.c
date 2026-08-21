@@ -56,10 +56,15 @@ static void clear_work(void)
 
 static mtfs_stm32_saes_status_t record_hal(
     mtfs_stm32_saes_context_t *context,
-    HAL_StatusTypeDef status)
+    HAL_StatusTypeDef status,
+    mtfs_stm32_saes_hal_operation_t operation)
 {
     context->last_hal_status = (uint32_t)status;
     context->last_hal_error = context->cryp.ErrorCode;
+    context->last_saes_cr = SAES->CR;
+    context->last_saes_sr = SAES->SR;
+    context->last_saes_isr = SAES->ISR;
+    context->last_hal_operation = operation;
     return (status == HAL_OK) ? MTFS_STM32_SAES_OK :
         MTFS_STM32_SAES_HAL_ERROR;
 }
@@ -166,7 +171,13 @@ static mtfs_stm32_saes_status_t prepare(
     context->cryp.Init.KeySize = CRYP_KEYSIZE_256B;
     context->cryp.Init.pKey = NULL;
     context->cryp.Init.pInitVect = iv_work;
-    context->cryp.Init.Algorithm = CRYP_AES_GCM;
+    /*
+     * Unwrap is an ECB operation even when the resulting key will be used by
+     * GCM.  The N6 HAL otherwise enters key-derivation mode with CHMOD=GCM;
+     * SAES never raises CCF for that unsupported combination and the HAL
+     * reports HAL_CRYP_ERROR_TIMEOUT before consuming the wrapped key.
+     */
+    context->cryp.Init.Algorithm = CRYP_AES_ECB;
     context->cryp.Init.Header = aad_work.words;
     context->cryp.Init.HeaderSize = (uint32_t)aad_bytes;
     context->cryp.Init.DataWidthUnit = CRYP_DATAWIDTHUNIT_BYTE;
@@ -181,14 +192,25 @@ static mtfs_stm32_saes_status_t prepare(
     }
     memcpy(&wrapped_work, wrapped_key, sizeof(wrapped_work));
     status = HAL_CRYP_Init(&context->cryp);
-    if (record_hal(context, status) != MTFS_STM32_SAES_OK) {
+    if (record_hal(context, status, MTFS_STM32_SAES_HAL_INIT) !=
+        MTFS_STM32_SAES_OK) {
         return MTFS_STM32_SAES_HAL_ERROR;
     }
     status = HAL_CRYPEx_UnwrapKey(&context->cryp, wrapped_work.words,
         MTFS_STM32_SAES_TIMEOUT_MS);
-    if (record_hal(context, status) != MTFS_STM32_SAES_OK) {
+    if (record_hal(context, status, MTFS_STM32_SAES_HAL_UNWRAP) !=
+        MTFS_STM32_SAES_OK) {
         return MTFS_STM32_SAES_HAL_ERROR;
     }
+    /*
+     * Keep the unwrapped key inside SAES, but leave wrapped-key mode before
+     * using that key for ordinary data.  HAL2 does this at every data
+     * encrypt/decrypt entry; the N6 HAL1 driver does not.
+     */
+    context->cryp.Init.Algorithm = CRYP_AES_GCM;
+    context->cryp.Init.KeyMode = CRYP_KEYMODE_NORMAL;
+    MODIFY_REG(SAES->CR, SAES_CR_CHMOD | SAES_CR_KMOD,
+        SAES_CR_CHMOD_AES_GCM | CRYP_KEYMODE_NORMAL);
     select_byte_data_type(context);
     return MTFS_STM32_SAES_OK;
 }
@@ -217,11 +239,11 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_wrap_key(
     context->cryp.Init.KeySelect = CRYP_KEYSEL_HW;
     context->cryp.Init.KeyProtection = CRYP_KEYPROT_DISABLE;
     hal_status = HAL_CRYP_Init(&context->cryp);
-    status = record_hal(context, hal_status);
+    status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_INIT);
     if (status == MTFS_STM32_SAES_OK) {
         hal_status = HAL_CRYPEx_WrapKey(&context->cryp, input_work.words,
             wrapped_work.words, MTFS_STM32_SAES_TIMEOUT_MS);
-        status = record_hal(context, hal_status);
+        status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_WRAP);
     }
     if (status == MTFS_STM32_SAES_OK) {
         memcpy(wrapped_key, &wrapped_work, sizeof(*wrapped_key));
@@ -281,12 +303,12 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_encrypt_wrapped(
         hal_status = HAL_CRYP_Encrypt(&context->cryp, input_work.words,
             (uint32_t)plaintext_bytes, output_work.words,
             MTFS_STM32_SAES_TIMEOUT_MS);
-        status = record_hal(context, hal_status);
+        status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_ENCRYPT);
     }
     if (status == MTFS_STM32_SAES_OK) {
         hal_status = HAL_CRYPEx_AESGCM_GenerateAuthTAG(&context->cryp,
             tag_work, MTFS_STM32_SAES_TIMEOUT_MS);
-        status = record_hal(context, hal_status);
+        status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_TAG);
     }
     if (status == MTFS_STM32_SAES_OK) {
         if (plaintext_bytes != 0U) {
@@ -328,12 +350,12 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_decrypt_wrapped(
         hal_status = HAL_CRYP_Decrypt(&context->cryp, input_work.words,
             (uint32_t)ciphertext_bytes, output_work.words,
             MTFS_STM32_SAES_TIMEOUT_MS);
-        status = record_hal(context, hal_status);
+        status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_DECRYPT);
     }
     if (status == MTFS_STM32_SAES_OK) {
         hal_status = HAL_CRYPEx_AESGCM_GenerateAuthTAG(&context->cryp,
             tag_work, MTFS_STM32_SAES_TIMEOUT_MS);
-        status = record_hal(context, hal_status);
+        status = record_hal(context, hal_status, MTFS_STM32_SAES_HAL_TAG);
     }
     if (status == MTFS_STM32_SAES_OK) {
         unpack_tag(generated_tag);
@@ -361,6 +383,21 @@ const char *mtfs_stm32_saes_status_string(mtfs_stm32_saes_status_t status)
     case MTFS_STM32_SAES_TOO_LARGE: return "too-large";
     case MTFS_STM32_SAES_HAL_ERROR: return "hal-error";
     case MTFS_STM32_SAES_AUTH_FAILED: return "auth-failed";
+    default: return "unknown";
+    }
+}
+
+const char *mtfs_stm32_saes_hal_operation_string(
+    mtfs_stm32_saes_hal_operation_t operation)
+{
+    switch (operation) {
+    case MTFS_STM32_SAES_HAL_NONE: return "none";
+    case MTFS_STM32_SAES_HAL_INIT: return "init";
+    case MTFS_STM32_SAES_HAL_WRAP: return "wrap";
+    case MTFS_STM32_SAES_HAL_UNWRAP: return "unwrap";
+    case MTFS_STM32_SAES_HAL_ENCRYPT: return "encrypt";
+    case MTFS_STM32_SAES_HAL_DECRYPT: return "decrypt";
+    case MTFS_STM32_SAES_HAL_TAG: return "tag";
     default: return "unknown";
     }
 }

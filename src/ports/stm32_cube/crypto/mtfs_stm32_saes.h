@@ -32,12 +32,27 @@ typedef enum mtfs_stm32_saes_status
     MTFS_STM32_SAES_AUTH_FAILED = -4
 } mtfs_stm32_saes_status_t;
 
+typedef enum mtfs_stm32_saes_hal_operation
+{
+    MTFS_STM32_SAES_HAL_NONE = 0,
+    MTFS_STM32_SAES_HAL_INIT,
+    MTFS_STM32_SAES_HAL_WRAP,
+    MTFS_STM32_SAES_HAL_UNWRAP,
+    MTFS_STM32_SAES_HAL_ENCRYPT,
+    MTFS_STM32_SAES_HAL_DECRYPT,
+    MTFS_STM32_SAES_HAL_TAG
+} mtfs_stm32_saes_hal_operation_t;
+
 typedef struct mtfs_stm32_saes_context
 {
     CRYP_HandleTypeDef cryp;
     RNG_HandleTypeDef rng;
     uint32_t last_hal_status;
     uint32_t last_hal_error;
+    uint32_t last_saes_cr;
+    uint32_t last_saes_sr;
+    uint32_t last_saes_isr;
+    mtfs_stm32_saes_hal_operation_t last_hal_operation;
     uint8_t rng_ready;
 } mtfs_stm32_saes_context_t;
 
@@ -73,6 +88,8 @@ mtfs_stm32_saes_status_t mtfs_stm32_saes_decrypt_wrapped(
 
 void mtfs_stm32_saes_zeroize(void *memory, size_t bytes);
 const char *mtfs_stm32_saes_status_string(mtfs_stm32_saes_status_t status);
+const char *mtfs_stm32_saes_hal_operation_string(
+    mtfs_stm32_saes_hal_operation_t operation);
 
 #ifdef __cplusplus
 }
