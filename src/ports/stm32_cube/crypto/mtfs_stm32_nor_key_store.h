@@ -1,6 +1,10 @@
 #ifndef MTFS_STM32_NOR_KEY_STORE_H
 #define MTFS_STM32_NOR_KEY_STORE_H
 
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -89,5 +93,7 @@ const char *mtfs_stm32_nor_key_store_status_string(
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* MTFS_ENABLE_SEALED_MODEL */
 
 #endif

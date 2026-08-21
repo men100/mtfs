@@ -1,6 +1,10 @@
 #ifndef MTFS_RA8P1_OSPI_KEY_STORE_H
 #define MTFS_RA8P1_OSPI_KEY_STORE_H
 
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include <stdint.h>
 
 #include "bsp_api.h"
@@ -70,5 +74,7 @@ const char *mtfs_ra8p1_key_store_status_string(
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* MTFS_ENABLE_SEALED_MODEL */
 
 #endif /* MTFS_RA8P1_OSPI_KEY_STORE_H */

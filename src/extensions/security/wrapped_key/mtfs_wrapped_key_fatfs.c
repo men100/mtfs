@@ -1,3 +1,7 @@
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include "mtfs_wrapped_key_fatfs.h"
 
 #include <limits.h>
@@ -213,3 +217,7 @@ const char *mtfs_wrapped_key_fatfs_status_string(
         return "unknown";
     }
 }
+
+#else
+typedef int mtfs_wrapped_key_fatfs_disabled_translation_unit_t;
+#endif /* MTFS_ENABLE_SEALED_MODEL */

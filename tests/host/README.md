@@ -20,6 +20,7 @@ ctest --test-dir /tmp/mtfs-host-build --output-on-failure
 - format、unmount/remount、既知patternのround-trip
 - 2本のpthreadが別々の `FIL` で `TASKA.BIN` と `TASKB.BIN` を同時に書込み、join後に再マウントしてサイズと全内容を検証
 - read-only Disk I/Oブリッジと `FF_FS_REENTRANT=0` FatFs構成のcompile-only target
+- `MTFS_ENABLE_SEALED_MODEL=0`でOpenSSL/FSP/STM32 HALなしにoptional crypto source/headerを検証するcompile-only target
 - fake time providerによる4状態、calendar境界、閏年、FAT packing、marker set/clear
 - RTC console parserのCR/LF/CR+LF終端とBackspace編集
 - 固定fake providerと専用ファイルによるFatFs timestampの2秒精度比較

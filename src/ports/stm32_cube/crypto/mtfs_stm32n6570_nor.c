@@ -1,3 +1,7 @@
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include "mtfs_stm32n6570_nor.h"
 
 #include "mtfs_stm32_hal_timebase.h"
@@ -66,3 +70,7 @@ int mtfs_stm32n6570_nor_open(mtfs_stm32_nor_io_t *io,
     io->program = nor_program;
     return 0;
 }
+
+#else
+typedef int mtfs_stm32n6570_nor_disabled_translation_unit_t;
+#endif /* MTFS_ENABLE_SEALED_MODEL */

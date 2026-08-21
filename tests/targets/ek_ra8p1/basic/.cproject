@@ -127,6 +127,7 @@
 									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="_RAFSP_EK_RA8P1_"/>
 									<listOptionValue builtIn="false" value="MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS"/>
@@ -434,6 +435,7 @@
 									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="_RAFSP_EK_RA8P1_"/>
 								</option>

@@ -7,6 +7,14 @@
 #define MTFS_ENABLE_DIAGNOSTICS (1)
 #endif
 
+/*
+ * Optional sealed-model storage and hardware-crypto integration. Keep this
+ * disabled by default so a FatFs-only integration has no crypto dependency.
+ */
+#ifndef MTFS_ENABLE_SEALED_MODEL
+#define MTFS_ENABLE_SEALED_MODEL (0)
+#endif
+
 /* Maximum number of physical drives in the fixed block-device registry. */
 #ifndef MTFS_BLOCK_REGISTRY_SIZE
 #define MTFS_BLOCK_REGISTRY_SIZE (4U)
@@ -109,6 +117,10 @@
 
 #if (MTFS_ENABLE_DIAGNOSTICS != 0) && (MTFS_ENABLE_DIAGNOSTICS != 1)
 #error MTFS_ENABLE_DIAGNOSTICS must be 0 or 1
+#endif
+
+#if (MTFS_ENABLE_SEALED_MODEL != 0) && (MTFS_ENABLE_SEALED_MODEL != 1)
+#error MTFS_ENABLE_SEALED_MODEL must be 0 or 1
 #endif
 
 #if (MTFS_FF_FS_NORTC != 0) && (MTFS_FF_FS_NORTC != 1)

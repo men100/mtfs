@@ -53,6 +53,7 @@
 									<listOptionValue builtIn="false" value="_STM32CUBE_DISCOVERY_N657_"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_REENTRANT=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>
@@ -188,6 +189,7 @@
 									<listOptionValue builtIn="false" value="_STM32CUBE_DISCOVERY_N657_"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_REENTRANT=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>

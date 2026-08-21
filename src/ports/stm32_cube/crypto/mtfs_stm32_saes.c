@@ -1,3 +1,7 @@
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include "mtfs_stm32_saes.h"
 
 #include <string.h>
@@ -428,3 +432,7 @@ const char *mtfs_stm32_saes_hal_operation_string(
     default: return "unknown";
     }
 }
+
+#else
+typedef int mtfs_stm32_saes_disabled_translation_unit_t;
+#endif /* MTFS_ENABLE_SEALED_MODEL */

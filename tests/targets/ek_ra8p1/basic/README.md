@@ -62,7 +62,7 @@ SDカードはPC等でFAT12/FAT16/FAT32のいずれかへ事前フォーマッ�
 - **Set Source Clock in Open** はDisabled。providerが`VBTBPSR.VBPORF`でバックアップdomain喪失を検出した時だけ`clockSourceSet`を呼ぶ
 - RSIP-E50D Compatibility Mode、Arm PSA Crypto、key injection
 - OSPI_B unit 0/channel 1、standard SPI。onboard flash末尾8 KiBをHUK-wrapped fleet key専用に予約
-- `MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1`で`crypto-info`、`crypto-consistency`、`crypto-negative`、`crypto-package-test`を公開
+- `MTFS_ENABLE_SEALED_MODEL=1`と`MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1`で`crypto-info`、`crypto-consistency`、`crypto-negative`、`crypto-package-test`を公開
 - flat build専用として`MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS`を定義し、PSAのwhole-message境界copyを省く
 
 `crypto-package-test`と`crypto-negative`はPhase 4.1B-RA2のコマンドです。どちらも実際にprovisionした

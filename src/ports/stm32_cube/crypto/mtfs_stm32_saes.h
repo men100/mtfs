@@ -1,6 +1,10 @@
 #ifndef MTFS_STM32_SAES_H
 #define MTFS_STM32_SAES_H
 
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -94,5 +98,7 @@ const char *mtfs_stm32_saes_hal_operation_string(
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* MTFS_ENABLE_SEALED_MODEL */
 
 #endif /* MTFS_STM32_SAES_H */

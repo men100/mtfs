@@ -1,6 +1,7 @@
 # Wrapped-key provisioning application
 
 信頼できる作業場所でのみ使用する、通常版microT-FSとは独立したprovisioning firmwareです。
+両target projectは既定OFFのoptional機能を利用するため、`MTFS_ENABLE_SEALED_MODEL=1`を明示します。
 32-byteのraw AES-256 keyをUART/XMODEMで一時受信し、RA8P1 RSIP-E50D Compatibility Modeで
 HUK-wrapped keyへ変換して、ボード上のOSPI flashへ保存します。raw `K_fleet`はこのdirectoryにも
 firmware imageにも含めません。

@@ -14,6 +14,7 @@ RTC timestampを使うtargetは[RTC timestamp providerの移植](rtc-timestamp-p
 3. [microT-Kernel統合](microtkernel-integration.md)でmutex、IRQ、timebaseを確認する。
 4. DMAを使う場合は[DMA/cache coherencyチェックリスト](dma-cache-coherency.md)を適用する。
 5. [新規target runnerの作り方](testing-a-new-port.md)に従って試験する。
+6. sealed modelを使う場合だけ[sealed model統合](sealed-model-integration.md)を追加する。
 
 ## ソースの取り込み
 
@@ -51,6 +52,13 @@ include pathは少なくとも`src`、`src/block`、`src/fatfs`、選択したOS
 選択したportを指定します。さらにportが要求するmicroT-Kernel、CMSIS、FSPまたは
 STM32 HALの公開ヘッダへのpathが必要です。使用しないportの`.c`はビルドしません。
 特にRA FSPとSTM32Cubeのportを同じtargetへ無条件に追加しないでください。
+
+`MTFS_ENABLE_SEALED_MODEL`の既定値は0です。通常のFatFs/Block Device利用ではcrypto provider、
+wrapped-key、vendor crypto stackを追加する必要はありません。`src/`全体をsource一覧へ置いた場合も、
+microT-FSのoptional sourceはvendor headerを参照せず空のtranslation unitになります。build時間を
+短くするには、使用しない`src/extensions/security/wrapped_key/`、`src/ports/*/crypto/`とvendor
+crypto sourceをIDEのsource一覧へ追加しないでください。sealed modelを有効にする場合のsource、
+vendor stack、NVM、RAM、provisioning条件は[専用ガイド](sealed-model-integration.md)に従います。
 
 選択するport sourceは次のとおりです。
 

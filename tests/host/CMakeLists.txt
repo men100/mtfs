@@ -77,6 +77,7 @@ target_include_directories(mtfs_host_tests PRIVATE
 )
 
 target_compile_definitions(mtfs_host_tests PRIVATE
+    MTFS_ENABLE_SEALED_MODEL=1
     MTFS_FF_USE_MKFS=1
     MTFS_FF_USE_LFN=${MTFS_HOST_FF_USE_LFN}
     MTFS_FF_MAX_LFN=${MTFS_HOST_FF_MAX_LFN}
@@ -128,6 +129,23 @@ target_include_directories(mtfs_diagnostics_disabled_compile PRIVATE
 target_compile_definitions(mtfs_diagnostics_disabled_compile PRIVATE
     MTFS_ENABLE_DIAGNOSTICS=0)
 target_compile_options(mtfs_diagnostics_disabled_compile PRIVATE
+    -Wall -Wextra -Wpedantic)
+
+# Prove that the optional sealed-model sources and public headers compile
+# without OpenSSL, FSP, STM32 HAL, or their include paths when the feature is
+# disabled. Vendor headers must remain behind MTFS_ENABLE_SEALED_MODEL guards.
+add_library(mtfs_sealed_model_disabled_compile OBJECT
+    test_sealed_model_disabled_headers.c
+    ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_record.c
+    ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_fatfs.c
+    ../../src/ports/ra_fsp/crypto/mtfs_ra8p1_ospi_key_store.c
+    ../../src/ports/stm32_cube/crypto/mtfs_stm32_saes.c
+    ../../src/ports/stm32_cube/crypto/mtfs_stm32_nor_key_store.c
+    ../../src/ports/stm32_cube/crypto/mtfs_stm32n6570_nor.c
+)
+target_compile_definitions(mtfs_sealed_model_disabled_compile PRIVATE
+    MTFS_ENABLE_SEALED_MODEL=0)
+target_compile_options(mtfs_sealed_model_disabled_compile PRIVATE
     -Wall -Wextra -Wpedantic)
 target_include_directories(mtfs_fattime_disabled_compile PRIVATE
     ../../src

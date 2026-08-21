@@ -1,6 +1,10 @@
 #ifndef MTFS_WRAPPED_KEY_FATFS_H
 #define MTFS_WRAPPED_KEY_FATFS_H
 
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -58,5 +62,7 @@ const char *mtfs_wrapped_key_fatfs_status_string(
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* MTFS_ENABLE_SEALED_MODEL */
 
 #endif /* MTFS_WRAPPED_KEY_FATFS_H */

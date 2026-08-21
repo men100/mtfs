@@ -1,3 +1,7 @@
+#include "../../../mtfs_config.h"
+
+#if MTFS_ENABLE_SEALED_MODEL
+
 #include "mtfs_ra8p1_ospi_key_store.h"
 
 #include <stddef.h>
@@ -432,3 +436,7 @@ const char *mtfs_ra8p1_key_store_status_string(
         return "unknown";
     }
 }
+
+#else
+typedef int mtfs_ra8p1_ospi_key_store_disabled_translation_unit_t;
+#endif /* MTFS_ENABLE_SEALED_MODEL */
