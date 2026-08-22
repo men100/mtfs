@@ -89,3 +89,4 @@ apps/simple/targets/stm32n6570_dk/FSBL/Release/
 # ただしプロジェクトのツールチェーン指定は共有
 !**/.settings/com.renesas.cdt.managedbuild.gnuarm.prefs
 !**/.settings/com.renesas.cdt.ddsc.contentgen.options.prefs
+!**/.settings/org.eclipse.core.resources.prefs
