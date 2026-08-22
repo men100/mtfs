@@ -45,15 +45,25 @@ set_target_properties(mtfs_sealed_headers_c_compile PROPERTIES C_STANDARD 99 C_S
 
 option(MTFS_BUILD_FUZZER "Build the libFuzzer sealed-blob harness" OFF)
 if(MTFS_BUILD_FUZZER)
+    set(MTFS_SEALED_FUZZ_CORE mtfs_sealed_blob_core)
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
-        target_compile_options(mtfs_sealed_blob_core PRIVATE
+        add_library(mtfs_sealed_blob_fuzz_core STATIC ${MTFS_SEALED_CORE})
+        target_compile_definitions(mtfs_sealed_blob_fuzz_core PUBLIC
+            MTFS_ENABLE_SEALED_MODEL=1)
+        target_include_directories(mtfs_sealed_blob_fuzz_core PUBLIC
+            ../../src ../../src/extensions/security/sealed_blob)
+        target_compile_options(mtfs_sealed_blob_fuzz_core PRIVATE
+            -Wall -Wextra -Wpedantic -Werror
             -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer)
+        set_target_properties(mtfs_sealed_blob_fuzz_core PROPERTIES
+            C_STANDARD 99 C_STANDARD_REQUIRED YES)
+        set(MTFS_SEALED_FUZZ_CORE mtfs_sealed_blob_fuzz_core)
         add_executable(mtfs_sealed_blob_fuzz fuzz_sealed_blob.c)
     else()
         add_executable(mtfs_sealed_blob_fuzz fuzz_sealed_blob.c fuzz_standalone.c)
         target_compile_definitions(mtfs_sealed_blob_fuzz PRIVATE MTFS_FUZZ_STANDALONE=1)
     endif()
-    target_link_libraries(mtfs_sealed_blob_fuzz PRIVATE mtfs_sealed_blob_core)
+    target_link_libraries(mtfs_sealed_blob_fuzz PRIVATE ${MTFS_SEALED_FUZZ_CORE})
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         target_compile_options(mtfs_sealed_blob_fuzz PRIVATE
             -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
