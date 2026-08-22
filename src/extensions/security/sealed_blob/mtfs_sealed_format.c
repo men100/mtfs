@@ -157,6 +157,8 @@ mtfs_error_t mtfs_sealed_format_finish_layout(
     uint64_t value;
     if (info == NULL || layout == NULL)
         return MTFS_ERROR_INVALID_ARGUMENT;
+    if (!mtfs_valid_chunk_size(info->chunk_plain_size))
+        return MTFS_ERROR_MALFORMED_FORMAT;
     if (info->payload_plain_length != 0U)
     {
         if (info->payload_plain_length > UINT64_MAX - (info->chunk_plain_size - 1U))

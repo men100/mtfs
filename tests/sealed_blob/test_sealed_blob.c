@@ -29,6 +29,7 @@ typedef struct test_provider
     unsigned decrypt_calls;
     unsigned close_calls;
     unsigned fail_call;
+    int return_invalid_fleet_handle;
     int fleet_open;
     int model_open;
 } test_provider_t;
@@ -156,6 +157,8 @@ static mtfs_crypto_status_t provider_open_fleet(void *context, uint32_t key_id,
         return MTFS_CRYPTO_FAILED;
     if (key_id != 1U || key_version != 1U)
         return MTFS_CRYPTO_NOT_SUPPORTED;
+    if (provider->return_invalid_fleet_handle)
+        return MTFS_CRYPTO_OK;
     provider->fleet_open = 1;
     *handle = 1U;
     return MTFS_CRYPTO_OK;
@@ -403,6 +406,26 @@ static int test_faults_and_contracts(const uint8_t *package, size_t package_size
                                 &env.work, &info) == MTFS_ERROR_BUFFER_TOO_SMALL);
     CHECK(env.memory.get_size_calls == 0U);
     env_init(&env, package, package_size, fleet_key);
+    memset(&info, 0x5A, sizeof(info));
+    memset(env.manifest, 0xA5, sizeof(env.manifest));
+    memset(env.aad, 0xA5, sizeof(env.aad));
+    memset(env.ciphertext, 0xA5, sizeof(env.ciphertext));
+    memset(env.plaintext, 0xA5, sizeof(env.plaintext));
+    env.crypto.return_invalid_fleet_handle = 1;
+    CHECK(mtfs_sealed_blob_open(&env.blob, &env.reader, &env.provider,
+                                &env.work, &info) == MTFS_ERROR_CRYPTO);
+    CHECK(env.blob.state == MTFS_SEALED_BLOB_ERROR);
+    CHECK(env.blob.fleet_handle == MTFS_CRYPTO_INVALID_KEY_HANDLE &&
+          env.blob.model_handle == MTFS_CRYPTO_INVALID_KEY_HANDLE);
+    CHECK(env.crypto.close_calls == 0U && !env.crypto.fleet_open &&
+          !env.crypto.model_open);
+    CHECK(all_value((const uint8_t *)&info, sizeof(info), 0x5AU));
+    CHECK(all_value(env.manifest, sizeof(env.manifest), 0U));
+    CHECK(all_value(env.aad, sizeof(env.aad), 0U));
+    CHECK(all_value(env.ciphertext, sizeof(env.ciphertext), 0U));
+    CHECK(all_value(env.plaintext, sizeof(env.plaintext), 0U));
+    CHECK(mtfs_sealed_blob_close(&env.blob) == MTFS_OK);
+    env_init(&env, package, package_size, fleet_key);
     env.work.ciphertext_capacity--;
     CHECK(mtfs_sealed_blob_open(&env.blob, &env.reader, &env.provider,
                                 &env.work, &info) == MTFS_ERROR_BUFFER_TOO_SMALL);
@@ -595,6 +618,42 @@ static int test_metadata_rules(const uint8_t *package, size_t package_size,
     return 1;
 }
 
+static int test_layout_chunk_policy(const uint8_t *package, size_t package_size,
+                                    const uint8_t fleet_key[32])
+{
+    static const uint32_t invalid_sizes[] = {0U, 4095U, 65537U, 6000U};
+    static const uint32_t valid_sizes[] = {4096U, 16384U, 65536U};
+    mtfs_sealed_package_info_t info;
+    mtfs_sealed_layout_t layout;
+    size_t i;
+    (void)package;
+    (void)package_size;
+    (void)fleet_key;
+    memset(&info, 0, sizeof(info));
+    memset(&layout, 0, sizeof(layout));
+    info.payload_plain_length = 1U;
+    info.chunk_count = 1U;
+    layout.payload_offset = 208U;
+    for (i = 0U; i < sizeof(invalid_sizes) / sizeof(invalid_sizes[0]); ++i)
+    {
+        info.chunk_plain_size = invalid_sizes[i];
+        CHECK(mtfs_sealed_format_finish_layout(&info, &layout) ==
+              MTFS_ERROR_MALFORMED_FORMAT);
+    }
+    for (i = 0U; i < sizeof(valid_sizes) / sizeof(valid_sizes[0]); ++i)
+    {
+        info.chunk_plain_size = valid_sizes[i];
+        CHECK(mtfs_sealed_format_finish_layout(&info, &layout) == MTFS_OK);
+        CHECK(layout.expected_file_size == 225U);
+    }
+    info.payload_plain_length = 0U;
+    info.chunk_count = 0U;
+    info.chunk_plain_size = 4096U;
+    CHECK(mtfs_sealed_format_finish_layout(&info, &layout) == MTFS_OK);
+    CHECK(layout.expected_file_size == layout.payload_offset);
+    return 1;
+}
+
 static int run_test(int (*test)(const uint8_t *, size_t, const uint8_t[32]),
                     const uint8_t *package, size_t size, const uint8_t key[32])
 {
@@ -626,6 +685,7 @@ int main(int argc, char **argv)
     ok &= run_test(test_wrong_key, package, package_size, key);
     ok &= run_test(test_empty_payload, package, package_size, key);
     ok &= run_test(test_metadata_rules, package, package_size, key);
+    ok &= run_test(test_layout_chunk_policy, package, package_size, key);
     printf("sealed_blob: %u tests, %u checks, 30 mutations, 15 truncations, "
            "context=%zu info=%zu work=%zu\n", tests, checks,
            sizeof(mtfs_sealed_blob_t), sizeof(mtfs_sealed_package_info_t),

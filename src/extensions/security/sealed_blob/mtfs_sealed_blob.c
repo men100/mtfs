@@ -229,7 +229,11 @@ mtfs_error_t mtfs_sealed_blob_open(mtfs_sealed_blob_t *blob,
         candidate_layout.key_id, candidate_layout.key_version, &blob->fleet_handle);
     if (crypto_result != MTFS_CRYPTO_OK ||
         blob->fleet_handle == MTFS_CRYPTO_INVALID_KEY_HANDLE)
+    {
+        if (crypto_result == MTFS_CRYPTO_OK)
+            crypto_result = MTFS_CRYPTO_FAILED;
         return mtfs_open_fail(blob, mtfs_provider_error(crypto_result));
+    }
     blob->model_handle = MTFS_CRYPTO_INVALID_KEY_HANDLE;
     crypto_result = blob->provider.open_model_key(blob->provider.context,
         blob->fleet_handle, candidate_layout.key_nonce, blob->work.aad, aad_size,
