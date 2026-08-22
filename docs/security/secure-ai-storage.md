@@ -277,7 +277,7 @@ target/providerの責務とする。
 | RA SD SPI | 大きなread/copyは高cost。現行4 KiB baselineは約274 KiB/s | sequential I/Oが可能 | 64 KiB chunk内で4 KiBずつ逐次read。早期失敗が可能 |
 | STM32 SDMMC | 大きな連続transferが可能 | IDMA sequential readに適する | chunk内のmulti-block I/Oを維持。512-byte chunkは避ける |
 | RSIP-E50D | one-shot可能 | GCM multi-shot Update/Verifyは文書化済み | v1はchunk単位one-shotを使用。multipartは将来最適化 |
-| STM32 SAES | GCM対応 | 正確なHAL streaming動作はspikeが必要 | v1はchunk単位one-shotを必須とする。DHUK flowはspikeが必要 |
+| STM32 SAES | GCM one-shot実機確認済み | whole-object streamingは不採用 | v1のchunk単位one-shotとDHUK flowを実機確認済み。64 KiBはHALの65535-byte制限を内部分割 |
 | Host provider | 容易 | 容易 | 容易で、negative testも決定的に再現可能 |
 | 連続NPU model領域 | payload全体が必要 | payload全体が必要 | payload全体が引き続き必要。chunkingでは削減されない |
 
