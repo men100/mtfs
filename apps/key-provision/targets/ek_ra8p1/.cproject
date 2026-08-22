@@ -90,6 +90,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/crypto}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/extensions/security/wrapped_key}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/boards/ek_ra8p1}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
@@ -139,6 +140,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/crypto}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/extensions/security/wrapped_key}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/boards/ek_ra8p1}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
@@ -276,7 +278,7 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtk3_bsp2"/>
-						<entry excluding="core|extensions/ai|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/rtc|ports/ra_fsp/trustzone|fatfs/ffsystem.c|fatfs/ffunicode.c|fatfs/mtfs_fattime.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
+						<entry excluding="core|extensions/ai|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/rtc|ports/ra_fsp/trustzone|ports/ra_fsp/boards/ek_ra8p1/mtfs_ra8p1_platform.c|fatfs/ffsystem.c|fatfs/ffunicode.c|fatfs/mtfs_fattime.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="ra"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="ra_gen"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="src"/>
@@ -375,6 +377,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/crypto}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/extensions/security/wrapped_key}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/boards/ek_ra8p1}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
@@ -424,6 +427,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/crypto}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/extensions/security/wrapped_key}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/boards/ek_ra8p1}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm/mbedtls}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra_cfg/arm}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/ra/arm/mbedtls/include}&quot;"/>
@@ -561,7 +565,7 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtk3_bsp2"/>
-						<entry excluding="core|extensions/ai|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/rtc|ports/ra_fsp/trustzone|fatfs/ffsystem.c|fatfs/ffunicode.c|fatfs/mtfs_fattime.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
+						<entry excluding="core|extensions/ai|os/host|ports/host|ports/stm32_cube|ports/ra_fsp/common|ports/ra_fsp/rtc|ports/ra_fsp/trustzone|ports/ra_fsp/boards/ek_ra8p1/mtfs_ra8p1_platform.c|fatfs/ffsystem.c|fatfs/ffunicode.c|fatfs/mtfs_fattime.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="ra"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="ra_gen"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="src"/>

@@ -1,6 +1,8 @@
-# STM32N6570-DK shared Cube support
+# STM32N6570-DK shared STM32Cube assets
 
-STM32N6570-DK向けアプリケーションで共用するSTM32Cube生成資産です。
+STM32N6570-DK向けアプリケーションで共用するSTM32Cube生成・外部資産です。
+microT-FS固有のboard adapterは
+`src/ports/stm32_cube/boards/stm32n6570_dk/`に置きます。
 
 - `FSBL/`: First Stage Boot Loaderの共通Core、startup、linker script
 - `Drivers/`: STM32Cube FW_N6 HAL/CMSIS

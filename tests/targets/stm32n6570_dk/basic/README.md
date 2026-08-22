@@ -12,12 +12,12 @@ STM32N6570-DK の SDMMC2 4-bit を microT-FS の `pdrv=0` として使う実機 
 - `Appli`（`mtfs_stm32n6570_dk_test_basic_Appli`）: secure LRUN application
 - `FSBL`（`mtfs_stm32n6570_dk_test_basic_FSBL`）: basic専用の薄いbuild/debug wrapper
 
-CubeのHAL/CMSIS/ExtMemソースとFSBL実装は`boards/stm32n6570_dk/`で共通管理します。
+CubeのHAL/CMSIS/ExtMemソースとFSBL実装は`external/stm32_cube/stm32n6570_dk/`で共通管理します。
 `Appli/.project`と`FSBL/.project`は相対linked resourceで共通資産を参照し、consumer側の
 `FSBL/`にはEclipseメタデータとbasic専用launch設定だけを置きます。`Debug/`、
 `Release/`、workspace metadata、`.elf/.bin/.map`は生成物でGit管理外です。
 
-`mtk3_bsp2` v1.00.04 の Armv8-M `interrupt.c` には STM32N657 build typo と RAM vector cache coherence の不足があるため、Appli はその 1 ファイルだけ build exclude し、`application/mtfs_stm32n6570_interrupt_override.c` を使います。submodule 本体や RA target は変更しません。
+`mtk3_bsp2` v1.00.04 の Armv8-M `interrupt.c` には STM32N657 build typo と RAM vector cache coherence の不足があるため、Appli はその 1 ファイルだけ build excludeし、`src/ports/stm32_cube/boards/stm32n6570_dk/mtfs_stm32n6570_interrupt_override.c`を使います。submodule本体やRA targetは変更しません。
 
 ## CubeIDE import / build
 
@@ -31,7 +31,7 @@ CubeのHAL/CMSIS/ExtMemソースとFSBL実装は`boards/stm32n6570_dk/`で共通
    `Debug/mtfs_stm32n6570_dk_test_basic_Appli.elf`と
    `Debug/mtfs_stm32n6570_dk_test_basic_FSBL.elf`をloadし、`usermain`で停止します。
 
-CubeIDEで`.ioc`を再生成すると`Core/Src/main.c`、`stm32n6xx_hal_msp.c`、`stm32n6xx_it.c`、`.project/.cproject`が更新され得ます。またtest target側に`Drivers`、`Middlewares`、`Secure_nsclib`、`FSBL`が再作成された場合は、必要な生成差分を`boards/stm32n6570_dk/`へ反映し、複製を残さないでください。再生成前後のdiffで次を確認してください。
+CubeIDEで`.ioc`を再生成すると`Core/Src/main.c`、`stm32n6xx_hal_msp.c`、`stm32n6xx_it.c`、`.project/.cproject`が更新され得ます。またtest target側に`Drivers`、`Middlewares`、`Secure_nsclib`、`FSBL`が再作成された場合は、必要な生成差分を`external/stm32_cube/stm32n6570_dk/`へ反映し、複製を残さないでください。再生成前後のdiffで次を確認してください。
 
 - USER CODE 内の `HAL_SD_Init` 遅延、pre-kernel RIF、`knl_start_mtkernel()` が残る。
 - SDMMC2 global interrupt が enabled、preemption priority 5、subpriority 0。

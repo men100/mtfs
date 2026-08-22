@@ -85,7 +85,7 @@ LR、VTORと、EXC_RETURNが示すstackのPCを直接確認する。
 target workaroundはBSP2 startupの一部を複製するため、BSP2更新時に差分確認が必要
 である。BSP2が3経路すべてに同等のclean/barrierを備えたら、次をまとめて削除する。
 
-- `mtfs_ra8p1_vector_cache.c/.h`
+- `src/ports/ra_fsp/boards/ek_ra8p1/mtfs_ra8p1_vector_cache.c/.h`
 - `.cproject`の3つの`--wrap`
 - fallback定義とtarget固有diagnostic log
 

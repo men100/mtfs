@@ -20,7 +20,7 @@ TRON Forumのdevelop branchでは2026-07-03のcommit
 ## Decision
 
 submoduleはv1.00.04のまま変更しない。EK-RA8P1 targetのlinkerへ
-`--wrap=tm_rcv_dat`を追加し、`application/mtfs_ra8p1_tm_com_patch.c`で次を行う。
+`--wrap=tm_rcv_dat`を追加し、`src/ports/ra_fsp/boards/ek_ra8p1/mtfs_ra8p1_tm_com_patch.c`で次を行う。
 
 - `size`はbyteを受信した場合だけ減らす。
 - `RDRF`が0ならpollingを継続する。
@@ -40,7 +40,7 @@ submoduleへ直接適用する場合の最小差分は
 submoduleを上流commit `6e18f885`以降へ更新し、RA8P1 `tm_rcv_dat()`の受信待ちを
 確認した時点で、次をまとめて削除する。
 
-- `application/mtfs_ra8p1_tm_com_patch.c`
+- `src/ports/ra_fsp/boards/ek_ra8p1/mtfs_ra8p1_tm_com_patch.c`
 - Debug/Release linkerの`--wrap=tm_rcv_dat`
 - 保存したv1.00.04向けpatch
 

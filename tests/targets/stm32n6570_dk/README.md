@@ -1,7 +1,7 @@
 # STM32N6570-DK test runners
 
 STM32N6570-DK固有のSDMMC2、card-detect、RIF、CubeIDE Appli/FSBL wrapper設定は
-各runnerのtarget層に置きます。FSBL実装とCube生成資産は`boards/stm32n6570_dk/`に置き、
+各runnerのtarget層に置きます。FSBL実装とCube生成資産は`external/stm32_cube/stm32n6570_dk/`に置き、
 RTC設定アプリを含む複数Appliで共有します。共有Block Device/FatFs/test caseにボード依存を
 追加しません。
 
