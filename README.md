@@ -1,54 +1,29 @@
 # microT-FS
 
-microT-FS は、microT-Kernel 3.0 向けに FatFs を最適化・拡張するストレージ基盤です。組み込み用途で扱いやすいブロック I/O、OS 適合層、ボード固有ポートを一つの配布単位にまとめます。
+microT-FSは、microT-Kernel 3.0向けにFatFsを統合・拡張する組み込みストレージ基盤です。Block Device API、OS適合層、board固有portをまとめて提供します。
 
-## 対象環境
+## 対象target
 
-- Renesas EK-RA8P1（RA FSP）
-- STMicroelectronics STM32N6570-DK（STM32Cube）
-- ホスト環境（単体テストおよび開発補助）
+- Renesas EK-RA8P1
+- STMicroelectronics STM32N6570-DK
+- Host test環境
 
-将来は TrustZone を利用したセキュアストレージ、暗号化、完全性検証、監査、AI 向け I/O テレメトリ、異常アクセス検知、ストレージ最適化、およびコンテスト向け統合デモへ発展させます。
+組み込み用の配布単位は `src/` です。
 
-## 利用方法と配布単位
+## 構成
 
-本番利用に必要なコードは、FatFs の microT-FS 管理版と RA/ST 固有コードを含めて、すべて `src/` 配下に置きます。利用者は原則として `src/` を組み込みプロジェクトへコピーし、`mtfs_config.h` と対象ポートのビルド設定を調整します。
+`MTFS_ENABLE_SEALED_MODEL`の既定値は`0`です。FatFs-only構成を標準とし、必要に応じてsealed model機能を有効にできます。
 
-FatFs 本体は、R0.16 に公式 patch-1 と patch-2 を適用したベースラインを `src/fatfs/` に収録しています。FatFsとプラットフォーム固有ドライバの間は、`src/block/` の共通Block Device APIと固定長レジストリ、`src/fatfs/mtfs_diskio.c` のDisk I/Oブリッジで接続します。
+このrepositoryは現在、release documentationの再構成前です。
 
-## ディレクトリ構成
+## Submodule
 
-```text
-src/                  本番用ソース一式（ライブラリの配布単位）
-  core/               ファイルシステム中核
-  fatfs/              microT-FS が管理・改良する FatFs
-  block/              ブロックデバイス抽象化とフィルタ
-  os/                 OS 適合層
-    host/             POSIX pthread 適合層
-    microtkernel/     microT-Kernel 3.0 適合層
-  ports/              RA FSP、STM32Cube、ホスト向けポート
-  extensions/         セキュリティおよび AI 拡張
-tests/                共通テストと構成別テストランナー
-apps/                 統合デモおよびサンプルアプリケーション
-external/             本番配布物に含めない外部依存物
-docs/                 設計、移植、利用者向け文書
-assets/               文書やデモで使用する素材
-tools/                開発、検証、生成補助ツール
-mtk3_bsp2/            microT-Kernel 3.0（submodule）
+microT-Kernel 3.0 BSPを取得するには、repositoryのrootで次を実行します。
+
+```console
+git submodule update --init --recursive
 ```
 
-FatFs は外部 submodule として扱わず、microT-FS の中核として `src/fatfs/` で管理します。上流のライセンス、元バージョン、取得元、配布 ZIP の SHA-256、および独自変更は同ディレクトリの文書で追跡します。
+## License
 
-`mtk3_bsp2/` は TRON Forum の `mtk3_bsp2` を submodule として参照します。既存の clone では `git submodule update --init --recursive` を実行してください。
-
-`tron2026_work` は成果や知見の参照元としてのみ利用し、コードや IDE プロジェクトをそのままコピーせず、microT-FS の設計に合わせて再構築します。
-
-FatFsの再入可能化は `src/mtfs_config.h` で設定します。既定はRTCなし・再入不可です。再入可能にする場合は `MTFS_FF_FS_REENTRANT=1` と、POSIXまたはmicroT-Kernelの `MTFS_FATFS_MUTEX_ADAPTER` を必ず組み合わせてください。Linux/WSL2のビルドとテスト手順は `tests/host/README.md` を参照してください。
-
-EK-RA8P1でのPhase 2.1 SD SPI反復runner、vector cache coherency対策、配線、FSP設定、build/download手順は `tests/targets/ek_ra8p1/basic/README.md` を参照してください。
-
-新しいmicroT-Kernel対応ボードへのソース取り込み、Block Device port、OS/DMA統合、実機runnerの作成手順は `docs/porting/README.md` を参照してください。
-
-## ライセンス
-
-リポジトリ全体のライセンスは [LICENSE](LICENSE) を参照してください。取り込んだ FatFs には上流ライセンスが適用されます。詳細は `src/fatfs/UPSTREAM.md` と `src/fatfs/LICENSE.txt` を参照してください。
+repository全体のlicenseは [LICENSE](LICENSE) を参照してください。収録したFatFsには上流licenseが適用されます。来歴と変更情報は `src/fatfs/UPSTREAM.md`、`src/fatfs/CHANGES.mtfs.md`にあります。
