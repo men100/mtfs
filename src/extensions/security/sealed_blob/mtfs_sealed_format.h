@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 #define MTFS_SEALED_FORMAT_API_VERSION (1U)
+#define MTFS_SEALED_OBJECT_TYPE_AI_MODEL (1U)
 #define MTFS_SEALED_PREAMBLE_SIZE (160U)
 #define MTFS_SEALED_MAX_METADATA_SIZE (4096U)
 #define MTFS_SEALED_MAX_MANIFEST_SIZE \
@@ -33,6 +34,7 @@ typedef struct mtfs_sealed_package_info
 {
     uint32_t api_version;
     uint32_t struct_size;
+    uint32_t object_type;
     uint8_t package_id[16];
     uint8_t model_id[16];
     uint64_t model_version;

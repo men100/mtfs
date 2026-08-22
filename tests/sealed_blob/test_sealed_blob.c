@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "mtfs_sealed_blob.h"
+#include "mtfs_model_store.h"
 #include "mtfs_secure_zero.h"
 
 typedef struct memory_reader
@@ -16,7 +17,8 @@ typedef struct memory_reader
     unsigned read_calls;
     unsigned fail_read_call;
     unsigned short_read_call;
-    int fail_size;
+    mtfs_error_t size_error;
+    mtfs_error_t read_error;
 } memory_reader_t;
 
 typedef struct test_provider
@@ -37,6 +39,7 @@ typedef struct test_provider
 typedef struct test_env
 {
     mtfs_sealed_blob_t blob;
+    mtfs_model_t model;
     memory_reader_t memory;
     test_provider_t crypto;
     mtfs_sealed_reader_t reader;
@@ -54,6 +57,8 @@ static unsigned tests;
 #define CHECK(condition) do { ++checks; if (!(condition)) { \
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
     return 0; } } while (0)
+
+static void model_policy_init(mtfs_model_policy_t *policy);
 
 static uint8_t *read_file(const char *path, size_t *size)
 {
@@ -84,8 +89,8 @@ static mtfs_error_t memory_get_size(void *context, uint64_t *size)
 {
     memory_reader_t *reader = (memory_reader_t *)context;
     ++reader->get_size_calls;
-    if (reader->fail_size)
-        return MTFS_ERROR_IO;
+    if (reader->size_error != MTFS_OK)
+        return reader->size_error;
     *size = reader->size;
     return MTFS_OK;
 }
@@ -97,7 +102,7 @@ static mtfs_error_t memory_read_at(void *context, uint64_t offset, void *buffer,
     ++reader->read_calls;
     *read_size = 0U;
     if (reader->fail_read_call == reader->read_calls)
-        return MTFS_ERROR_IO;
+        return reader->read_error != MTFS_OK ? reader->read_error : MTFS_ERROR_IO;
     if (offset > reader->size || requested > reader->size - (size_t)offset)
         return MTFS_ERROR_IO;
     if (reader->short_read_call == reader->read_calls && requested != 0U)
@@ -145,6 +150,75 @@ static int aes_gcm_encrypt(const uint8_t key[32], const uint8_t nonce[12],
         EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) == 1;
     EVP_CIPHER_CTX_free(ctx);
     return ok;
+}
+
+static void test_put_u32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
+}
+
+static void test_put_u64(uint8_t *p, uint64_t value)
+{
+    test_put_u32(p, (uint32_t)value);
+    test_put_u32(p + 4U, (uint32_t)(value >> 32));
+}
+
+static int make_required_ram_package(const uint8_t *package, size_t package_size,
+    const uint8_t fleet_key[32], uint64_t required_ram, uint8_t *output)
+{
+    static const uint8_t key_domain[12] =
+        {'M','T','F','S','-','K','E','Y','-','v','1',0};
+    static const uint8_t chunk_domain[14] =
+        {'M','T','F','S','-','C','H','U','N','K','-','v','1',0};
+    uint8_t model_key[32];
+    uint8_t plain[4096];
+    uint8_t old_aad[214];
+    uint8_t new_aad[214];
+    uint8_t nonce[12];
+    size_t offset = 240U;
+    uint32_t index;
+    if (package_size != 5272U)
+        return 0;
+    memcpy(output, package, package_size);
+    memcpy(old_aad, key_domain, sizeof(key_domain));
+    memcpy(old_aad + sizeof(key_domain), package, 192U);
+    if (!aes_gcm_decrypt(fleet_key, package + 128U, old_aad, 204U,
+                         package + 192U, 32U, package + 224U, model_key))
+        return 0;
+    test_put_u64(output + 96U, required_ram);
+    memcpy(new_aad, key_domain, sizeof(key_domain));
+    memcpy(new_aad + sizeof(key_domain), output, 192U);
+    if (!aes_gcm_encrypt(fleet_key, output + 128U, new_aad, 204U, model_key,
+                         sizeof(model_key), output + 192U, output + 224U))
+        return 0;
+    for (index = 0U; index < 2U; ++index)
+    {
+        size_t length = index == 0U ? 4096U : 904U;
+        memcpy(nonce, package + 140U, 8U);
+        test_put_u32(nonce + 8U, index);
+        memcpy(old_aad, chunk_domain, sizeof(chunk_domain));
+        memcpy(old_aad + sizeof(chunk_domain), package, 192U);
+        test_put_u32(old_aad + 206U, index);
+        test_put_u32(old_aad + 210U, (uint32_t)length);
+        if (!aes_gcm_decrypt(model_key, nonce, old_aad, sizeof(old_aad),
+                             package + offset, length, package + offset + length,
+                             plain))
+            return 0;
+        memcpy(new_aad, chunk_domain, sizeof(chunk_domain));
+        memcpy(new_aad + sizeof(chunk_domain), output, 192U);
+        test_put_u32(new_aad + 206U, index);
+        test_put_u32(new_aad + 210U, (uint32_t)length);
+        if (!aes_gcm_encrypt(model_key, nonce, new_aad, sizeof(new_aad), plain,
+                             length, output + offset, output + offset + length))
+            return 0;
+        offset += length + MTFS_SEALED_TAG_SIZE;
+    }
+    mtfs_secure_zero(model_key, sizeof(model_key));
+    mtfs_secure_zero(plain, sizeof(plain));
+    return 1;
 }
 
 static mtfs_crypto_status_t provider_open_fleet(void *context, uint32_t key_id,
@@ -237,6 +311,7 @@ static void env_init(test_env_t *env, const uint8_t *package, size_t package_siz
 {
     memset(env, 0, sizeof(*env));
     mtfs_sealed_blob_init(&env->blob);
+    mtfs_model_init(&env->model);
     env->memory.data = package;
     env->memory.size = package_size;
     env->reader.api_version = MTFS_SEALED_READER_API_VERSION;
@@ -447,7 +522,7 @@ static int test_faults_and_contracts(const uint8_t *package, size_t package_size
           MTFS_ERROR_INVALID_ARGUMENT);
     CHECK(env.memory.get_size_calls == 0U);
     env_init(&env, package, package_size, fleet_key);
-    env.memory.fail_size = 1;
+    env.memory.size_error = MTFS_ERROR_IO;
     CHECK(mtfs_sealed_blob_open(&env.blob, &env.reader, &env.provider,
                                 &env.work, &info) == MTFS_ERROR_IO);
     CHECK(mtfs_sealed_blob_close(&env.blob) == MTFS_OK);
@@ -545,6 +620,21 @@ static int test_empty_payload(const uint8_t *package, size_t package_size,
           env.blob.state == MTFS_SEALED_BLOB_LOADED);
     CHECK(mtfs_sealed_blob_close(&env.blob) == MTFS_OK);
     CHECK(env.crypto.close_calls == 2U);
+    {
+        mtfs_model_policy_t policy;
+        mtfs_model_info_t model_info;
+        env_init(&env, empty, sizeof(empty), fleet_key);
+        model_policy_init(&policy);
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == MTFS_OK);
+        CHECK(mtfs_model_get_info(&env.model, &model_info) == MTFS_OK);
+        CHECK(model_info.payload_size == 0U && model_info.required_ram == 0U &&
+              model_info.chunk_count == 0U);
+        loaded = 99U;
+        CHECK(mtfs_model_load(&env.model, NULL, 0U, &loaded) == MTFS_OK);
+        CHECK(loaded == 0U && env.crypto.decrypt_calls == 0U);
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    }
     return 1;
 }
 
@@ -654,6 +744,240 @@ static int test_layout_chunk_policy(const uint8_t *package, size_t package_size,
     return 1;
 }
 
+static void model_policy_init(mtfs_model_policy_t *policy)
+{
+    memset(policy, 0, sizeof(*policy));
+    policy->api_version = MTFS_MODEL_POLICY_API_VERSION;
+    policy->struct_size = (uint32_t)sizeof(*policy);
+    policy->expected_target_id = MTFS_MODEL_TEST_TARGET_ID;
+    policy->expected_accelerator_id = MTFS_MODEL_TEST_ACCELERATOR_ID;
+    policy->accepted_model_format = MTFS_MODEL_TEST_FORMAT_ID;
+    policy->maximum_chunk_size = MTFS_SEALED_MAX_CHUNK_SIZE;
+    policy->maximum_model_payload_size = UINT64_C(5000);
+    policy->maximum_required_ram = UINT64_C(5000);
+}
+
+static int test_model_golden(const uint8_t *package, size_t package_size,
+                             const uint8_t *payload, size_t payload_size,
+                             const uint8_t fleet_key[32])
+{
+    test_env_t env;
+    mtfs_model_policy_t policy;
+    mtfs_model_info_t info;
+    uint8_t destination[5017];
+    size_t loaded = 99U;
+    env_init(&env, package, package_size, fleet_key);
+    model_policy_init(&policy);
+    memset(&info, 0x5A, sizeof(info));
+    CHECK(mtfs_model_get_info(&env.model, &info) == MTFS_ERROR_INVALID_STATE);
+    CHECK(all_value((const uint8_t *)&info, sizeof(info), 0x5AU));
+    CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider, &env.work,
+                          &policy) == MTFS_OK);
+    CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider, &env.work,
+                          &policy) == MTFS_ERROR_INVALID_STATE);
+    CHECK(mtfs_model_get_info(&env.model, &info) == MTFS_OK);
+    CHECK(info.api_version == MTFS_MODEL_INFO_API_VERSION &&
+          info.struct_size == sizeof(info));
+    CHECK(memcmp(info.model_id, package + 56U, sizeof(info.model_id)) == 0);
+    CHECK(info.model_version == UINT64_C(0x0102030405060708));
+    CHECK(info.target_id == MTFS_MODEL_TEST_TARGET_ID &&
+          info.accelerator_id == MTFS_MODEL_TEST_ACCELERATOR_ID &&
+          info.model_format == MTFS_MODEL_TEST_FORMAT_ID);
+    CHECK(info.payload_size == payload_size && info.required_ram == payload_size);
+    CHECK(info.chunk_size == 4096U && info.chunk_count == 2U);
+    memset(destination, 0xA5, sizeof(destination));
+    CHECK(mtfs_model_load(&env.model, destination, sizeof(destination),
+                          &loaded) == MTFS_OK);
+    CHECK(loaded == payload_size && memcmp(destination, payload, payload_size) == 0);
+    CHECK(all_value(destination + payload_size,
+                    sizeof(destination) - payload_size, 0xA5U));
+    CHECK(mtfs_model_get_info(&env.model, &info) == MTFS_OK);
+    CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    CHECK(memcmp(destination, payload, payload_size) == 0);
+    return 1;
+}
+
+static int test_model_policy(const uint8_t *package, size_t package_size,
+                             const uint8_t fleet_key[32])
+{
+    size_t i;
+    for (i = 0U; i < 6U; ++i)
+    {
+        test_env_t env;
+        mtfs_model_policy_t policy;
+        mtfs_model_info_t info;
+        mtfs_error_t result;
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        if (i == 0U) policy.expected_target_id++;
+        if (i == 1U) policy.expected_accelerator_id++;
+        if (i == 2U) policy.accepted_model_format++;
+        if (i == 3U) policy.maximum_chunk_size = 4095U;
+        if (i == 4U) policy.maximum_model_payload_size = UINT64_C(4999);
+        if (i == 5U) policy.maximum_required_ram = UINT64_C(4999);
+        memset(&info, 0x5A, sizeof(info));
+        result = mtfs_model_open(&env.model, &env.reader, &env.provider,
+                                 &env.work, &policy);
+        CHECK(result != MTFS_OK && env.model.state == MTFS_MODEL_ERROR);
+        CHECK(env.memory.read_calls == 3U && env.crypto.decrypt_calls == 0U);
+        CHECK(!env.crypto.fleet_open && !env.crypto.model_open);
+        CHECK(mtfs_model_get_info(&env.model, &info) == MTFS_ERROR_INVALID_STATE);
+        CHECK(all_value((const uint8_t *)&info, sizeof(info), 0x5AU));
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    }
+    {
+        test_env_t env;
+        mtfs_model_policy_t policy;
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        policy.expected_target_id = MTFS_MODEL_ID_INVALID;
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == MTFS_ERROR_INVALID_ARGUMENT);
+        CHECK(env.memory.get_size_calls == 0U && env.memory.read_calls == 0U);
+        CHECK(env.model.state == MTFS_MODEL_CLOSED);
+    }
+    return 1;
+}
+
+static int test_model_required_ram(const uint8_t *package, size_t package_size,
+                                   const uint8_t fleet_key[32])
+{
+    uint8_t adjusted[5272];
+    uint8_t destination[6017];
+    test_env_t env;
+    mtfs_model_policy_t policy;
+    mtfs_model_info_t info;
+    size_t loaded = 77U;
+    CHECK(make_required_ram_package(package, package_size, fleet_key,
+                                    UINT64_C(6000), adjusted));
+    env_init(&env, adjusted, sizeof(adjusted), fleet_key);
+    model_policy_init(&policy);
+    policy.maximum_required_ram = UINT64_C(6000);
+    CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider, &env.work,
+                          &policy) == MTFS_OK);
+    CHECK(mtfs_model_get_info(&env.model, &info) == MTFS_OK);
+    CHECK(info.payload_size == 5000U && info.required_ram == 6000U);
+    memset(destination, 0xA5, sizeof(destination));
+    CHECK(mtfs_model_load(&env.model, destination, 5999U, &loaded) ==
+          MTFS_ERROR_BUFFER_TOO_SMALL);
+    CHECK(loaded == 0U && all_value(destination, sizeof(destination), 0xA5U));
+    CHECK(env.memory.read_calls == 3U);
+    CHECK(mtfs_model_load(&env.model, destination, 6000U, &loaded) == MTFS_OK);
+    CHECK(loaded == 5000U && all_value(destination + 5000U, 1017U, 0xA5U));
+    CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    return 1;
+}
+
+static int test_model_faults(const uint8_t *package, size_t package_size,
+                             const uint8_t fleet_key[32])
+{
+    static const mtfs_error_t reader_errors[] = {
+        MTFS_ERROR_NO_MEDIA, MTFS_ERROR_NOT_READY, MTFS_ERROR_OVERFLOW
+    };
+    size_t i;
+    {
+        test_env_t env;
+        uint8_t destination[8];
+        size_t loaded = 7U;
+        env_init(&env, package, package_size, fleet_key);
+        memset(destination, 0xA5, sizeof(destination));
+        CHECK(mtfs_model_load(&env.model, destination, sizeof(destination),
+                              &loaded) == MTFS_ERROR_INVALID_STATE);
+        CHECK(loaded == 0U && all_value(destination, sizeof(destination), 0xA5U));
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    }
+    for (i = 0U; i < sizeof(reader_errors) / sizeof(reader_errors[0]); ++i)
+    {
+        test_env_t env;
+        mtfs_model_policy_t policy;
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        env.memory.size_error = reader_errors[i];
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == reader_errors[i]);
+        CHECK(env.model.state == MTFS_MODEL_ERROR);
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        env.memory.fail_read_call = 1U;
+        env.memory.read_error = reader_errors[i];
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == reader_errors[i]);
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    }
+    {
+        test_env_t env;
+        mtfs_model_policy_t policy;
+        uint8_t destination[5017];
+        size_t loaded = 55U;
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == MTFS_OK);
+        memset(destination, 0xA5, sizeof(destination));
+        CHECK(mtfs_model_load(&env.model, destination, 4999U, &loaded) ==
+              MTFS_ERROR_BUFFER_TOO_SMALL);
+        CHECK(loaded == 0U && all_value(destination, sizeof(destination), 0xA5U));
+        CHECK(env.memory.read_calls == 3U && env.model.state == MTFS_MODEL_OPEN);
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    }
+    for (i = 0U; i < 2U; ++i)
+    {
+        test_env_t env;
+        mtfs_model_policy_t policy;
+        mtfs_model_info_t info;
+        uint8_t destination[5017];
+        size_t loaded = 55U;
+        mtfs_error_t expected = i == 0U ? MTFS_ERROR_NO_MEDIA : MTFS_ERROR_NOT_READY;
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == MTFS_OK);
+        env.memory.fail_read_call = env.memory.read_calls + 2U;
+        env.memory.read_error = expected;
+        memset(destination, 0xA5, sizeof(destination));
+        CHECK(mtfs_model_load(&env.model, destination, sizeof(destination),
+                              &loaded) == expected);
+        CHECK(loaded == 0U && all_value(destination, 5000U, 0U));
+        CHECK(all_value(destination + 5000U, 17U, 0xA5U));
+        CHECK(env.model.state == MTFS_MODEL_ERROR &&
+              env.model.sealed_blob.state == MTFS_SEALED_BLOB_ERROR);
+        CHECK(!env.crypto.fleet_open && !env.crypto.model_open);
+        CHECK(all_value(env.manifest, sizeof(env.manifest), 0U));
+        memset(&info, 0x5A, sizeof(info));
+        CHECK(mtfs_model_get_info(&env.model, &info) == MTFS_ERROR_INVALID_STATE);
+        CHECK(all_value((const uint8_t *)&info, sizeof(info), 0x5AU));
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    }
+    {
+        test_env_t env;
+        mtfs_model_policy_t policy;
+        uint8_t destination[5017];
+        size_t loaded = 55U;
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        env.crypto.fail_call = 1U;
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == MTFS_ERROR_CRYPTO);
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+        env_init(&env, package, package_size, fleet_key);
+        model_policy_init(&policy);
+        CHECK(mtfs_model_open(&env.model, &env.reader, &env.provider,
+                              &env.work, &policy) == MTFS_OK);
+        env.crypto.fail_call = 3U;
+        memset(destination, 0xA5, sizeof(destination));
+        CHECK(mtfs_model_load(&env.model, destination, sizeof(destination),
+                              &loaded) == MTFS_ERROR_CRYPTO);
+        CHECK(loaded == 0U && all_value(destination, 5000U, 0U));
+        CHECK(all_value(destination + 5000U, 17U, 0xA5U));
+        CHECK(mtfs_model_close(&env.model) == MTFS_OK);
+    }
+    return 1;
+}
+
 static int run_test(int (*test)(const uint8_t *, size_t, const uint8_t[32]),
                     const uint8_t *package, size_t size, const uint8_t key[32])
 {
@@ -679,6 +1003,8 @@ int main(int argc, char **argv)
         return 2;
     ++tests;
     ok &= test_golden(package, package_size, payload, payload_size, key);
+    ++tests;
+    ok &= test_model_golden(package, package_size, payload, payload_size, key);
     ok &= run_test(test_mutations, package, package_size, key);
     ok &= run_test(test_layout_failures, package, package_size, key);
     ok &= run_test(test_faults_and_contracts, package, package_size, key);
@@ -686,10 +1012,15 @@ int main(int argc, char **argv)
     ok &= run_test(test_empty_payload, package, package_size, key);
     ok &= run_test(test_metadata_rules, package, package_size, key);
     ok &= run_test(test_layout_chunk_policy, package, package_size, key);
+    ok &= run_test(test_model_policy, package, package_size, key);
+    ok &= run_test(test_model_required_ram, package, package_size, key);
+    ok &= run_test(test_model_faults, package, package_size, key);
     printf("sealed_blob: %u tests, %u checks, 30 mutations, 15 truncations, "
-           "context=%zu info=%zu work=%zu\n", tests, checks,
+           "context=%zu info=%zu work=%zu model=%zu model_info=%zu policy=%zu\n",
+           tests, checks,
            sizeof(mtfs_sealed_blob_t), sizeof(mtfs_sealed_package_info_t),
-           sizeof(mtfs_sealed_work_t));
+           sizeof(mtfs_sealed_work_t), sizeof(mtfs_model_t),
+           sizeof(mtfs_model_info_t), sizeof(mtfs_model_policy_t));
     mtfs_secure_zero(key, key_size);
     free(key);
     free(payload);

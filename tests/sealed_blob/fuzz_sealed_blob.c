@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "mtfs_sealed_blob.h"
+#include "mtfs_model_store.h"
 
 typedef struct fuzz_reader
 {
@@ -73,8 +73,7 @@ static mtfs_crypto_status_t fuzz_close(void *context,
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-    mtfs_sealed_blob_t blob;
-    mtfs_sealed_package_info_t info;
+    mtfs_model_t model;
     fuzz_reader_t memory = {data, size};
     mtfs_sealed_reader_t reader = {
         MTFS_SEALED_READER_API_VERSION, sizeof(mtfs_sealed_reader_t),
@@ -90,8 +89,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         MTFS_SEALED_WORK_API_VERSION, sizeof(mtfs_sealed_work_t),
         manifest, sizeof(manifest), aad, sizeof(aad), ciphertext,
         sizeof(ciphertext), plaintext, sizeof(plaintext)};
-    mtfs_sealed_blob_init(&blob);
-    (void)mtfs_sealed_blob_open(&blob, &reader, &provider, &work, &info);
-    (void)mtfs_sealed_blob_close(&blob);
+    mtfs_model_policy_t policy = {
+        MTFS_MODEL_POLICY_API_VERSION, sizeof(mtfs_model_policy_t),
+        MTFS_MODEL_TEST_TARGET_ID, MTFS_MODEL_TEST_ACCELERATOR_ID,
+        MTFS_MODEL_TEST_FORMAT_ID, MTFS_SEALED_MAX_CHUNK_SIZE,
+        MTFS_SEALED_MAX_CHUNK_SIZE, MTFS_SEALED_MAX_CHUNK_SIZE};
+    uint8_t destination[MTFS_SEALED_MAX_CHUNK_SIZE];
+    size_t loaded = 0U;
+    mtfs_model_init(&model);
+    if (mtfs_model_open(&model, &reader, &provider, &work, &policy) == MTFS_OK)
+        (void)mtfs_model_load(&model, destination, sizeof(destination), &loaded);
+    (void)mtfs_model_close(&model);
     return 0;
 }

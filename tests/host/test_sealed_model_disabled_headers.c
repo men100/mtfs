@@ -10,6 +10,7 @@
 #include "../../src/extensions/security/sealed_blob/mtfs_sealed_format.h"
 #include "../../src/extensions/security/sealed_blob/mtfs_sealed_reader.h"
 #include "../../src/extensions/security/sealed_blob/mtfs_secure_zero.h"
+#include "../../src/extensions/ai/model_store/mtfs_model_store.h"
 #include "../../src/extensions/security/wrapped_key/mtfs_wrapped_key_record.h"
 #include "../../src/extensions/security/wrapped_key/mtfs_wrapped_key_fatfs.h"
 #include "../../src/ports/ra_fsp/crypto/mtfs_ra8p1_ospi_key_store.h"

@@ -63,6 +63,19 @@ static mtfs_error_t mtfs_provider_error(mtfs_crypto_status_t status)
     }
 }
 
+static mtfs_error_t mtfs_reader_error(mtfs_error_t result)
+{
+    switch (result)
+    {
+    case MTFS_ERROR_NO_MEDIA:
+    case MTFS_ERROR_NOT_READY:
+    case MTFS_ERROR_OVERFLOW:
+        return result;
+    default:
+        return MTFS_ERROR_IO;
+    }
+}
+
 static mtfs_error_t mtfs_read_exact(mtfs_sealed_blob_t *blob, uint64_t offset,
                                     void *buffer, size_t size)
 {
@@ -75,7 +88,7 @@ static mtfs_error_t mtfs_read_exact(mtfs_sealed_blob_t *blob, uint64_t offset,
         return MTFS_ERROR_IO;
     result = blob->reader.read_at(blob->reader.context, offset, buffer, size, &received);
     if (result != MTFS_OK)
-        return result == MTFS_ERROR_OVERFLOW ? result : MTFS_ERROR_IO;
+        return mtfs_reader_error(result);
     return received == size ? MTFS_OK : MTFS_ERROR_IO;
 }
 
@@ -191,7 +204,7 @@ mtfs_error_t mtfs_sealed_blob_open(mtfs_sealed_blob_t *blob,
     blob->state = MTFS_SEALED_BLOB_OPENING;
     result = blob->reader.get_size(blob->reader.context, &blob->file_size);
     if (result != MTFS_OK)
-        return mtfs_open_fail(blob, MTFS_ERROR_IO);
+        return mtfs_open_fail(blob, mtfs_reader_error(result));
     if (blob->file_size < MTFS_SEALED_PREAMBLE_SIZE)
         return mtfs_open_fail(blob, MTFS_ERROR_MALFORMED_FORMAT);
     result = mtfs_read_exact(blob, 0U, blob->work.manifest,

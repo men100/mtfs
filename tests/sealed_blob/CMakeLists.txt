@@ -7,12 +7,14 @@ find_package(OpenSSL REQUIRED)
 set(MTFS_SEALED_CORE
     ../../src/extensions/security/sealed_blob/mtfs_secure_zero.c
     ../../src/extensions/security/sealed_blob/mtfs_sealed_format.c
-    ../../src/extensions/security/sealed_blob/mtfs_sealed_blob.c)
+    ../../src/extensions/security/sealed_blob/mtfs_sealed_blob.c
+    ../../src/extensions/ai/model_store/mtfs_model_store.c)
 
 add_library(mtfs_sealed_blob_core STATIC ${MTFS_SEALED_CORE})
 target_compile_definitions(mtfs_sealed_blob_core PUBLIC MTFS_ENABLE_SEALED_MODEL=1)
 target_include_directories(mtfs_sealed_blob_core PUBLIC
-    ../../src ../../src/extensions/security/sealed_blob)
+    ../../src ../../src/extensions/security/sealed_blob
+    ../../src/extensions/ai/model_store)
 target_compile_options(mtfs_sealed_blob_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
 set_target_properties(mtfs_sealed_blob_core PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES)
 
@@ -51,7 +53,8 @@ if(MTFS_BUILD_FUZZER)
         target_compile_definitions(mtfs_sealed_blob_fuzz_core PUBLIC
             MTFS_ENABLE_SEALED_MODEL=1)
         target_include_directories(mtfs_sealed_blob_fuzz_core PUBLIC
-            ../../src ../../src/extensions/security/sealed_blob)
+            ../../src ../../src/extensions/security/sealed_blob
+            ../../src/extensions/ai/model_store)
         target_compile_options(mtfs_sealed_blob_fuzz_core PRIVATE
             -Wall -Wextra -Wpedantic -Werror
             -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer)

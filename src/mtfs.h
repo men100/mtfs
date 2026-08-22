@@ -10,6 +10,7 @@
 #include "mtfs_types.h"
 
 #if MTFS_ENABLE_SEALED_MODEL
+#include "extensions/ai/model_store/mtfs_model_store.h"
 #include "extensions/security/sealed_blob/mtfs_crypto_provider.h"
 #include "extensions/security/sealed_blob/mtfs_sealed_blob.h"
 #include "extensions/security/sealed_blob/mtfs_sealed_format.h"

@@ -210,12 +210,13 @@ mtfs_error_t mtfs_sealed_format_parse(const uint8_t preamble[160],
         mtfs_all_zero(preamble + 140U, 8U))
         return MTFS_ERROR_MALFORMED_FORMAT;
     if (mtfs_get_u32(preamble + 20U) != 1U ||
-        mtfs_get_u32(preamble + 24U) != 1U ||
+        mtfs_get_u32(preamble + 24U) != MTFS_SEALED_OBJECT_TYPE_AI_MODEL ||
         mtfs_get_u16(preamble + 28U) != 1U ||
         mtfs_get_u16(preamble + 30U) != 1U ||
         mtfs_get_u32(preamble + 32U) != 1U ||
         mtfs_get_u32(preamble + 36U) != 1U)
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
+    info->object_type = mtfs_get_u32(preamble + 24U);
     memcpy(info->package_id, preamble + 40U, 16U);
     memcpy(info->model_id, preamble + 56U, 16U);
     info->model_version = mtfs_get_u64(preamble + 72U);

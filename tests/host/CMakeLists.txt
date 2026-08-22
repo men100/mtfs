@@ -136,6 +136,7 @@ target_compile_options(mtfs_diagnostics_disabled_compile PRIVATE
 # disabled. Vendor headers must remain behind MTFS_ENABLE_SEALED_MODEL guards.
 add_library(mtfs_sealed_model_disabled_compile OBJECT
     test_sealed_model_disabled_headers.c
+    ../../src/extensions/ai/model_store/mtfs_model_store.c
     ../../src/extensions/security/sealed_blob/mtfs_secure_zero.c
     ../../src/extensions/security/sealed_blob/mtfs_sealed_format.c
     ../../src/extensions/security/sealed_blob/mtfs_sealed_blob.c
