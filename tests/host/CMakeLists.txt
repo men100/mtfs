@@ -136,6 +136,9 @@ target_compile_options(mtfs_diagnostics_disabled_compile PRIVATE
 # disabled. Vendor headers must remain behind MTFS_ENABLE_SEALED_MODEL guards.
 add_library(mtfs_sealed_model_disabled_compile OBJECT
     test_sealed_model_disabled_headers.c
+    ../../src/extensions/security/sealed_blob/mtfs_secure_zero.c
+    ../../src/extensions/security/sealed_blob/mtfs_sealed_format.c
+    ../../src/extensions/security/sealed_blob/mtfs_sealed_blob.c
     ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_record.c
     ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_fatfs.c
     ../../src/ports/ra_fsp/crypto/mtfs_ra8p1_ospi_key_store.c
@@ -147,6 +150,8 @@ target_compile_definitions(mtfs_sealed_model_disabled_compile PRIVATE
     MTFS_ENABLE_SEALED_MODEL=0)
 target_compile_options(mtfs_sealed_model_disabled_compile PRIVATE
     -Wall -Wextra -Wpedantic)
+target_include_directories(mtfs_sealed_model_disabled_compile PRIVATE
+    ../../src)
 target_include_directories(mtfs_fattime_disabled_compile PRIVATE
     ../../src
     ../../src/core
