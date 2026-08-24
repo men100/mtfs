@@ -300,24 +300,31 @@ static int run_load(const mtfs_media_context_t *media)
     size_t loaded = 0U;
     int stage = session_setup(&session, media);
     int failed = stage != 0;
+    int payload_exact;
+    int extra_preserved;
+    int cleanup_failed;
+    int work_zero;
     memset(destination, 0xa5, sizeof(destination));
     if (!failed)
         failed = open_model(&session, &session.reader, &policy);
     if (!failed)
         failed = mtfs_model_load(&session.model, destination,
             sizeof(destination), &loaded) != MTFS_OK;
+    payload_exact = loaded == MODEL_PAYLOAD_BYTES &&
+        known_payload(destination);
+    extra_preserved = all_value(destination + MODEL_PAYLOAD_BYTES,
+        MODEL_EXTRA_BYTES, 0xa5U);
     if (!failed)
-        failed = loaded != MODEL_PAYLOAD_BYTES || !known_payload(destination) ||
-            !all_value(destination + MODEL_PAYLOAD_BYTES, MODEL_EXTRA_BYTES,
-                0xa5U) || !work_is_zero();
-    failed |= session_cleanup(&session);
+        failed = !payload_exact || !extra_preserved;
+    cleanup_failed = session_cleanup(&session);
+    work_zero = work_is_zero();
+    failed |= cleanup_failed || !work_zero;
     tm_printf((UB *)"[model-load] %s payload=5000 exact=%s extra-preserved=%s work-zero=%s cleanup=%s\n",
         failed ? (UB *)"FAIL" : (UB *)"PASS",
-        known_payload(destination) ? (UB *)"PASS" : (UB *)"FAIL",
-        all_value(destination + MODEL_PAYLOAD_BYTES, MODEL_EXTRA_BYTES, 0xa5U)
-            ? (UB *)"PASS" : (UB *)"FAIL",
-        work_is_zero() ? (UB *)"PASS" : (UB *)"FAIL",
-        failed ? (UB *)"CHECK" : (UB *)"PASS");
+        payload_exact ? (UB *)"PASS" : (UB *)"FAIL",
+        extra_preserved ? (UB *)"PASS" : (UB *)"FAIL",
+        work_zero ? (UB *)"PASS" : (UB *)"FAIL",
+        cleanup_failed ? (UB *)"FAIL" : (UB *)"PASS");
     return failed;
 }
 
