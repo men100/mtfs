@@ -16,6 +16,7 @@
 #include "test_fatfs_timestamp.h"
 #include "test_media_lifecycle.h"
 #include "test_ra_sd_spi_deadline.h"
+#include "test_sealed_reader_fatfs.h"
 #include "test_benchmark.h"
 #include "test_block_diagnostics.h"
 #include "test_console.h"
@@ -280,6 +281,9 @@ int main(void)
         goto cleanup;
     }
     if (test_wrapped_key_fatfs(&test, "0:") != 0) {
+        goto cleanup;
+    }
+    if (test_sealed_reader_fatfs(&test, "0:") != 0) {
         goto cleanup;
     }
     roundtrip_result = test_fatfs_roundtrip(&test, "0:");

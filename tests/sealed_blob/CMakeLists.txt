@@ -32,14 +32,16 @@ target_compile_definitions(mtfs_sealed_disabled_compile PRIVATE MTFS_ENABLE_SEAL
 target_include_directories(mtfs_sealed_disabled_compile PRIVATE ../../src)
 target_compile_options(mtfs_sealed_disabled_compile PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
-add_library(mtfs_sealed_headers_cpp_compile OBJECT enabled_headers.cpp)
+add_library(mtfs_sealed_headers_cpp_compile OBJECT enabled_headers.cpp
+    ../../src/fatfs/mtfs_sealed_reader_fatfs.c)
 target_compile_definitions(mtfs_sealed_headers_cpp_compile PRIVATE MTFS_ENABLE_SEALED_MODEL=1)
 target_include_directories(mtfs_sealed_headers_cpp_compile PRIVATE ../../src)
 target_compile_options(mtfs_sealed_headers_cpp_compile PRIVATE -Wall -Wextra -Wpedantic -Werror)
 set_target_properties(mtfs_sealed_headers_cpp_compile PROPERTIES
     CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES)
 
-add_library(mtfs_sealed_headers_c_compile OBJECT enabled_headers.c)
+add_library(mtfs_sealed_headers_c_compile OBJECT enabled_headers.c
+    ../../src/fatfs/mtfs_sealed_reader_fatfs.c)
 target_compile_definitions(mtfs_sealed_headers_c_compile PRIVATE MTFS_ENABLE_SEALED_MODEL=1)
 target_include_directories(mtfs_sealed_headers_c_compile PRIVATE ../../src)
 target_compile_options(mtfs_sealed_headers_c_compile PRIVATE -Wall -Wextra -Wpedantic -Werror)

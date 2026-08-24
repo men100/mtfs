@@ -7,6 +7,7 @@
 
 #include "mtfs_sealed_blob.h"
 #include "mtfs_model_store.h"
+#include "../common/mtfs_model_test_registry.h"
 #include "mtfs_secure_zero.h"
 
 typedef struct memory_reader

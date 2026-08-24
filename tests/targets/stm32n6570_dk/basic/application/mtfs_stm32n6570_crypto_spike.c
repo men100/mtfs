@@ -10,11 +10,12 @@
 #include "mtfs_stm32_saes.h"
 #include "mtfs_stm32_nor_key_store.h"
 #include "mtfs_stm32n6570_nor.h"
+#include "mtfs_stm32n6570_crypto_work.h"
 
 static mtfs_stm32_saes_context_t crypto_context;
 static mtfs_stm32_saes_wrapped_key_t test_wrapped_key;
-static uint8_t test_plaintext[MTFS_STM32_SAES_MAX_DATA_BYTES];
-static uint8_t test_ciphertext[MTFS_STM32_SAES_MAX_DATA_BYTES];
+#define test_plaintext mtfs_stm32n6570_test_plaintext_work
+#define test_ciphertext mtfs_stm32n6570_test_ciphertext_work
 
 #define PACKAGE_PATH             "0:/MTFSTEST.MTF"
 #define PACKAGE_MANIFEST_BYTES   (200U)

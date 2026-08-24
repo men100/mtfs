@@ -24,6 +24,7 @@ add_executable(mtfs_host_tests
     test_block_diagnostics.c
     test_media_lifecycle.c
     test_ra_sd_spi_deadline.c
+    test_sealed_reader_fatfs.c
     test_console.c
     test_time_provider.c
     test_wrapped_key_record.c
@@ -45,6 +46,7 @@ add_executable(mtfs_host_tests
     ../../src/fatfs/ffunicode.c
     ../../src/fatfs/mtfs_diskio.c
     ../../src/fatfs/mtfs_fattime.c
+    ../../src/fatfs/mtfs_sealed_reader_fatfs.c
     ../../src/os/host/mtfs_fatfs_mutex_posix.c
     ../../src/os/microtkernel/mtfs_fatfs_mutex.c
     ../../src/ports/host/mtfs_host_block_file.c
@@ -140,10 +142,12 @@ add_library(mtfs_sealed_model_disabled_compile OBJECT
     ../../src/extensions/security/sealed_blob/mtfs_secure_zero.c
     ../../src/extensions/security/sealed_blob/mtfs_sealed_format.c
     ../../src/extensions/security/sealed_blob/mtfs_sealed_blob.c
+    ../../src/fatfs/mtfs_sealed_reader_fatfs.c
     ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_record.c
     ../../src/extensions/security/wrapped_key/mtfs_wrapped_key_fatfs.c
     ../../src/ports/ra_fsp/crypto/mtfs_ra8p1_ospi_key_store.c
     ../../src/ports/stm32_cube/crypto/mtfs_stm32_saes.c
+    ../../src/ports/stm32_cube/crypto/mtfs_stm32_saes_provider.c
     ../../src/ports/stm32_cube/crypto/mtfs_stm32_nor_key_store.c
     ../../src/ports/stm32_cube/crypto/mtfs_stm32n6570_nor.c
 )

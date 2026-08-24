@@ -27,9 +27,14 @@ typedef union mtfs_stm32_saes_aad_buffer
 } mtfs_stm32_saes_aad_buffer_t;
 
 /* The Phase 4.1B spike is deliberately single-threaded and non-reentrant. */
-static mtfs_stm32_saes_data_buffer_t input_work;
-static mtfs_stm32_saes_data_buffer_t output_work;
-static mtfs_stm32_saes_aad_buffer_t aad_work;
+#if defined(__GNUC__)
+#define MTFS_STM32_SAES_WORK_ALIGN __attribute__((aligned(32)))
+#else
+#define MTFS_STM32_SAES_WORK_ALIGN
+#endif
+static mtfs_stm32_saes_data_buffer_t input_work MTFS_STM32_SAES_WORK_ALIGN;
+static mtfs_stm32_saes_data_buffer_t output_work MTFS_STM32_SAES_WORK_ALIGN;
+static mtfs_stm32_saes_aad_buffer_t aad_work MTFS_STM32_SAES_WORK_ALIGN;
 static uint32_t iv_work[4];
 static uint32_t tag_work[4];
 static mtfs_stm32_saes_wrapped_key_t wrapped_work;

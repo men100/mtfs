@@ -18,6 +18,7 @@
 #include "mtfs_stm32n6570_dk_platform.h"
 #include "mtfs_target_concurrent.h"
 #include "mtfs_stm32n6570_crypto_spike.h"
+#include "mtfs_stm32n6570_model_test.h"
 #ifndef MTFS_FF_FS_NORTC
 #define MTFS_FF_FS_NORTC (1)
 #endif
@@ -104,7 +105,11 @@ static int target_console_command(void *opaque, const char *line);
 static int target_crypto_command_uses_storage(const char *line)
 {
     return (strcmp(line, "crypto-negative") == 0) ||
-        (strcmp(line, "crypto-package-test") == 0);
+        (strcmp(line, "crypto-package-test") == 0) ||
+        (strcmp(line, "model-info") == 0) ||
+        (strcmp(line, "model-load") == 0) ||
+        (strcmp(line, "model-negative") == 0) ||
+        (strcmp(line, "model-hotplug") == 0);
 }
 
 static void target_run_crypto_storage_command(const char *line)
@@ -139,7 +144,9 @@ static void target_run_crypto_storage_command(const char *line)
     if (error != MTFS_OK) goto cleanup;
     registered = 1;
     setup_failed = 0;
-    (void)mtfs_stm32n6570_crypto_command(line);
+    if (!mtfs_stm32n6570_model_command(line, &media_context)) {
+        (void)mtfs_stm32n6570_crypto_command(line);
+    }
 
 cleanup:
     if (setup_failed) {
@@ -295,7 +302,11 @@ static void target_command_console(void)
         "crypto-info               print SAES/DHUK execution context\r\n"
         "crypto-consistency        run AES-256-GCM size/reinit tests\r\n"
         "crypto-negative           reject tag/ciphertext corruption\r\n"
-        "crypto-package-test       test provisioned sealed package\r\n");
+        "crypto-package-test       test provisioned sealed package\r\n"
+        "model-info                authenticate and show trusted model info\r\n"
+        "model-load                load and verify MTFSTEST.MTF via model API\r\n"
+        "model-negative            reject package/policy mutations via model API\r\n"
+        "model-hotplug             verify removal cleanup and reinsertion recovery\r\n");
     mtfs_console_tmonitor_write(NULL,
         "microT-FS STM32N6570-DK command console\r\n"
         "Commands: RTC, storage, and STM32 SAES/DHUK crypto spike.\r\n"

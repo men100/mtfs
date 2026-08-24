@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "mtfs_model_store.h"
+#include "../common/mtfs_model_test_registry.h"
 
 typedef struct fuzz_reader
 {

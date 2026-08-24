@@ -16,11 +16,9 @@ extern "C" {
 #define MTFS_MODEL_POLICY_API_VERSION (1U)
 #define MTFS_MODEL_INFO_API_VERSION (1U)
 
-/* Phase 4.2B provisional registry. Zero is invalid, never a wildcard. */
+/* Registry rule: zero is invalid in every namespace and is never a wildcard.
+ * Concrete format IDs remain outside this API until a runtime format exists. */
 #define MTFS_MODEL_ID_INVALID (0U)
-#define MTFS_MODEL_TEST_TARGET_ID (17U)
-#define MTFS_MODEL_TEST_ACCELERATOR_ID (34U)
-#define MTFS_MODEL_TEST_FORMAT_ID (51U)
 
 typedef enum mtfs_model_state
 {
