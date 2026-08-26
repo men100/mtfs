@@ -14,6 +14,64 @@
 
 static mtfs_stm32_saes_context_t crypto_context;
 static mtfs_stm32_saes_wrapped_key_t test_wrapped_key;
+
+static mtfs_stm32_saes_status_t locked_saes_init(
+    mtfs_stm32_saes_context_t *context)
+{
+    mtfs_stm32_saes_status_t status;
+    if (mtfs_stm32n6570_saes_lock(NULL) != 0)
+        return MTFS_STM32_SAES_HAL_ERROR;
+    status = mtfs_stm32_saes_init(context);
+    mtfs_stm32n6570_saes_unlock(NULL);
+    return status;
+}
+
+static mtfs_stm32_saes_status_t locked_saes_wrap_key(
+    mtfs_stm32_saes_context_t *context,
+    const uint8_t raw_key[MTFS_STM32_SAES_AES256_KEY_BYTES],
+    mtfs_stm32_saes_wrapped_key_t *wrapped_key)
+{
+    mtfs_stm32_saes_status_t status;
+    if (mtfs_stm32n6570_saes_lock(NULL) != 0)
+        return MTFS_STM32_SAES_HAL_ERROR;
+    status = mtfs_stm32_saes_wrap_key(context, raw_key, wrapped_key);
+    mtfs_stm32n6570_saes_unlock(NULL);
+    return status;
+}
+
+static mtfs_stm32_saes_status_t locked_saes_encrypt_wrapped(
+    mtfs_stm32_saes_context_t *context,
+    const mtfs_stm32_saes_wrapped_key_t *wrapped_key,
+    const uint8_t nonce[MTFS_STM32_SAES_GCM_NONCE_BYTES],
+    const uint8_t *aad, size_t aad_bytes, const uint8_t *plaintext,
+    size_t plaintext_bytes, uint8_t *ciphertext,
+    uint8_t tag[MTFS_STM32_SAES_GCM_TAG_BYTES])
+{
+    mtfs_stm32_saes_status_t status;
+    if (mtfs_stm32n6570_saes_lock(NULL) != 0)
+        return MTFS_STM32_SAES_HAL_ERROR;
+    status = mtfs_stm32_saes_encrypt_wrapped(context, wrapped_key, nonce,
+        aad, aad_bytes, plaintext, plaintext_bytes, ciphertext, tag);
+    mtfs_stm32n6570_saes_unlock(NULL);
+    return status;
+}
+
+static mtfs_stm32_saes_status_t locked_saes_decrypt_wrapped(
+    mtfs_stm32_saes_context_t *context,
+    const mtfs_stm32_saes_wrapped_key_t *wrapped_key,
+    const uint8_t nonce[MTFS_STM32_SAES_GCM_NONCE_BYTES],
+    const uint8_t *aad, size_t aad_bytes, const uint8_t *ciphertext,
+    size_t ciphertext_bytes,
+    const uint8_t tag[MTFS_STM32_SAES_GCM_TAG_BYTES], uint8_t *plaintext)
+{
+    mtfs_stm32_saes_status_t status;
+    if (mtfs_stm32n6570_saes_lock(NULL) != 0)
+        return MTFS_STM32_SAES_HAL_ERROR;
+    status = mtfs_stm32_saes_decrypt_wrapped(context, wrapped_key, nonce,
+        aad, aad_bytes, ciphertext, ciphertext_bytes, tag, plaintext);
+    mtfs_stm32n6570_saes_unlock(NULL);
+    return status;
+}
 #define test_plaintext mtfs_stm32n6570_test_plaintext_work
 #define test_ciphertext mtfs_stm32n6570_test_ciphertext_work
 
@@ -131,9 +189,9 @@ static int all_zero(const uint8_t *data, size_t bytes)
 
 static int init_and_wrap(void)
 {
-    mtfs_stm32_saes_status_t status = mtfs_stm32_saes_init(&crypto_context);
+    mtfs_stm32_saes_status_t status = locked_saes_init(&crypto_context);
     if (status == MTFS_STM32_SAES_OK) {
-        status = mtfs_stm32_saes_wrap_key(&crypto_context, disposable_key,
+        status = locked_saes_wrap_key(&crypto_context, disposable_key,
             &test_wrapped_key);
     }
     if (status != MTFS_STM32_SAES_OK) {
@@ -161,12 +219,12 @@ static int consistency_case(size_t bytes, uint32_t sequence, int reinitialized)
     for (index = 0U; index < bytes; ++index) {
         test_plaintext[index] = pattern_byte(index);
     }
-    status = mtfs_stm32_saes_encrypt_wrapped(&crypto_context,
+    status = locked_saes_encrypt_wrapped(&crypto_context,
         &test_wrapped_key, nonce, aad, sizeof(aad) - 1U,
         test_plaintext, bytes, test_ciphertext, tag);
     if (status == MTFS_STM32_SAES_OK) {
         memset(test_plaintext, 0, bytes);
-        status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context,
+        status = locked_saes_decrypt_wrapped(&crypto_context,
             &test_wrapped_key, nonce, aad, sizeof(aad) - 1U,
             test_ciphertext, bytes, tag, test_plaintext);
     }
@@ -217,7 +275,7 @@ static int interoperability_case(void)
     for (index = 0U; index < sizeof(expected_ciphertext); ++index) {
         test_plaintext[index] = pattern_byte(index);
     }
-    status = mtfs_stm32_saes_encrypt_wrapped(&crypto_context,
+    status = locked_saes_encrypt_wrapped(&crypto_context,
         &test_wrapped_key, nonce, aad, sizeof(aad) - 1U,
         test_plaintext, sizeof(expected_ciphertext), test_ciphertext, tag);
     cipher_matches = (status == MTFS_STM32_SAES_OK) &&
@@ -254,7 +312,7 @@ static int run_consistency(void)
     if (!failed) {
         /* Prove that the persisted blob is usable after handle reinitialization. */
         mtfs_stm32_saes_wrapped_key_t saved = test_wrapped_key;
-        failed |= mtfs_stm32_saes_init(&crypto_context) != MTFS_STM32_SAES_OK;
+        failed |= locked_saes_init(&crypto_context) != MTFS_STM32_SAES_OK;
         test_wrapped_key = saved;
         mtfs_stm32_saes_zeroize(&saved, sizeof(saved));
         failed |= consistency_case(37U, UINT32_C(0x80000001), 1);
@@ -277,7 +335,7 @@ static int negative_case(int corrupt_ciphertext)
     for (index = 0U; index < 37U; ++index) {
         test_plaintext[index] = pattern_byte(index);
     }
-    status = mtfs_stm32_saes_encrypt_wrapped(&crypto_context,
+    status = locked_saes_encrypt_wrapped(&crypto_context,
         &test_wrapped_key, nonce, aad, sizeof(aad) - 1U,
         test_plaintext, 37U, test_ciphertext, tag);
     if (status != MTFS_STM32_SAES_OK) {
@@ -289,7 +347,7 @@ static int negative_case(int corrupt_ciphertext)
         tag[7] ^= 0x80U;
     }
     memset(test_plaintext, 0xa5, 37U);
-    status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context,
+    status = locked_saes_decrypt_wrapped(&crypto_context,
         &test_wrapped_key, nonce, aad, sizeof(aad) - 1U,
         test_ciphertext, 37U, tag, test_plaintext);
     if ((status != MTFS_STM32_SAES_AUTH_FAILED) ||
@@ -366,7 +424,7 @@ static int run_package(void)
     }
     memcpy(fleet_key.bytes, stored_fleet.bytes, sizeof(fleet_key.bytes));
     stage = "saes-init";
-    crypto_status = mtfs_stm32_saes_init(&crypto_context);
+    crypto_status = locked_saes_init(&crypto_context);
     if (crypto_status != MTFS_STM32_SAES_OK) goto cleanup;
     stage = "envelope-read";
     if (!file_read_exact(test_ciphertext, PACKAGE_ENVELOPE_BYTES,
@@ -374,14 +432,14 @@ static int run_package(void)
     memcpy(nonce, package_manifest + 128U, sizeof(nonce));
     aad_bytes = envelope_aad();
     stage = "envelope-auth";
-    crypto_status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context,
+    crypto_status = locked_saes_decrypt_wrapped(&crypto_context,
         &fleet_key, nonce, package_aad, aad_bytes, test_ciphertext,
         MTFS_STM32_SAES_AES256_KEY_BYTES,
         test_ciphertext + MTFS_STM32_SAES_AES256_KEY_BYTES,
         raw_model_key);
     if (crypto_status != MTFS_STM32_SAES_OK) goto cleanup;
     stage = "model-wrap";
-    crypto_status = mtfs_stm32_saes_wrap_key(&crypto_context,
+    crypto_status = locked_saes_wrap_key(&crypto_context,
         raw_model_key, &model_key);
     mtfs_stm32_saes_zeroize(raw_model_key, sizeof(raw_model_key));
     if ((crypto_status != MTFS_STM32_SAES_OK) ||
@@ -396,7 +454,7 @@ static int run_package(void)
     write_le32(nonce + 8U, 0U);
     aad_bytes = chunk_aad(0U, PACKAGE_CHUNK0_BYTES);
     stage = "chunk-0-auth";
-    crypto_status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context,
+    crypto_status = locked_saes_decrypt_wrapped(&crypto_context,
         &model_key, nonce, package_aad, aad_bytes, test_ciphertext,
         PACKAGE_CHUNK0_BYTES, test_ciphertext + PACKAGE_CHUNK0_BYTES,
         test_plaintext);
@@ -413,7 +471,7 @@ static int run_package(void)
     write_le32(nonce + 8U, 1U);
     aad_bytes = chunk_aad(1U, PACKAGE_CHUNK1_BYTES);
     stage = "chunk-1-auth";
-    crypto_status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context,
+    crypto_status = locked_saes_decrypt_wrapped(&crypto_context,
         &model_key, nonce, package_aad, aad_bytes, test_ciphertext,
         PACKAGE_CHUNK1_BYTES, test_ciphertext + PACKAGE_CHUNK1_BYTES,
         test_plaintext);
@@ -482,25 +540,25 @@ static int run_package_negative(void)
         (mtfs_stm32_nor_key_store_load(&io, &stored, &metadata,
             &store_diag) != MTFS_STM32_NOR_KEY_STORE_OK)) goto cleanup;
     memcpy(fleet.bytes, stored.bytes, sizeof(fleet.bytes));
-    if (mtfs_stm32_saes_init(&crypto_context) != MTFS_STM32_SAES_OK) goto cleanup;
+    if (locked_saes_init(&crypto_context) != MTFS_STM32_SAES_OK) goto cleanup;
     if (!file_read_exact(test_ciphertext, PACKAGE_ENVELOPE_BYTES, &fs)) goto cleanup;
     memcpy(nonce, package_manifest + 128U, sizeof(nonce));
     aad_bytes = envelope_aad();
     test_ciphertext[PACKAGE_ENVELOPE_BYTES - 1U] ^= 1U;
     memset(raw_model, 0xa5, sizeof(raw_model));
-    status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context, &fleet,
+    status = locked_saes_decrypt_wrapped(&crypto_context, &fleet,
         nonce, package_aad, aad_bytes, test_ciphertext,
         MTFS_STM32_SAES_AES256_KEY_BYTES,
         test_ciphertext + MTFS_STM32_SAES_AES256_KEY_BYTES, raw_model);
     envelope_rejected = (status == MTFS_STM32_SAES_AUTH_FAILED) &&
         all_zero(raw_model, sizeof(raw_model));
     test_ciphertext[PACKAGE_ENVELOPE_BYTES - 1U] ^= 1U;
-    status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context, &fleet,
+    status = locked_saes_decrypt_wrapped(&crypto_context, &fleet,
         nonce, package_aad, aad_bytes, test_ciphertext,
         MTFS_STM32_SAES_AES256_KEY_BYTES,
         test_ciphertext + MTFS_STM32_SAES_AES256_KEY_BYTES, raw_model);
     if (status != MTFS_STM32_SAES_OK) goto cleanup;
-    status = mtfs_stm32_saes_wrap_key(&crypto_context, raw_model, &model);
+    status = locked_saes_wrap_key(&crypto_context, raw_model, &model);
     mtfs_stm32_saes_zeroize(raw_model, sizeof(raw_model));
     if ((status != MTFS_STM32_SAES_OK) ||
         !all_zero(raw_model, sizeof(raw_model))) goto cleanup;
@@ -511,7 +569,7 @@ static int run_package_negative(void)
     aad_bytes = chunk_aad(0U, PACKAGE_CHUNK0_BYTES);
     test_ciphertext[17] ^= 1U;
     memset(test_plaintext, 0xa5, PACKAGE_CHUNK0_BYTES);
-    status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context, &model,
+    status = locked_saes_decrypt_wrapped(&crypto_context, &model,
         nonce, package_aad, aad_bytes, test_ciphertext, PACKAGE_CHUNK0_BYTES,
         test_ciphertext + PACKAGE_CHUNK0_BYTES, test_plaintext);
     cipher_rejected = (status == MTFS_STM32_SAES_AUTH_FAILED) &&
@@ -519,7 +577,7 @@ static int run_package_negative(void)
     test_ciphertext[17] ^= 1U;
     test_ciphertext[PACKAGE_CHUNK0_BYTES + 5U] ^= 1U;
     memset(test_plaintext, 0xa5, PACKAGE_CHUNK0_BYTES);
-    status = mtfs_stm32_saes_decrypt_wrapped(&crypto_context, &model,
+    status = locked_saes_decrypt_wrapped(&crypto_context, &model,
         nonce, package_aad, aad_bytes, test_ciphertext, PACKAGE_CHUNK0_BYTES,
         test_ciphertext + PACKAGE_CHUNK0_BYTES, test_plaintext);
     tag_rejected = (status == MTFS_STM32_SAES_AUTH_FAILED) &&
@@ -556,11 +614,18 @@ static void print_info(void)
     mtfs_stm32_nor_key_store_diagnostics_t diagnostics = {0};
     mtfs_stm32_nor_key_store_status_t store_status =
         MTFS_STM32_NOR_KEY_STORE_IO_ERROR;
+    uint32_t saes_cr = 0U;
+    uint32_t saes_sr = 0U;
     int32_t bsp_error = 0;
+    if (mtfs_stm32n6570_saes_lock(NULL) == 0) {
+        saes_cr = SAES->CR;
+        saes_sr = SAES->SR;
+        mtfs_stm32n6570_saes_unlock(NULL);
+    }
     tm_printf((UB *)"[crypto] provider=STM32N657 SAES key=AES-256 keysel=DHUK mode=wrapped GCM=one-shot\n");
     tm_printf((UB *)"[crypto] build=FullSecure privileged=%u CONTROL=0x%08x SAES_CR=0x%08x SAES_SR=0x%08x\n",
         (__get_CONTROL() & CONTROL_nPRIV_Msk) == 0U ? 1U : 0U,
-        __get_CONTROL(), SAES->CR, SAES->SR);
+        __get_CONTROL(), saes_cr, saes_sr);
     tm_printf((UB *)"[crypto] HAL-auth-policy=middleware-tag-compare publish-after-auth max-data=%u max-aad=%u hal-call-max=%u\n",
         MTFS_STM32_SAES_MAX_DATA_BYTES, MTFS_STM32_SAES_MAX_AAD_BYTES,
         UINT16_MAX);

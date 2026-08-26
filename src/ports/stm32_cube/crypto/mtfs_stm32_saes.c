@@ -26,7 +26,8 @@ typedef union mtfs_stm32_saes_aad_buffer
     uint8_t bytes[MTFS_STM32_SAES_MAX_AAD_BYTES];
 } mtfs_stm32_saes_aad_buffer_t;
 
-/* The Phase 4.1B spike is deliberately single-threaded and non-reentrant. */
+/* Process-global work; callers serialize every primitive operation with the
+ * target-global SAES lock documented in mtfs_stm32_saes.h. */
 #if defined(__GNUC__)
 #define MTFS_STM32_SAES_WORK_ALIGN __attribute__((aligned(32)))
 #else

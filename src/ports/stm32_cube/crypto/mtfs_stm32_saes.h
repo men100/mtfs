@@ -19,7 +19,8 @@ extern "C" {
 #define MTFS_STM32_SAES_GCM_NONCE_BYTES      (12U)
 #define MTFS_STM32_SAES_GCM_TAG_BYTES        (16U)
 #define MTFS_STM32_SAES_MAX_DATA_BYTES       (64U * 1024U)
-#define MTFS_STM32_SAES_MAX_AAD_BYTES        (4U * 1024U)
+/* 4-byte aligned capacity above sealed format v1's 4,278-byte chunk AAD. */
+#define MTFS_STM32_SAES_MAX_AAD_BYTES        (4352U)
 
 typedef union mtfs_stm32_saes_wrapped_key
 {
@@ -59,6 +60,10 @@ typedef struct mtfs_stm32_saes_context
     mtfs_stm32_saes_hal_operation_t last_hal_operation;
     uint8_t rng_ready;
 } mtfs_stm32_saes_context_t;
+
+/* SAES and this primitive's internal work buffers are shared by all contexts.
+ * The target must serialize every call below with one global lock shared by
+ * provider instances and direct primitive users. */
 
 mtfs_stm32_saes_status_t mtfs_stm32_saes_init(
     mtfs_stm32_saes_context_t *context);

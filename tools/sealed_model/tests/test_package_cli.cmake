@@ -38,6 +38,9 @@ file(MAKE_DIRECTORY "${MTFS_TEST_WORK_DIR}")
 set(package "${MTFS_TEST_WORK_DIR}/MTFSTEST.MTF")
 set(descriptor "${MTFS_TEST_WORK_DIR}/MTFSTEST.TXT")
 set(recovered "${MTFS_TEST_WORK_DIR}/payload.bin")
+set(max_package "${MTFS_TEST_WORK_DIR}/MTFSMAX.MTF")
+set(max_descriptor "${MTFS_TEST_WORK_DIR}/MTFSMAX.TXT")
+set(max_recovered "${MTFS_TEST_WORK_DIR}/max-payload.bin")
 
 run_success("initial package creation"
     "${MTFS_TEST_PACKAGE}"
@@ -76,6 +79,32 @@ run_success("known plaintext comparison"
     "${CMAKE_COMMAND}" -E compare_files
     "${recovered}" "${MTFS_EXPECTED_PAYLOAD}")
 
+run_success("maximum metadata package creation"
+    "${MTFS_TEST_PACKAGE}"
+    --key "${MTFS_TEST_KEY}"
+    --package "${max_package}"
+    --descriptor "${max_descriptor}"
+    --maximum-metadata)
+run_success("maximum metadata package verification"
+    "${MTFS_VERIFY}"
+    --key "${MTFS_TEST_KEY}"
+    --input "${max_package}"
+    --target-id 17
+    --accelerator-id 34
+    --model-format 51
+    --max-chunk-size 4096)
+run_success("maximum metadata package recovery"
+    "${MTFS_UNSEAL}"
+    --key "${MTFS_TEST_KEY}"
+    --input "${max_package}"
+    --output "${max_recovered}"
+    --target-id 17
+    --accelerator-id 34
+    --model-format 51)
+run_success("maximum metadata plaintext comparison"
+    "${CMAKE_COMMAND}" -E compare_files
+    "${max_recovered}" "${MTFS_EXPECTED_PAYLOAD}")
+
 file(SIZE "${package}" package_bytes)
 if(NOT package_bytes EQUAL 5280)
     message(FATAL_ERROR "unexpected test package size: ${package_bytes}")
@@ -91,6 +120,7 @@ foreach(expected IN ITEMS
         "payload_bytes=5000\n"
         "chunk_bytes=4096\n"
         "chunks=2\n"
+        "metadata_bytes=40\n"
         "payload_pattern=(offset*7+3)&0xff\n"
         "package_sha256=${package_sha256}\n"
         "payload_sha256=${payload_sha256}\n"
@@ -100,6 +130,18 @@ foreach(expected IN ITEMS
         message(FATAL_ERROR "descriptor is missing: ${expected}")
     endif()
 endforeach()
+
+file(SIZE "${max_package}" max_package_bytes)
+if(NOT max_package_bytes EQUAL 9336)
+    message(FATAL_ERROR
+        "unexpected maximum metadata package size: ${max_package_bytes}")
+endif()
+file(READ "${max_descriptor}" max_descriptor_text)
+string(FIND "${max_descriptor_text}" "metadata_bytes=4096\n"
+    max_metadata_position)
+if(max_metadata_position EQUAL -1)
+    message(FATAL_ERROR "maximum metadata descriptor is incorrect")
+endif()
 
 file(READ "${MTFS_TEST_KEY}" key_hex HEX)
 file(READ "${package}" package_hex HEX)

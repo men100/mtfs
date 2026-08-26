@@ -56,7 +56,6 @@ typedef struct model_session
     mtfs_crypto_provider_t provider;
     mtfs_stm32_nor_io_t nor;
     mtfs_model_t model;
-    ID mutex_id;
     const mtfs_media_context_t *media;
     uint8_t mounted;
     uint8_t reader_open;
@@ -136,18 +135,6 @@ static mtfs_error_t target_media_status(void *opaque)
     return MTFS_ERROR_NOT_READY;
 }
 
-static int provider_lock(void *opaque)
-{
-    ID mutex_id = *(ID *)opaque;
-    return tk_loc_mtx(mutex_id, TMO_FEVR) == E_OK ? 0 : -1;
-}
-
-static void provider_unlock(void *opaque)
-{
-    ID mutex_id = *(ID *)opaque;
-    (void)tk_unl_mtx(mutex_id);
-}
-
 static mtfs_error_t decorated_get_size(void *opaque, uint64_t *size)
 {
     model_reader_decorator_t *decorator =
@@ -191,7 +178,6 @@ static void decorate(model_session_t *session, uint64_t mutation,
 static int session_setup(model_session_t *session,
     const mtfs_media_context_t *media)
 {
-    T_CMTX mutex = {.mtxatr = TA_INHERIT};
     int32_t bsp_error = 0;
     memset(session, 0, sizeof(*session));
     session->media = media;
@@ -205,15 +191,13 @@ static int session_setup(model_session_t *session,
             target_media_status, (void *)media, &session->reader) != MTFS_OK)
         return -2;
     session->reader_open = 1U;
-    session->mutex_id = tk_cre_mtx(&mutex);
-    if (session->mutex_id <= 0)
-        return -3;
     if (mtfs_stm32n6570_nor_open(&session->nor, &bsp_error) != 0)
-        return -4;
+        return -3;
     if (mtfs_stm32_saes_provider_init(&session->provider_context,
-            &session->nor, provider_lock, provider_unlock,
-            &session->mutex_id, &session->provider) != MTFS_CRYPTO_OK)
-        return -5;
+            &session->nor, mtfs_stm32n6570_saes_lock,
+            mtfs_stm32n6570_saes_unlock, NULL,
+            &session->provider) != MTFS_CRYPTO_OK)
+        return -4;
     session->provider_open = 1U;
     return 0;
 }
@@ -238,9 +222,6 @@ static int session_cleanup(model_session_t *session)
             MTFS_CRYPTO_OK)
         failed = 1;
     session->provider_open = 0U;
-    if (session->mutex_id > 0 && tk_del_mtx(session->mutex_id) != E_OK)
-        failed = 1;
-    session->mutex_id = 0;
     if (session->mounted != 0U && f_mount(NULL, "0:", 0U) != FR_OK)
         failed = 1;
     session->mounted = 0U;

@@ -203,3 +203,25 @@ target_compile_options(mtfs_fattime_enabled_test PRIVATE
     -Wall -Wextra -Wpedantic
 )
 add_test(NAME mtfs_fattime_enabled COMMAND mtfs_fattime_enabled_test)
+
+add_executable(mtfs_stm32_saes_provider_bounds_test
+    test_stm32_saes_provider_bounds.c
+    ../../src/ports/stm32_cube/crypto/mtfs_stm32_saes_provider.c
+)
+target_include_directories(mtfs_stm32_saes_provider_bounds_test BEFORE PRIVATE
+    stubs
+    ../../src
+    ../../src/extensions/security/sealed_blob
+    ../../src/ports/stm32_cube/crypto
+)
+target_compile_definitions(mtfs_stm32_saes_provider_bounds_test PRIVATE
+    MTFS_ENABLE_SEALED_MODEL=1
+)
+set_target_properties(mtfs_stm32_saes_provider_bounds_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES
+)
+target_compile_options(mtfs_stm32_saes_provider_bounds_test PRIVATE
+    -Wall -Wextra -Wpedantic
+)
+add_test(NAME mtfs_stm32_saes_provider_bounds
+    COMMAND mtfs_stm32_saes_provider_bounds_test)

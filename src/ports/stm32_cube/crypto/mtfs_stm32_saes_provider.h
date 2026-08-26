@@ -17,14 +17,19 @@ extern "C" {
 
 #define MTFS_STM32_SAES_PROVIDER_API_VERSION (1U)
 
-/* Return zero after acquiring the exclusive SAES lock, nonzero on failure. */
+/* Return zero after acquiring the exclusive SAES lock, nonzero on failure.
+ * SAES and mtfs_stm32_saes.c work buffers are process-global resources.  Every
+ * provider instance and every direct mtfs_stm32_saes_* caller in the target
+ * must therefore use the same global lock.  Per-instance locks do not satisfy
+ * this contract.  The application owns the lock for the target lifetime;
+ * provider deinit neither deletes nor otherwise manages it. */
 typedef int (*mtfs_stm32_saes_provider_lock_fn)(void *context);
 typedef void (*mtfs_stm32_saes_provider_unlock_fn)(void *context);
 
 /* Lock order contract: FatFs and SAES locks are never nested.  sealed_blob
  * completes each reader callback before invoking this provider.  Applications
  * must not hold a FatFs volume lock while calling provider functions, nor call
- * FatFs while holding the lock supplied here. */
+ * FatFs while holding the global lock supplied here. */
 
 typedef struct mtfs_stm32_saes_provider_context
 {

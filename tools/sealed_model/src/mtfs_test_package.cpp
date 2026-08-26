@@ -82,6 +82,7 @@ bool write_payload(const std::filesystem::path &path)
 bool write_descriptor(const std::filesystem::path &path,
                       const std::filesystem::path &package,
                       std::uintmax_t package_bytes,
+                      std::size_t metadata_bytes,
                       const std::array<std::uint8_t, 32> &package_sha,
                       const std::array<std::uint8_t, 32> &payload_sha)
 {
@@ -94,6 +95,7 @@ bool write_descriptor(const std::filesystem::path &path,
            << "payload_bytes=" << kPayloadBytes << '\n'
            << "chunk_bytes=" << kChunkBytes << '\n'
            << "chunks=2\n"
+           << "metadata_bytes=" << metadata_bytes << '\n'
            << "payload_pattern=(offset*7+3)&0xff\n"
            << "package_sha256=" << hex_string(package_sha.data(), package_sha.size()) << '\n'
            << "payload_sha256=" << hex_string(payload_sha.data(), payload_sha.size()) << '\n'
@@ -110,6 +112,7 @@ int main(int argc, char **argv)
     std::filesystem::path package;
     std::filesystem::path descriptor;
     bool overwrite = false;
+    bool maximum_metadata = false;
     for (int index = 1; index < argc; ++index)
     {
         const std::string argument(argv[index]);
@@ -121,6 +124,8 @@ int main(int argc, char **argv)
             descriptor = argv[++index];
         else if (argument == "--overwrite")
             overwrite = true;
+        else if (argument == "--maximum-metadata")
+            maximum_metadata = true;
         else
         {
             std::cerr << "invalid argument: " << argument << '\n';
@@ -130,7 +135,7 @@ int main(int argc, char **argv)
     if (key.empty() || package.empty() || descriptor.empty() || package == descriptor)
     {
         std::cerr << "usage: mtfs-test-package --key fleet.key --package MTFSTEST.MTF "
-                     "--descriptor MTFSTEST.TXT [--overwrite]\n";
+                     "--descriptor MTFSTEST.TXT [--maximum-metadata] [--overwrite]\n";
         return 2;
     }
     std::error_code path_error;
@@ -179,6 +184,24 @@ int main(int argc, char **argv)
         'f', 'l', 'e', 'e', 't', '-', 't', 'e', 's', 't', 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00
     };
+    if (maximum_metadata)
+    {
+        /* Optional type 5 follows types 1 and 4 and fills the canonical TLV
+         * stream to the sealed v1 maximum of 4,096 bytes. */
+        constexpr std::size_t kMaximumMetadataBytes = 4096;
+        constexpr std::size_t kFillerOffset = 40;
+        constexpr std::uint32_t kFillerBytes = 4048;
+        options.metadata.resize(kMaximumMetadataBytes, 0U);
+        options.metadata[kFillerOffset] = 0x05U;
+        options.metadata[kFillerOffset + 4U] =
+            static_cast<std::uint8_t>(kFillerBytes);
+        options.metadata[kFillerOffset + 5U] =
+            static_cast<std::uint8_t>(kFillerBytes >> 8);
+        options.metadata[kFillerOffset + 6U] =
+            static_cast<std::uint8_t>(kFillerBytes >> 16);
+        options.metadata[kFillerOffset + 7U] =
+            static_cast<std::uint8_t>(kFillerBytes >> 24);
+    }
     if (random.fill(options.model_id.data(), options.model_id.size()) != mtfs::sealed::Status::ok)
         return mtfs_report(mtfs::sealed::Status::rng, "model ID generation");
     options.model_id[6] = static_cast<std::uint8_t>((options.model_id[6] & 0x0fU) | 0x40U);
@@ -199,6 +222,7 @@ int main(int argc, char **argv)
     if (size_error || !sha256_file(package, &package_sha) ||
         !sha256_file(payload.path(), &payload_sha) ||
         !write_descriptor(descriptor_staging.path(), package, package_bytes,
+                          options.metadata.size(),
                           package_sha, payload_sha))
     {
         std::cerr << "nonsecret descriptor creation failed; package remains valid\n";

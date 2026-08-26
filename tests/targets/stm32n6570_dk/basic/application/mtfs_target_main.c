@@ -18,6 +18,7 @@
 #include "mtfs_stm32n6570_dk_platform.h"
 #include "mtfs_target_concurrent.h"
 #include "mtfs_stm32n6570_crypto_spike.h"
+#include "mtfs_stm32n6570_crypto_work.h"
 #include "mtfs_stm32n6570_model_test.h"
 #ifndef MTFS_FF_FS_NORTC
 #define MTFS_FF_FS_NORTC (1)
@@ -1306,10 +1307,15 @@ static void target_coordinator(INT start_code, void *opaque)
 
     (void)start_code;
     (void)opaque;
+    if (mtfs_stm32n6570_saes_lock_init() != 0) {
+        tm_printf((UB *)"[mtfs] global SAES mutex create FAIL\n");
+        tk_exd_tsk();
+    }
 #if !MTFS_FF_FS_NORTC
     rtc_mutex_id = tk_cre_mtx(&rtc_mutex);
     if (rtc_mutex_id <= 0) {
         tm_printf((UB *)"[mtfs] RTC mutex create FAIL: %d\n", rtc_mutex_id);
+        mtfs_stm32n6570_saes_lock_deinit();
         tk_exd_tsk();
     }
     rtc_error = mtfs_stm32_rtc_init(
@@ -1334,6 +1340,7 @@ static void target_coordinator(INT start_code, void *opaque)
 #else
     tm_printf((UB *)"[mtfs] command console disabled; coordinator stopped\n");
 #endif
+    mtfs_stm32n6570_saes_lock_deinit();
     tk_exd_tsk();
 }
 

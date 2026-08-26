@@ -6,6 +6,8 @@
 
 #include <string.h>
 
+#include "../../../extensions/security/sealed_blob/mtfs_sealed_format.h"
+
 #define FLEET_HANDLE_TAG (UINT32_C(0xf17e0000))
 #define MODEL_HANDLE_TAG (UINT32_C(0x4d4f0000))
 #define HANDLE_TAG_MASK  (UINT32_C(0xffff0000))
@@ -14,6 +16,8 @@
 typedef char wrapped_key_size_match[
     sizeof(mtfs_stm32_nor_wrapped_key_t) ==
         sizeof(mtfs_stm32_saes_wrapped_key_t) ? 1 : -1];
+typedef char sealed_aad_fits_saes_primitive[
+    MTFS_STM32_SAES_MAX_AAD_BYTES >= MTFS_SEALED_CHUNK_AAD_SIZE ? 1 : -1];
 
 static int valid_context(const mtfs_stm32_saes_provider_context_t *context)
 {
@@ -92,8 +96,10 @@ static mtfs_crypto_status_t open_fleet_key(void *opaque, uint32_t key_id,
         result = MTFS_CRYPTO_IO_FAILED;
         goto cleanup;
     }
-    /* MTFK format v1 and its fixed 32-byte payload identify an STM32
-     * DHUK-wrapped AES-256 fleet key; key selector fields remain explicit. */
+    /* The STM32 MTFK v1 schema and fixed 32-byte blob identify an SAES/DHUK
+     * fleet key record.  The key store has validated format/header/blob
+     * lengths, CRC, commit marker and generation; MTFK v1 has no explicit
+     * provider or key-type fields.  Match its key selectors to the package. */
     if (metadata.key_id != key_id || metadata.key_version != key_version) {
         result = MTFS_CRYPTO_KEY_NOT_FOUND;
         goto cleanup;
@@ -166,16 +172,18 @@ static mtfs_crypto_status_t decrypt_chunk(void *opaque,
     mtfs_stm32_saes_provider_context_t *context =
         (mtfs_stm32_saes_provider_context_t *)opaque;
     mtfs_crypto_status_t result;
+    /* Reject an unrepresentable output length before inspecting pointers,
+     * acquiring the SAES lock, starting hardware, or touching plaintext. */
+    if (ciphertext_size > MTFS_STM32_SAES_MAX_DATA_BYTES)
+        return MTFS_CRYPTO_RESOURCE_EXHAUSTED;
     if (nonce == NULL || tag == NULL || plaintext == NULL ||
         (aad == NULL && aad_size != 0U) ||
         (ciphertext == NULL && ciphertext_size != 0U)) {
-        if (plaintext != NULL &&
-            ciphertext_size <= MTFS_STM32_SAES_MAX_DATA_BYTES)
+        if (plaintext != NULL)
             mtfs_stm32_saes_zeroize(plaintext, ciphertext_size);
         return MTFS_CRYPTO_INVALID_ARGUMENT;
     }
-    if (ciphertext_size > MTFS_STM32_SAES_MAX_DATA_BYTES ||
-        aad_size > MTFS_STM32_SAES_MAX_AAD_BYTES) {
+    if (aad_size > MTFS_SEALED_CHUNK_AAD_SIZE) {
         mtfs_stm32_saes_zeroize(plaintext, ciphertext_size);
         return MTFS_CRYPTO_RESOURCE_EXHAUSTED;
     }
