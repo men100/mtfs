@@ -12,6 +12,8 @@
 #define MTFS_TK_CHUNK_SIZE           (512U)
 #define MTFS_TK_ITERATIONS           (8U)
 #define MTFS_TK_WORKER_STACK_SIZE    (16U * 1024U)
+#define MTFS_TK_STACK_GUARD_SIZE     (32U)
+#define MTFS_TK_STACK_FILL           (0xA5U)
 #define MTFS_TK_START_BIT            (UINT32_C(1) << 0)
 #define MTFS_TK_READY_BIT(i)         (UINT32_C(1) << (1U + (i)))
 #define MTFS_TK_DONE_BIT(i)          (UINT32_C(1) << (3U + (i)))
@@ -38,8 +40,92 @@ typedef struct mtfs_tk_worker
 
 static mtfs_tk_worker_t workers[MTFS_TK_WORKERS];
 static FATFS concurrent_filesystem;
-static UW worker_stacks[MTFS_TK_WORKERS]
-    [MTFS_TK_WORKER_STACK_SIZE / sizeof(UW)] __attribute__((aligned(8)));
+typedef struct mtfs_tk_worker_stack
+{
+    UB guard[MTFS_TK_STACK_GUARD_SIZE];
+    UW stack[MTFS_TK_WORKER_STACK_SIZE / sizeof(UW)];
+} mtfs_tk_worker_stack_t;
+
+static mtfs_tk_worker_stack_t worker_stacks[MTFS_TK_WORKERS]
+    __attribute__((aligned(8)));
+static size_t worker_peak_used[MTFS_TK_WORKERS];
+static int worker_guard_ok[MTFS_TK_WORKERS];
+static int worker_watermark_valid[MTFS_TK_WORKERS];
+
+/* Cortex-M task stacks descend toward the guard at the buffer's low end. */
+static size_t mtfs_tk_stack_free_bytes(const UW *stack, size_t stack_size)
+{
+    const volatile UB *bytes = (const volatile UB *)stack;
+    size_t free_bytes = 0U;
+
+    while ((free_bytes < stack_size) &&
+        (bytes[free_bytes] == (UB)MTFS_TK_STACK_FILL)) {
+        ++free_bytes;
+    }
+    return free_bytes;
+}
+
+static int mtfs_tk_stack_guard_ok(const UB *guard, size_t guard_size)
+{
+    const volatile UB *bytes = (const volatile UB *)guard;
+    size_t index;
+
+    for (index = 0U; index < guard_size; ++index) {
+        if (bytes[index] != (UB)MTFS_TK_STACK_FILL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void mtfs_tk_worker_stack_prepare(unsigned int index)
+{
+    (void)memset(worker_stacks[index].guard, MTFS_TK_STACK_FILL,
+        sizeof(worker_stacks[index].guard));
+    (void)memset(worker_stacks[index].stack, MTFS_TK_STACK_FILL,
+        sizeof(worker_stacks[index].stack));
+}
+
+static void mtfs_tk_worker_stack_record(unsigned int index)
+{
+    size_t free_bytes = mtfs_tk_stack_free_bytes(worker_stacks[index].stack,
+        sizeof(worker_stacks[index].stack));
+    size_t used_bytes = sizeof(worker_stacks[index].stack) - free_bytes;
+    int guard_ok = mtfs_tk_stack_guard_ok(worker_stacks[index].guard,
+        sizeof(worker_stacks[index].guard));
+
+    /* Keep the worst result across every round executed since boot. */
+    if (!worker_watermark_valid[index] ||
+        (used_bytes > worker_peak_used[index])) {
+        worker_peak_used[index] = used_bytes;
+    }
+    if (!worker_watermark_valid[index]) {
+        worker_guard_ok[index] = guard_ok;
+    } else {
+        worker_guard_ok[index] = worker_guard_ok[index] && guard_ok;
+    }
+    worker_watermark_valid[index] = 1;
+}
+
+unsigned int mtfs_test_concurrent_microtkernel_stack_count(void)
+{
+    return MTFS_TK_WORKERS;
+}
+
+int mtfs_test_concurrent_microtkernel_stack_watermark(unsigned int index,
+    mtfs_tk_stack_watermark_t *watermark)
+{
+    if ((index >= MTFS_TK_WORKERS) || (watermark == NULL)) {
+        return 0;
+    }
+    watermark->total_bytes = sizeof(worker_stacks[index].stack);
+    watermark->used_bytes = worker_peak_used[index];
+    watermark->free_bytes = sizeof(worker_stacks[index].stack) -
+        worker_peak_used[index];
+    watermark->guard_ok = worker_guard_ok[index];
+    watermark->measured = worker_watermark_valid[index];
+    return 1;
+}
 
 static void mtfs_tk_fill(BYTE *buffer, unsigned int seed,
     unsigned int iteration)
@@ -217,12 +303,13 @@ int mtfs_test_concurrent_microtkernel(mtfs_test_t *test,
 
     (void)memset(workers, 0, sizeof(workers));
     for (index = 0U; index < MTFS_TK_WORKERS; ++index) {
+        mtfs_tk_worker_stack_prepare(index);
         workers[index].index = index;
         workers[index].seed = seeds[index];
         workers[index].path = paths[index];
         workers[index].event_flag_id = event_flag_id;
         task_config.exinf = &workers[index];
-        task_config.bufptr = worker_stacks[index];
+        task_config.bufptr = worker_stacks[index].stack;
         task_ids[index] = tk_cre_tsk(&task_config);
         if (task_ids[index] <= 0) {
             (void)MTFS_TEST_CHECK(test, 0, "create both worker tasks");
@@ -291,8 +378,10 @@ cleanup_tasks:
                 (void)f_close(&workers[index].file);
                 workers[index].file_open = 0;
             }
-            (void)MTFS_TEST_CHECK(test, tk_del_tsk(task_ids[index]) >= E_OK,
-                "delete worker task during cleanup");
+            if (MTFS_TEST_CHECK(test, tk_del_tsk(task_ids[index]) >= E_OK,
+                    "delete worker task during cleanup")) {
+                mtfs_tk_worker_stack_record(index);
+            }
         }
     }
     (void)MTFS_TEST_CHECK(test, tk_del_flg(event_flag_id) >= E_OK,
