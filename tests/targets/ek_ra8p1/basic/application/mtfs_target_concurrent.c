@@ -12,6 +12,8 @@
 #define TARGET_CHUNK_SIZE    (512U)
 #define TARGET_ITERATIONS    (8U)
 #define TARGET_WORKER_STACK_SIZE (16U * 1024U)
+#define TARGET_STACK_GUARD_SIZE  (32U)
+#define TARGET_STACK_FILL        (0xA5U)
 #define TARGET_START_BIT     (UINT32_C(1) << 0)
 #define TARGET_READY_BIT(i)  (UINT32_C(1) << (1U + (i)))
 #define TARGET_DONE_BIT(i)   (UINT32_C(1) << (3U + (i)))
@@ -36,8 +38,92 @@ typedef struct target_worker
 
 static target_worker_t workers[TARGET_WORKERS];
 static FATFS concurrent_filesystem;
-static UW worker_stacks[TARGET_WORKERS]
-    [TARGET_WORKER_STACK_SIZE / sizeof(UW)] __attribute__((aligned(8)));
+typedef struct target_worker_stack
+{
+    UB guard[TARGET_STACK_GUARD_SIZE];
+    UW stack[TARGET_WORKER_STACK_SIZE / sizeof(UW)];
+} target_worker_stack_t;
+
+static target_worker_stack_t worker_stacks[TARGET_WORKERS]
+    __attribute__((aligned(8)));
+static size_t worker_peak_used[TARGET_WORKERS];
+static int worker_guard_ok[TARGET_WORKERS];
+static int worker_watermark_valid[TARGET_WORKERS];
+
+/* Cortex-M task stacks descend toward the guard at the buffer's low end. */
+static size_t target_stack_free_bytes(const UW *stack, size_t stack_size)
+{
+    const volatile UB *bytes = (const volatile UB *)stack;
+    size_t free_bytes = 0U;
+
+    while ((free_bytes < stack_size) &&
+        (bytes[free_bytes] == (UB)TARGET_STACK_FILL)) {
+        ++free_bytes;
+    }
+    return free_bytes;
+}
+
+static int target_stack_guard_ok(const UB *guard, size_t guard_size)
+{
+    const volatile UB *bytes = (const volatile UB *)guard;
+    size_t i;
+
+    for (i = 0U; i < guard_size; ++i) {
+        if (bytes[i] != (UB)TARGET_STACK_FILL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void target_worker_stack_prepare(unsigned int index)
+{
+    memset(worker_stacks[index].guard, TARGET_STACK_FILL,
+        sizeof(worker_stacks[index].guard));
+    memset(worker_stacks[index].stack, TARGET_STACK_FILL,
+        sizeof(worker_stacks[index].stack));
+}
+
+static void target_worker_stack_record(unsigned int index)
+{
+    size_t free_bytes = target_stack_free_bytes(worker_stacks[index].stack,
+        sizeof(worker_stacks[index].stack));
+    size_t used_bytes = sizeof(worker_stacks[index].stack) - free_bytes;
+    int guard_ok = target_stack_guard_ok(worker_stacks[index].guard,
+        sizeof(worker_stacks[index].guard));
+
+    /* Keep the worst result across every round executed since boot. */
+    if (!worker_watermark_valid[index] ||
+        (used_bytes > worker_peak_used[index])) {
+        worker_peak_used[index] = used_bytes;
+    }
+    if (!worker_watermark_valid[index]) {
+        worker_guard_ok[index] = guard_ok;
+    } else {
+        worker_guard_ok[index] = worker_guard_ok[index] && guard_ok;
+    }
+    worker_watermark_valid[index] = 1;
+}
+
+unsigned int mtfs_target_concurrent_stack_count(void)
+{
+    return TARGET_WORKERS;
+}
+
+int mtfs_target_concurrent_stack_watermark(unsigned int index,
+    mtfs_target_stack_watermark_t *watermark)
+{
+    if ((index >= TARGET_WORKERS) || (watermark == NULL)) {
+        return 0;
+    }
+    watermark->total_bytes = sizeof(worker_stacks[index].stack);
+    watermark->used_bytes = worker_peak_used[index];
+    watermark->free_bytes = sizeof(worker_stacks[index].stack) -
+        worker_peak_used[index];
+    watermark->guard_ok = worker_guard_ok[index];
+    watermark->measured = worker_watermark_valid[index];
+    return 1;
+}
 
 static void target_fill(BYTE *buffer, unsigned int seed, unsigned int iteration)
 {
@@ -213,12 +299,13 @@ int mtfs_target_run_concurrent(mtfs_test_t *test, const char *volume_path,
 
     memset(workers, 0, sizeof(workers));
     for (i = 0U; i < TARGET_WORKERS; ++i) {
+        target_worker_stack_prepare(i);
         workers[i].index = i;
         workers[i].seed = seeds[i];
         workers[i].path = paths[i];
         workers[i].event_flag_id = event_flag_id;
         task_config.exinf = &workers[i];
-        task_config.bufptr = worker_stacks[i];
+        task_config.bufptr = worker_stacks[i].stack;
         task_ids[i] = tk_cre_tsk(&task_config);
         if (task_ids[i] <= 0) {
             (void)MTFS_TEST_CHECK(test, 0, "create both writer tasks");
@@ -290,8 +377,10 @@ cleanup_tasks:
                 (void)f_close(&workers[i].file);
                 workers[i].file_open = 0;
             }
-            (void)MTFS_TEST_CHECK(test, tk_del_tsk(task_ids[i]) >= E_OK,
-                "delete writer task during cleanup");
+            if (MTFS_TEST_CHECK(test, tk_del_tsk(task_ids[i]) >= E_OK,
+                    "delete writer task during cleanup")) {
+                target_worker_stack_record(i);
+            }
         }
     }
     (void)MTFS_TEST_CHECK(test, tk_del_flg(event_flag_id) >= E_OK,

@@ -55,6 +55,11 @@ EXPORT INT usermain(void);
 #define MTFS_TARGET_MEDIA_ERROR     (UINT32_C(1) << 2)
 #define MTFS_TARGET_HOTPLUG_WAIT_MS (120000U)
 #define MTFS_TARGET_TEST_ROUNDS_MAX (1000U)
+#define MTFS_TARGET_COORDINATOR_STACK_SIZE (16U * 1024U)
+#define MTFS_TARGET_STACK_GUARD_SIZE       (32U)
+#define MTFS_TARGET_STACK_FILL             (0xA5U)
+#define MTFS_TARGET_STACK_PASS_FREE        (4U * 1024U)
+#define MTFS_TARGET_STACK_MIN_FREE         (2U * 1024U)
 
 #if MTFS_RA8P1_TEST_PROFILE == MTFS_TEST_PROFILE_SMOKE
 #define MTFS_RA8P1_TEST_ROUNDS       (1U)
@@ -78,6 +83,14 @@ static volatile uint32_t media_error_events;
 static volatile uint32_t media_reinitialize_count;
 static ID media_application_event_flag_id;
 static uint8_t sector_zero_single[MTFS_RA_SD_SPI_SECTOR_SIZE];
+typedef struct target_coordinator_stack
+{
+    UB guard[MTFS_TARGET_STACK_GUARD_SIZE];
+    UW stack[MTFS_TARGET_COORDINATOR_STACK_SIZE / sizeof(UW)];
+} target_coordinator_stack_t;
+
+static target_coordinator_stack_t coordinator_stack
+    __attribute__((aligned(8)));
 static uint8_t sector_zero_multi[MTFS_RA_SD_SPI_SECTOR_SIZE * 2U];
 #if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
 static uint8_t benchmark_buffer[MTFS_BENCHMARK_BUFFER_BYTES];
@@ -107,6 +120,113 @@ static void target_rtc_unlock(void *opaque)
 
 #if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
 static int target_console_command(void *opaque, const char *line);
+
+/* Cortex-M task stacks descend toward the guard at the buffer's low end. */
+static size_t target_coordinator_stack_free_bytes(void)
+{
+    const volatile UB *bytes =
+        (const volatile UB *)coordinator_stack.stack;
+    size_t free_bytes = 0U;
+
+    while ((free_bytes < sizeof(coordinator_stack.stack)) &&
+        (bytes[free_bytes] == (UB)MTFS_TARGET_STACK_FILL)) {
+        ++free_bytes;
+    }
+    return free_bytes;
+}
+
+static int target_coordinator_stack_guard_ok(void)
+{
+    const volatile UB *bytes =
+        (const volatile UB *)coordinator_stack.guard;
+    size_t i;
+
+    for (i = 0U; i < sizeof(coordinator_stack.guard); ++i) {
+        if (bytes[i] != (UB)MTFS_TARGET_STACK_FILL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char *target_stack_watermark_status(
+    const mtfs_target_stack_watermark_t *watermark)
+{
+    if (!watermark->measured) {
+        return "INCOMPLETE";
+    }
+    if (!watermark->guard_ok ||
+        (watermark->free_bytes < MTFS_TARGET_STACK_MIN_FREE)) {
+        return "FAIL";
+    }
+    if (watermark->free_bytes < MTFS_TARGET_STACK_PASS_FREE) {
+        return "REVIEW";
+    }
+    return "PASS";
+}
+
+static void target_print_stack_watermark_line(const char *name,
+    const mtfs_target_stack_watermark_t *watermark)
+{
+    if (!watermark->measured) {
+        tm_printf((UB *)"[stack] %s total=%u measured=NO status=INCOMPLETE\n",
+            (UB *)name, (UW)watermark->total_bytes);
+        return;
+    }
+    tm_printf((UB *)"[stack] %s total=%u used=%u free=%u margin=%u%% guard=%s status=%s\n",
+        (UB *)name, (UW)watermark->total_bytes,
+        (UW)watermark->used_bytes, (UW)watermark->free_bytes,
+        (UW)((watermark->free_bytes * 100U) / watermark->total_bytes),
+        watermark->guard_ok ? (UB *)"PASS" : (UB *)"FAIL",
+        (UB *)target_stack_watermark_status(watermark));
+}
+
+static void target_print_stack_highwater(void)
+{
+    mtfs_target_stack_watermark_t watermark;
+    unsigned int worker_count = mtfs_target_concurrent_stack_count();
+    unsigned int i;
+    int any_failure = 0;
+    int any_incomplete = 0;
+    int any_review = 0;
+
+    watermark.total_bytes = sizeof(coordinator_stack.stack);
+    watermark.free_bytes = target_coordinator_stack_free_bytes();
+    watermark.used_bytes = watermark.total_bytes - watermark.free_bytes;
+    watermark.guard_ok = target_coordinator_stack_guard_ok();
+    watermark.measured = 1;
+    target_print_stack_watermark_line("coordinator", &watermark);
+    if (strcmp(target_stack_watermark_status(&watermark), "FAIL") == 0) {
+        any_failure = 1;
+    } else if (strcmp(target_stack_watermark_status(&watermark),
+            "REVIEW") == 0) {
+        any_review = 1;
+    }
+
+    for (i = 0U; i < worker_count; ++i) {
+        char name[] = "worker-0";
+        const char *status;
+
+        name[7] = (char)('0' + i);
+        if (!mtfs_target_concurrent_stack_watermark(i, &watermark)) {
+            continue;
+        }
+        target_print_stack_watermark_line(name, &watermark);
+        status = target_stack_watermark_status(&watermark);
+        if (strcmp(status, "FAIL") == 0) {
+            any_failure = 1;
+        } else if (strcmp(status, "INCOMPLETE") == 0) {
+            any_incomplete = 1;
+        } else if (strcmp(status, "REVIEW") == 0) {
+            any_review = 1;
+        }
+    }
+    tm_printf((UB *)"[stack] thresholds pass-free=%u min-free=%u bytes overall=%s\n",
+        (UW)MTFS_TARGET_STACK_PASS_FREE, (UW)MTFS_TARGET_STACK_MIN_FREE,
+        any_failure ? (UB *)"FAIL" :
+        (any_incomplete ? (UB *)"INCOMPLETE" :
+        (any_review ? (UB *)"REVIEW" : (UB *)"PASS")));
+}
 
 static void target_benchmark_log(void *opaque, const char *line)
 {
@@ -226,6 +346,7 @@ static void target_command_console(void)
         "diag                      print common/media/RA snapshots\r\n"
         "diag-reset                reset diagnostic counters only\r\n"
         "diag-help                 explain diagnostic commands\r\n"
+        "stack-highwater           print coordinator/worker peak stack use\r\n"
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
         "crypto-info               show RSIP spike configuration and diagnostics\r\n"
         "crypto-consistency        test provisioned-key GCM consistency\r\n"
@@ -1086,6 +1207,10 @@ crypto_sd_cleanup:
         tm_printf((UB *)"[diag] diag reads cached snapshots from the last storage command without media I/O; multi-round counters are cumulative and live state is inactive after cleanup; diag-reset clears counters and advances reset epochs only\n");
         return 1;
     }
+    if (strcmp(line, "stack-highwater") == 0) {
+        target_print_stack_highwater();
+        return 1;
+    }
     return 0;
 }
 #endif
@@ -1447,12 +1572,19 @@ static void target_coordinator(INT start_code, void *opaque)
 EXPORT INT usermain(void)
 {
     T_CTSK coordinator = {
-        .tskatr = TA_HLNG | TA_RNG3,
+        .tskatr = TA_HLNG | TA_RNG3 | TA_USERBUF,
         .task = target_coordinator,
         .itskpri = 9,
-        .stksz = 16U * 1024U
+        .stksz = sizeof(coordinator_stack.stack),
+        .bufptr = coordinator_stack.stack
     };
-    ID task_id = tk_cre_tsk(&coordinator);
+    ID task_id;
+
+    memset(coordinator_stack.guard, MTFS_TARGET_STACK_FILL,
+        sizeof(coordinator_stack.guard));
+    memset(coordinator_stack.stack, MTFS_TARGET_STACK_FILL,
+        sizeof(coordinator_stack.stack));
+    task_id = tk_cre_tsk(&coordinator);
 
     if (task_id <= 0) {
         tm_printf((UB *)"[mtfs] coordinator create FAIL: %d\n", task_id);
