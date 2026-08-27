@@ -20,6 +20,8 @@
 #include "mtfs_ra8p1_vector_cache.h"
 #include "mtfs_target_concurrent.h"
 #include "mtfs_ra8p1_crypto_spike.h"
+#include "mtfs_ra8p1_crypto_work.h"
+#include "mtfs_ra8p1_model_test.h"
 #ifndef MTFS_FF_FS_NORTC
 #define MTFS_FF_FS_NORTC (1)
 #endif
@@ -229,6 +231,10 @@ static void target_command_console(void)
         "crypto-consistency        test provisioned-key GCM consistency\r\n"
         "crypto-negative           reject SD test package tampering in RAM\r\n"
         "crypto-package-test       verify fleet-specific SD test package\r\n"
+        "model-info               authenticate and show trusted model info\r\n"
+        "model-load               load and verify MTFSTEST.MTF via model API\r\n"
+        "model-negative           reject reader/policy mutations via model API\r\n"
+        "model-hotplug            verify removal cleanup and reinsertion recovery\r\n"
 #endif
         );
     mtfs_console_tmonitor_write(NULL,
@@ -977,7 +983,11 @@ static int target_console_command(void *opaque, const char *line)
     }
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
     if ((strcmp(line, "crypto-package-test") == 0) ||
-        (strcmp(line, "crypto-negative") == 0)) {
+        (strcmp(line, "crypto-negative") == 0) ||
+        (strcmp(line, "model-info") == 0) ||
+        (strcmp(line, "model-load") == 0) ||
+        (strcmp(line, "model-negative") == 0) ||
+        (strcmp(line, "model-hotplug") == 0)) {
         mtfs_ra_sd_spi_config_t config;
         mtfs_block_device_t *device = NULL;
         mtfs_error_t error;
@@ -1015,7 +1025,9 @@ static int target_console_command(void *opaque, const char *line)
             goto crypto_sd_cleanup;
         }
         registered = 1;
-        (void)mtfs_ra8p1_crypto_spike_command(line);
+        if (!mtfs_ra8p1_model_command(line, &media_context, device,
+                &registered))
+            (void)mtfs_ra8p1_crypto_spike_command(line);
 
 crypto_sd_cleanup:
         (void)f_mount(NULL, "0:", 0U);
@@ -1391,11 +1403,16 @@ static void target_coordinator(INT start_code, void *opaque)
 
     (void)start_code;
     (void)opaque;
+    if (mtfs_ra8p1_rsip_lock_init() != 0) {
+        tm_printf((UB *)"[mtfs] RSIP mutex create FAIL\n");
+        tk_exd_tsk();
+    }
     mtfs_ra8p1_crypto_spike_banner();
 #if !MTFS_FF_FS_NORTC
     rtc_mutex_id = tk_cre_mtx(&rtc_mutex);
     if (rtc_mutex_id <= 0) {
         tm_printf((UB *)"[mtfs] RTC mutex create FAIL: %d\n", rtc_mutex_id);
+        mtfs_ra8p1_rsip_lock_deinit();
         tk_exd_tsk();
     }
     rtc_error = mtfs_ra_rtc_init(&rtc_context, &g_rtc0,
@@ -1423,6 +1440,7 @@ static void target_coordinator(INT start_code, void *opaque)
 #else
     tm_printf((UB *)"[mtfs] command console disabled; coordinator stopped\n");
 #endif
+    mtfs_ra8p1_rsip_lock_deinit();
     tk_exd_tsk();
 }
 

@@ -299,7 +299,7 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtk3_bsp2"/>
-						<entry excluding="extensions|os/host|ports/host|ports/stm32_cube|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
+						<entry excluding="os/host|ports/host|ports/stm32_cube|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_framework"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_benchmarks"/>
 						<entry excluding="test_fatfs_concurrent.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_cases"/>
@@ -439,6 +439,8 @@
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
+									<listOptionValue builtIn="false" value="MTFS_RA8P1_CRYPTO_SPIKE_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="_RAFSP_EK_RA8P1_"/>
 								</option>
@@ -463,6 +465,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/os/microtkernel}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/sd_spi}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/rtc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_src/ports/ra_fsp/crypto}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_console}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_framework}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_test_cases}&quot;"/>
@@ -606,7 +609,7 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtk3_bsp2"/>
-						<entry excluding="extensions|os/host|ports/host|ports/stm32_cube|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
+						<entry excluding="os/host|ports/host|ports/stm32_cube|fatfs/ffsystem.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_framework"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_benchmarks"/>
 						<entry excluding="test_fatfs_concurrent.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_test_cases"/>

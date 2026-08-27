@@ -11,9 +11,9 @@
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
 #include "ff.h"
 #include "hal_data.h"
-#include "mbedtls/platform.h"
 #include "psa/crypto.h"
 #include "mtfs_ra8p1_ospi_key_store.h"
+#include "mtfs_ra8p1_crypto_work.h"
 
 #if !defined(MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS)
 #error "The RA8P1 flat-build crypto tests require exclusive PSA buffers"
@@ -53,12 +53,12 @@ typedef struct crypto_diagnostics
 } crypto_diagnostics_t;
 
 static uint8_t plaintext[CRYPTO_MAX_BYTES] CRYPTO_ALIGN;
-static uint8_t ciphertext[CRYPTO_MAX_BYTES + CRYPTO_TAG_BYTES] CRYPTO_ALIGN;
+#define ciphertext mtfs_ra8p1_test_ciphertext_work
 /*
  * FSP 6.5.0's SCE GCM final primitive writes one complete final block at
  * floor(payload_bytes / 16) * 16, including when the payload is block-aligned.
  */
-static uint8_t recovered[CRYPTO_MAX_BYTES + CRYPTO_TAG_BYTES] CRYPTO_ALIGN;
+#define recovered mtfs_ra8p1_test_plaintext_work
 static uint8_t test_package_manifest[TEST_PACKAGE_MANIFEST_BYTES] CRYPTO_ALIGN;
 static uint8_t test_package_model_key[TEST_PACKAGE_ENVELOPE_PLAIN_BYTES + CRYPTO_TAG_BYTES] CRYPTO_ALIGN;
 static uint8_t test_package_aad[TEST_PACKAGE_AAD_MAX_BYTES] CRYPTO_ALIGN;
@@ -67,7 +67,6 @@ static FATFS test_package_filesystem;
 static FIL test_package_file;
 static uint8_t test_package_mounted;
 static uint8_t test_package_file_open;
-static mbedtls_platform_context platform_context;
 static crypto_diagnostics_t crypto_diag;
 static uint8_t crypto_ready;
 
@@ -89,6 +88,48 @@ static int authentication_rejected(psa_status_t status)
         (status == PSA_ERROR_HARDWARE_FAILURE);
 }
 
+static psa_status_t locked_aead_encrypt(psa_key_handle_t handle,
+    psa_algorithm_t algorithm, const uint8_t *nonce, size_t nonce_size,
+    const uint8_t *aad, size_t aad_size, const uint8_t *input,
+    size_t input_size, uint8_t *output, size_t output_capacity,
+    size_t *output_size)
+{
+    psa_status_t status;
+    if (mtfs_ra8p1_rsip_lock(NULL) != 0)
+        return PSA_ERROR_BAD_STATE;
+    status = psa_aead_encrypt(handle, algorithm, nonce, nonce_size, aad,
+        aad_size, input, input_size, output, output_capacity, output_size);
+    mtfs_ra8p1_rsip_unlock(NULL);
+    return status;
+}
+
+static psa_status_t locked_aead_decrypt(psa_key_handle_t handle,
+    psa_algorithm_t algorithm, const uint8_t *nonce, size_t nonce_size,
+    const uint8_t *aad, size_t aad_size, const uint8_t *input,
+    size_t input_size, uint8_t *output, size_t output_capacity,
+    size_t *output_size)
+{
+    psa_status_t status;
+    if (mtfs_ra8p1_rsip_lock(NULL) != 0)
+        return PSA_ERROR_BAD_STATE;
+    status = psa_aead_decrypt(handle, algorithm, nonce, nonce_size, aad,
+        aad_size, input, input_size, output, output_capacity, output_size);
+    mtfs_ra8p1_rsip_unlock(NULL);
+    return status;
+}
+
+static fsp_err_t locked_initial_key_wrap(const uint8_t *plain_key,
+    rsip_aes_wrapped_key_t *wrapped_key)
+{
+    fsp_err_t status;
+    if (mtfs_ra8p1_rsip_lock(NULL) != 0)
+        return FSP_ERR_IN_USE;
+    status = R_RSIP_AES256_InitialKeyWrap(RSIP_KEY_INJECTION_TYPE_PLAIN,
+        NULL, NULL, plain_key, wrapped_key);
+    mtfs_ra8p1_rsip_unlock(NULL);
+    return status;
+}
+
 static psa_status_t crypto_initialize(void)
 {
     psa_status_t status;
@@ -96,16 +137,14 @@ static psa_status_t crypto_initialize(void)
     if (crypto_ready != 0U) {
         return PSA_SUCCESS;
     }
-    if (mbedtls_platform_setup(&platform_context) != 0) {
-        crypto_diag.last_psa_status = PSA_ERROR_HARDWARE_FAILURE;
-        return PSA_ERROR_HARDWARE_FAILURE;
+    if (mtfs_ra8p1_rsip_lock(NULL) != 0) {
+        return PSA_ERROR_BAD_STATE;
     }
     status = psa_crypto_init();
+    mtfs_ra8p1_rsip_unlock(NULL);
     crypto_diag.last_psa_status = status;
-    if (status != PSA_SUCCESS) {
-        mbedtls_platform_teardown(&platform_context);
+    if (status != PSA_SUCCESS)
         return status;
-    }
     crypto_ready = 1U;
     ++crypto_diag.initialize_count;
     return PSA_SUCCESS;
@@ -124,9 +163,14 @@ static psa_status_t import_wrapped_key(
     psa_set_key_type(&attributes, PSA_KEY_TYPE_AES_WRAPPED);
     psa_set_key_bits(&attributes, 256U);
     psa_set_key_lifetime(&attributes, PSA_KEY_LIFETIME_VOLATILE);
+    if (mtfs_ra8p1_rsip_lock(NULL) != 0) {
+        psa_reset_key_attributes(&attributes);
+        return PSA_ERROR_BAD_STATE;
+    }
     status = psa_import_key(&attributes,
         (const uint8_t *)wrapped_key->value,
         MTFS_RA8P1_AES256_WRAPPED_BYTES, handle);
+    mtfs_ra8p1_rsip_unlock(NULL);
     psa_reset_key_attributes(&attributes);
     crypto_diag.last_psa_status = status;
     if (status == PSA_SUCCESS) {
@@ -138,7 +182,12 @@ static psa_status_t import_wrapped_key(
 static void destroy_key(psa_key_handle_t *handle)
 {
     if (*handle != 0U) {
-        crypto_diag.last_psa_status = psa_destroy_key(*handle);
+        if (mtfs_ra8p1_rsip_lock(NULL) == 0) {
+            crypto_diag.last_psa_status = psa_destroy_key(*handle);
+            mtfs_ra8p1_rsip_unlock(NULL);
+        } else {
+            crypto_diag.last_psa_status = PSA_ERROR_BAD_STATE;
+        }
         ++crypto_diag.destroy_count;
         *handle = 0U;
     }
@@ -428,7 +477,7 @@ static int run_positive_suite(void)
         memset(ciphertext, 0, bytes + CRYPTO_TAG_BYTES);
         cipher_bytes = 0U;
         plain_bytes = 0U;
-        status = psa_aead_encrypt(handle, PSA_ALG_GCM,
+        status = locked_aead_encrypt(handle, PSA_ALG_GCM,
             nonce, sizeof(nonce), aad, sizeof(aad), plaintext, bytes,
             ciphertext, bytes + CRYPTO_TAG_BYTES, &cipher_bytes);
         ++crypto_diag.encrypt_count;
@@ -441,7 +490,7 @@ static int run_positive_suite(void)
         }
         memset(recovered, 0xa5, recovered_capacity);
         plain_bytes = 0U;
-        status = psa_aead_decrypt(handle, PSA_ALG_GCM,
+        status = locked_aead_decrypt(handle, PSA_ALG_GCM,
             nonce, sizeof(nonce), aad, sizeof(aad), ciphertext, cipher_bytes,
             recovered, recovered_capacity, &plain_bytes);
         ++crypto_diag.decrypt_count;
@@ -458,7 +507,7 @@ static int run_positive_suite(void)
         size_t bytes = 37U;
         nonce[11] = 0xa5U;
         fill_pattern(plaintext, bytes);
-        status = psa_aead_encrypt(handle, PSA_ALG_GCM,
+        status = locked_aead_encrypt(handle, PSA_ALG_GCM,
             nonce, sizeof(nonce), aad, sizeof(aad), plaintext, bytes,
             ciphertext, bytes + CRYPTO_TAG_BYTES, &cipher_bytes);
         ++crypto_diag.encrypt_count;
@@ -470,7 +519,7 @@ static int run_positive_suite(void)
             failed = 1;
         } else {
             plain_bytes = 0U;
-            status = psa_aead_decrypt(handle, PSA_ALG_GCM,
+            status = locked_aead_decrypt(handle, PSA_ALG_GCM,
                 nonce, sizeof(nonce), aad, sizeof(aad),
                 ciphertext, cipher_bytes, recovered, decrypt_capacity(bytes),
                 &plain_bytes);
@@ -520,7 +569,7 @@ static int test_package_open_model_key(psa_key_handle_t fleet_handle,
     *stage = "envelope-auth";
     memcpy(nonce, &test_package_manifest[TEST_PACKAGE_KEY_NONCE_OFFSET], sizeof(nonce));
     memset(test_package_model_key, 0xa5, sizeof(test_package_model_key));
-    status = psa_aead_decrypt(fleet_handle, PSA_ALG_GCM,
+    status = locked_aead_decrypt(fleet_handle, PSA_ALG_GCM,
         nonce, sizeof(nonce), test_package_aad, aad_bytes,
         ciphertext, TEST_PACKAGE_ENVELOPE_BYTES,
         test_package_model_key, sizeof(test_package_model_key), &plain_bytes);
@@ -540,8 +589,7 @@ static int test_package_open_model_key(psa_key_handle_t fleet_handle,
 
     *stage = "model-wrap";
     memset(&test_package_wrapped_model_key, 0, sizeof(test_package_wrapped_model_key));
-    *wrap_status = R_RSIP_AES256_InitialKeyWrap(
-        RSIP_KEY_INJECTION_TYPE_PLAIN, NULL, NULL, test_package_model_key,
+    *wrap_status = locked_initial_key_wrap(test_package_model_key,
         &test_package_wrapped_model_key);
     crypto_zero(test_package_model_key, sizeof(test_package_model_key));
     *raw_zeroized = buffer_is_zero(test_package_model_key,
@@ -579,7 +627,7 @@ static int test_package_decrypt_chunk(psa_key_handle_t model_handle,
     }
     *stage = "chunk-auth";
     memset(recovered, 0xa5, output_capacity);
-    status = psa_aead_decrypt(model_handle, PSA_ALG_GCM,
+    status = locked_aead_decrypt(model_handle, PSA_ALG_GCM,
         nonce, sizeof(nonce), test_package_aad, aad_bytes,
         ciphertext, plain_bytes + CRYPTO_TAG_BYTES,
         recovered, output_capacity, &output_bytes);
@@ -605,7 +653,7 @@ static int test_package_negative_loaded(psa_key_handle_t handle,
 
     ciphertext[damage_index] ^= 1U;
     memset(recovered, 0xa5, output_capacity);
-    status = psa_aead_decrypt(handle, PSA_ALG_GCM,
+    status = locked_aead_decrypt(handle, PSA_ALG_GCM,
         nonce, 12U, test_package_aad, aad_bytes, ciphertext, combined_bytes,
         recovered, output_capacity, &output_bytes);
     ++crypto_diag.decrypt_count;
