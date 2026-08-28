@@ -48,7 +48,32 @@ static void mtfs_diagnostics_classify_error(
 mtfs_error_t mtfs_block_diagnostics_attach(
     mtfs_block_device_t *device, mtfs_block_diagnostics_state_t *state)
 {
-    if ((device == NULL) || (state == NULL)) {
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    return mtfs_block_diagnostics_attach_locked(
+        device, state, NULL, NULL, NULL);
+#else
+    if ((device == NULL) || (state == NULL)) return MTFS_ERROR_INVALID_ARGUMENT;
+    (void)memset(state, 0, sizeof(*state));
+    state->snapshot.api_version = MTFS_BLOCK_DIAGNOSTICS_API_VERSION;
+    state->snapshot.struct_size = (uint16_t)sizeof(state->snapshot);
+    state->snapshot.validity_mask =
+        MTFS_BLOCK_DIAGNOSTICS_VALID_READ_COMPLETED |
+        MTFS_BLOCK_DIAGNOSTICS_VALID_WRITE_COMPLETED;
+    state->snapshot.flags = MTFS_BLOCK_DIAGNOSTICS_FLAG_COUNTERS_SATURATE;
+    device->capabilities |= MTFS_BLOCK_CAPABILITY_DIAGNOSTICS;
+    state->snapshot.capabilities = device->capabilities;
+    device->diagnostics = state;
+    return MTFS_OK;
+#endif
+}
+
+#if MTFS_ENABLE_STORAGE_SENTINEL
+mtfs_error_t mtfs_block_diagnostics_attach_locked(
+    mtfs_block_device_t *device, mtfs_block_diagnostics_state_t *state,
+    mtfs_error_t (*lock)(void *context), void (*unlock)(void *context),
+    void *lock_context)
+{
+    if ((device == NULL) || (state == NULL) || ((lock == NULL) != (unlock == NULL))) {
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
     (void)memset(state, 0, sizeof(*state));
@@ -61,8 +86,12 @@ mtfs_error_t mtfs_block_diagnostics_attach(
     device->capabilities |= MTFS_BLOCK_CAPABILITY_DIAGNOSTICS;
     state->snapshot.capabilities = device->capabilities;
     device->diagnostics = state;
+    state->lock = lock;
+    state->unlock = unlock;
+    state->lock_context = lock_context;
     return MTFS_OK;
 }
+#endif
 
 void mtfs_block_diagnostics_record_begin(
     mtfs_block_device_t *device, mtfs_block_operation_t operation,
@@ -74,6 +103,11 @@ void mtfs_block_diagnostics_record_begin(
         (device->diagnostics == NULL)) {
         return;
     }
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->lock != NULL &&
+        device->diagnostics->lock(device->diagnostics->lock_context) != MTFS_OK)
+        return;
+#endif
     ++device->diagnostics->sequence;
     d = &device->diagnostics->snapshot;
     d->last_operation = (uint32_t)operation;
@@ -94,6 +128,10 @@ void mtfs_block_diagnostics_record_begin(
     default: break;
     }
     ++device->diagnostics->sequence;
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->unlock != NULL)
+        device->diagnostics->unlock(device->diagnostics->lock_context);
+#endif
 }
 
 void mtfs_block_diagnostics_record_end(
@@ -107,6 +145,11 @@ void mtfs_block_diagnostics_record_end(
         (device->diagnostics == NULL)) {
         return;
     }
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->lock != NULL &&
+        device->diagnostics->lock(device->diagnostics->lock_context) != MTFS_OK)
+        return;
+#endif
     ++device->diagnostics->sequence;
     d = &device->diagnostics->snapshot;
     d->last_error = (int32_t)result;
@@ -151,6 +194,10 @@ void mtfs_block_diagnostics_record_end(
         mtfs_diagnostics_classify_error(d, result);
     }
     ++device->diagnostics->sequence;
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->unlock != NULL)
+        device->diagnostics->unlock(device->diagnostics->lock_context);
+#endif
 }
 
 mtfs_error_t mtfs_block_diagnostics_get(
@@ -166,6 +213,16 @@ mtfs_error_t mtfs_block_diagnostics_get(
         (device->diagnostics == NULL)) {
         return MTFS_ERROR_NOT_SUPPORTED;
     }
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->lock != NULL) {
+        mtfs_error_t result =
+            device->diagnostics->lock(device->diagnostics->lock_context);
+        if (result != MTFS_OK) return result;
+        *snapshot = device->diagnostics->snapshot;
+        device->diagnostics->unlock(device->diagnostics->lock_context);
+        return MTFS_OK;
+    }
+#endif
     for (attempts = 0U; attempts < 8U; ++attempts) {
         before = device->diagnostics->sequence;
         if ((before & 1U) != 0U) continue;
@@ -183,6 +240,13 @@ mtfs_error_t mtfs_block_diagnostics_reset(mtfs_block_device_t *device)
     if (device == NULL) return MTFS_ERROR_INVALID_ARGUMENT;
     if (((device->capabilities & MTFS_BLOCK_CAPABILITY_DIAGNOSTICS) == 0U) ||
         (device->diagnostics == NULL)) return MTFS_ERROR_NOT_SUPPORTED;
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->lock != NULL) {
+        mtfs_error_t result =
+            device->diagnostics->lock(device->diagnostics->lock_context);
+        if (result != MTFS_OK) return result;
+    }
+#endif
     ++device->diagnostics->sequence;
     preserved = device->diagnostics->snapshot;
     epoch = preserved.reset_epoch + 1U;
@@ -202,6 +266,10 @@ mtfs_error_t mtfs_block_diagnostics_reset(mtfs_block_device_t *device)
     device->diagnostics->snapshot.last_operation = preserved.last_operation;
     device->diagnostics->snapshot.last_error = preserved.last_error;
     ++device->diagnostics->sequence;
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->unlock != NULL)
+        device->diagnostics->unlock(device->diagnostics->lock_context);
+#endif
     return MTFS_OK;
 }
 #else

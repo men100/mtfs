@@ -7,6 +7,11 @@
 #define MTFS_ENABLE_DIAGNOSTICS (1)
 #endif
 
+/* Optional passive Storage Sentinel observation and feature generation. */
+#ifndef MTFS_ENABLE_STORAGE_SENTINEL
+#define MTFS_ENABLE_STORAGE_SENTINEL (0)
+#endif
+
 /*
  * Optional sealed-model storage and hardware-crypto integration. Keep this
  * disabled by default so a FatFs-only integration has no crypto dependency.
@@ -117,6 +122,14 @@
 
 #if (MTFS_ENABLE_DIAGNOSTICS != 0) && (MTFS_ENABLE_DIAGNOSTICS != 1)
 #error MTFS_ENABLE_DIAGNOSTICS must be 0 or 1
+#endif
+
+#if (MTFS_ENABLE_STORAGE_SENTINEL != 0) && (MTFS_ENABLE_STORAGE_SENTINEL != 1)
+#error MTFS_ENABLE_STORAGE_SENTINEL must be 0 or 1
+#endif
+
+#if MTFS_ENABLE_STORAGE_SENTINEL && !MTFS_ENABLE_DIAGNOSTICS
+#error MTFS_ENABLE_STORAGE_SENTINEL requires MTFS_ENABLE_DIAGNOSTICS
 #endif
 
 #if (MTFS_ENABLE_SEALED_MODEL != 0) && (MTFS_ENABLE_SEALED_MODEL != 1)

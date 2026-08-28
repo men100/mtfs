@@ -20,6 +20,10 @@
 #include "block/mtfs_block_device.h"
 #include "block/mtfs_block_diagnostics.h"
 #include "block/mtfs_block_registry.h"
+#if MTFS_ENABLE_STORAGE_SENTINEL
+#include "sentinel/mtfs_sentinel.h"
+#include "sentinel/mtfs_sentinel_observer.h"
+#endif
 #include "core/mtfs_media.h"
 #include "core/mtfs_time.h"
 

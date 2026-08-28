@@ -88,6 +88,25 @@ static uint32_t mtfs_stm32n6570_dk_now_ms(void *opaque)
     return HAL_GetTick();
 }
 
+static uint64_t mtfs_stm32n6570_dk_divide_u64(
+    uint64_t numerator, uint64_t denominator)
+{
+    uint64_t quotient = 0U;
+    uint32_t bit;
+    if (denominator == 0U) return UINT64_MAX;
+    for (bit = 64U; bit != 0U; --bit) {
+        uint32_t shift = bit - 1U;
+        if (denominator <= (UINT64_MAX >> shift)) {
+            uint64_t shifted = denominator << shift;
+            if (shifted <= numerator) {
+                numerator -= shifted;
+                quotient |= UINT64_C(1) << shift;
+            }
+        }
+    }
+    return quotient;
+}
+
 uint64_t mtfs_stm32n6570_dk_benchmark_clock_us(void *context)
 {
     SYSTIM before = {0};
@@ -114,14 +133,25 @@ uint64_t mtfs_stm32n6570_dk_benchmark_clock_us(void *context)
         if (current > reload) {
             current = reload;
         }
-        phase_us = ((uint64_t)(reload - current) * UINT64_C(1000000)) /
-            SystemCoreClock;
+        phase_us = mtfs_stm32n6570_dk_divide_u64(
+            (uint64_t)(reload - current) * UINT64_C(1000000),
+            SystemCoreClock);
         if (phase_us >= UINT64_C(10000)) {
             phase_us = UINT64_C(9999);
         }
     }
     return milliseconds * UINT64_C(1000) + phase_us;
 }
+
+#if MTFS_ENABLE_STORAGE_SENTINEL
+mtfs_error_t mtfs_stm32n6570_dk_sentinel_clock_us(
+    void *context, uint64_t *now_us)
+{
+    if (now_us == NULL) return MTFS_ERROR_INVALID_ARGUMENT;
+    *now_us = mtfs_stm32n6570_dk_benchmark_clock_us(context);
+    return MTFS_OK;
+}
+#endif
 
 uint32_t mtfs_stm32n6570_dk_sdmmc_clock_hz(void)
 {

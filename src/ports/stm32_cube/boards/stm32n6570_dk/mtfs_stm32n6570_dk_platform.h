@@ -31,6 +31,10 @@ typedef struct mtfs_stm32n6570_dk_card_detect_diagnostics
 HAL_StatusTypeDef mtfs_stm32n6570_dk_pre_kernel_init(void);
 
 uint64_t mtfs_stm32n6570_dk_benchmark_clock_us(void *context);
+#if MTFS_ENABLE_STORAGE_SENTINEL
+mtfs_error_t mtfs_stm32n6570_dk_sentinel_clock_us(
+    void *context, uint64_t *now_us);
+#endif
 uint32_t mtfs_stm32n6570_dk_sdmmc_clock_hz(void);
 
 void mtfs_stm32n6570_dk_sdmmc_config(

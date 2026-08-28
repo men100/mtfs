@@ -77,11 +77,16 @@ apps/simple/targets/stm32n6570_dk/Appli/Debug/
 apps/simple/targets/stm32n6570_dk/Appli/Release/
 apps/simple/targets/stm32n6570_dk/FSBL/Debug/
 apps/simple/targets/stm32n6570_dk/FSBL/Release/
+apps/sentinel-lab/targets/stm32n6570_dk/Appli/Debug/
+apps/sentinel-lab/targets/stm32n6570_dk/Appli/Release/
+apps/sentinel-lab/targets/stm32n6570_dk/FSBL/Debug/
+apps/sentinel-lab/targets/stm32n6570_dk/FSBL/Release/
 
 # STM32N6570-DK consumer-specific debug launch configurations are shared
 !tests/targets/stm32n6570_dk/basic/FSBL/*.launch
 !apps/key-provision/targets/stm32n6570_dk/FSBL/*.launch
 !apps/simple/targets/stm32n6570_dk/FSBL/*.launch
+!apps/sentinel-lab/targets/stm32n6570_dk/FSBL/*.launch
 
 # 子プロジェクト配下を含む .settings は原則無視
 **/.settings/*

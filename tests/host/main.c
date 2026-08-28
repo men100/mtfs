@@ -17,6 +17,7 @@
 #include "test_media_lifecycle.h"
 #include "test_ra_sd_spi_deadline.h"
 #include "test_sealed_reader_fatfs.h"
+#include "test_sentinel.h"
 #include "test_benchmark.h"
 #include "test_block_diagnostics.h"
 #include "test_console.h"
@@ -173,6 +174,9 @@ int main(void)
         goto cleanup;
     }
     if (test_block_diagnostics(&test) != 0) {
+        goto cleanup;
+    }
+    if (test_sentinel(&test) != 0) {
         goto cleanup;
     }
     if (!MTFS_TEST_CHECK(&test,

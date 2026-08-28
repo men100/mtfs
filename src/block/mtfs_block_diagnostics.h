@@ -87,10 +87,21 @@ typedef struct mtfs_block_diagnostics_state
 {
     mtfs_block_diagnostics_t snapshot;
     volatile uint32_t sequence;
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    mtfs_error_t (*lock)(void *context);
+    void (*unlock)(void *context);
+    void *lock_context;
+#endif
 } mtfs_block_diagnostics_state_t;
 
 mtfs_error_t mtfs_block_diagnostics_attach(
     mtfs_block_device_t *device, mtfs_block_diagnostics_state_t *state);
+#if MTFS_ENABLE_STORAGE_SENTINEL
+mtfs_error_t mtfs_block_diagnostics_attach_locked(
+    mtfs_block_device_t *device, mtfs_block_diagnostics_state_t *state,
+    mtfs_error_t (*lock)(void *context), void (*unlock)(void *context),
+    void *lock_context);
+#endif
 
 /* Task-context only. No media I/O is issued by either function. */
 mtfs_error_t mtfs_block_diagnostics_get(
