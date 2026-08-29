@@ -228,6 +228,7 @@ static int run_record(void)
         }
         ++marker;
     }
+    return 0;
 }
 
 static void lab_console_write(void *context, const char *text)
