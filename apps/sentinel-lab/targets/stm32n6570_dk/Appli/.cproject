@@ -173,7 +173,7 @@
 									<listOptionValue builtIn="false" value="_STM32CUBE_DISCOVERY_N657_"/>
 									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_DIAGNOSTICS=1"/>
-									<listOptionValue builtIn="false" value="MTFS_ENABLE_STORAGE_SENTINEL=0"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_STORAGE_SENTINEL=1"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths.16207007" name="Include paths (-I)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths" useByScannerDiscovery="false" valueType="includePath">
 									<listOptionValue builtIn="false" value="../Core/Inc"/>
