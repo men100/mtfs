@@ -6,6 +6,7 @@
 
 #include "ff.h"
 
+#if MTFS_ENABLE_STORAGE_SENTINEL
 typedef struct mtfs_sentinel_csv_writer
 {
     char *buffer;
@@ -151,6 +152,7 @@ mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
     }
     return writer.overflow ? MTFS_ERROR_BUFFER_TOO_SMALL : MTFS_OK;
 }
+#endif
 
 mtfs_error_t mtfs_sentinel_recorder_workload(const char *volume,
     uint32_t marker, void *buffer, uint32_t size)

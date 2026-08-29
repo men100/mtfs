@@ -6,13 +6,15 @@
 
 #include "mtfs_sentinel.h"
 
+#if MTFS_ENABLE_STORAGE_SENTINEL
 /* CSV header/frame helpers are application-only; the Sentinel library is I/O-free. */
 const char *mtfs_sentinel_recorder_csv_header(void);
 mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
     const mtfs_sentinel_feature_v1_t *feature, const char *label,
     uint32_t marker);
+#endif
 
-/* Optional dataset workload. Uses CREATE_NEW and always attempts cleanup. */
+/* Lab workload is also available to Sentinel-disabled performance baselines. */
 mtfs_error_t mtfs_sentinel_recorder_workload(const char *volume,
     uint32_t marker, void *buffer, uint32_t size);
 
