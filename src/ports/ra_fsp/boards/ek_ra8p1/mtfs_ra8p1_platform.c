@@ -84,6 +84,18 @@ uint64_t mtfs_ra8p1_benchmark_clock_us(void *context)
     return milliseconds * UINT64_C(1000) + phase_us;
 }
 
+#if MTFS_ENABLE_STORAGE_SENTINEL
+mtfs_error_t mtfs_ra8p1_sentinel_clock_us(
+    void *context, uint64_t *now_us)
+{
+    if (now_us == NULL) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
+    *now_us = mtfs_ra8p1_benchmark_clock_us(context);
+    return MTFS_OK;
+}
+#endif
+
 void mtfs_ra8p1_sd_spi_config(mtfs_ra_sd_spi_config_t *config)
 {
     if (config == NULL) {

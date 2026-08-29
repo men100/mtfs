@@ -38,6 +38,11 @@ void mtfs_ra8p1_sd_spi_config(mtfs_ra_sd_spi_config_t *config);
 /* 64-bit monotonic microseconds using kernel uptime plus SysTick phase. */
 uint64_t mtfs_ra8p1_benchmark_clock_us(void *context);
 
+#if MTFS_ENABLE_STORAGE_SENTINEL
+mtfs_error_t mtfs_ra8p1_sentinel_clock_us(
+    void *context, uint64_t *now_us);
+#endif
+
 mtfs_error_t mtfs_ra8p1_card_detect_start(
     mtfs_media_context_t *media,
     mtfs_media_service_context_t *service,
