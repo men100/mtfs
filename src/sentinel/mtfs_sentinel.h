@@ -29,6 +29,13 @@ extern "C" {
 #define MTFS_SENTINEL_VALID_TIMING_SYNC    (UINT64_C(1) << 7)
 #define MTFS_SENTINEL_VALID_TRANSPORT      (UINT64_C(1) << 8)
 
+/* Common inference inputs; transport fields remain explicitly optional. */
+#define MTFS_SENTINEL_VALID_REQUIRED \
+    (MTFS_SENTINEL_VALID_INTERVAL | MTFS_SENTINEL_VALID_IDENTITY | \
+     MTFS_SENTINEL_VALID_MEDIA | MTFS_SENTINEL_VALID_IO_COUNTERS | \
+     MTFS_SENTINEL_VALID_ERRORS | MTFS_SENTINEL_VALID_TIMING_READ | \
+     MTFS_SENTINEL_VALID_TIMING_WRITE | MTFS_SENTINEL_VALID_TIMING_SYNC)
+
 #define MTFS_SENTINEL_FLAG_NO_ACTIVITY        (UINT32_C(1) << 0)
 #define MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA  (UINT32_C(1) << 1)
 #define MTFS_SENTINEL_FLAG_DISCONTINUITY      (UINT32_C(1) << 2)
@@ -51,15 +58,55 @@ typedef struct mtfs_sentinel_operation_feature
     uint64_t latency_histogram[MTFS_SENTINEL_HISTOGRAM_BUCKETS];
 } mtfs_sentinel_operation_feature_t;
 
-typedef struct mtfs_sentinel_transport_feature
+#define MTFS_SENTINEL_TRANSPORT_VALID_TRANSPORT_ERRORS \
+    (UINT32_C(1) << 0)
+#define MTFS_SENTINEL_TRANSPORT_VALID_TRANSFER_TIMEOUTS \
+    (UINT32_C(1) << 1)
+#define MTFS_SENTINEL_TRANSPORT_VALID_READY_TIMEOUTS \
+    (UINT32_C(1) << 2)
+#define MTFS_SENTINEL_TRANSPORT_VALID_ABORTS \
+    (UINT32_C(1) << 3)
+#define MTFS_SENTINEL_TRANSPORT_VALID_CLOCK_ERRORS \
+    (UINT32_C(1) << 4)
+#define MTFS_SENTINEL_TRANSPORT_VALID_ALL \
+    (MTFS_SENTINEL_TRANSPORT_VALID_TRANSPORT_ERRORS | \
+     MTFS_SENTINEL_TRANSPORT_VALID_TRANSFER_TIMEOUTS | \
+     MTFS_SENTINEL_TRANSPORT_VALID_READY_TIMEOUTS | \
+     MTFS_SENTINEL_TRANSPORT_VALID_ABORTS | \
+     MTFS_SENTINEL_TRANSPORT_VALID_CLOCK_ERRORS)
+
+#define MTFS_SENTINEL_TRANSPORT_FLAG_COUNTERS_SATURATE \
+    (UINT32_C(1) << 0)
+#define MTFS_SENTINEL_TRANSPORT_FLAG_COUNTER_SATURATED \
+    (UINT32_C(1) << 1)
+
+typedef struct mtfs_sentinel_transport_snapshot
 {
+    uint32_t reset_epoch;
     uint32_t validity_mask;
     uint32_t flags;
-    uint64_t counters[4];
+    uint64_t transport_errors;
+    uint64_t transfer_timeouts;
+    uint64_t ready_timeouts;
+    uint64_t aborts;
+    uint64_t clock_errors;
+} mtfs_sentinel_transport_snapshot_t;
+
+typedef struct mtfs_sentinel_transport_feature
+{
+    uint32_t reset_epoch;
+    uint32_t validity_mask;
+    uint32_t flags;
+    uint64_t transport_errors;
+    uint64_t transfer_timeouts;
+    uint64_t ready_timeouts;
+    uint64_t aborts;
+    uint64_t clock_errors;
 } mtfs_sentinel_transport_feature_t;
 
+/* Adapter-owned cumulative snapshot; the Sentinel core emits checked deltas. */
 typedef mtfs_error_t (*mtfs_sentinel_transport_sample_fn)(
-    void *context, mtfs_sentinel_transport_feature_t *feature);
+    void *context, mtfs_sentinel_transport_snapshot_t *snapshot);
 
 typedef struct mtfs_sentinel_feature_v1
 {
@@ -115,12 +162,14 @@ typedef struct mtfs_sentinel_context
     mtfs_sentinel_config_t config;
     mtfs_block_diagnostics_t previous_diagnostics;
     mtfs_sentinel_observer_snapshot_t previous_observer;
+    mtfs_sentinel_transport_snapshot_t previous_transport;
     mtfs_sentinel_sample_metadata_t previous_media;
     uint64_t previous_timestamp_us;
     uint32_t sample_sequence;
     uint32_t previous_target_id;
     uint32_t previous_transport_id;
     uint8_t baseline_valid;
+    uint8_t previous_transport_valid;
 } mtfs_sentinel_context_t;
 
 typedef struct mtfs_sentinel_window

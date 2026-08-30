@@ -91,6 +91,9 @@ typedef struct mtfs_block_diagnostics_state
     mtfs_error_t (*lock)(void *context);
     void (*unlock)(void *context);
     void *lock_context;
+    mtfs_error_t (*operation_begin)(void *context);
+    void (*operation_end)(void *context);
+    void *operation_context;
 #endif
 } mtfs_block_diagnostics_state_t;
 

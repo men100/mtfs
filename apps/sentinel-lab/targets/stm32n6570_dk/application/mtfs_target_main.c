@@ -84,17 +84,27 @@ static mtfs_error_t observer_lock(void *opaque)
 static void observer_unlock(void *opaque) { (void)tk_unl_mtx(*(ID *)opaque); }
 
 static mtfs_error_t transport_sample(void *opaque,
-    mtfs_sentinel_transport_feature_t *feature)
+    mtfs_sentinel_transport_snapshot_t *snapshot)
 {
     mtfs_stm32_sdmmc_diagnostics_t d;
     mtfs_error_t error = mtfs_stm32_sdmmc_diagnostics_get(opaque, &d);
     if (error != MTFS_OK) return error;
-    feature->validity_mask = UINT32_C(0x0f);
-    feature->flags = 0U;
-    feature->counters[0] = d.error_callbacks;
-    feature->counters[1] = d.completion_timeouts;
-    feature->counters[2] = d.card_state_timeouts;
-    feature->counters[3] = d.aborts;
+    snapshot->reset_epoch = d.reset_epoch;
+    snapshot->validity_mask =
+        MTFS_SENTINEL_TRANSPORT_VALID_TRANSPORT_ERRORS |
+        MTFS_SENTINEL_TRANSPORT_VALID_TRANSFER_TIMEOUTS |
+        MTFS_SENTINEL_TRANSPORT_VALID_READY_TIMEOUTS |
+        MTFS_SENTINEL_TRANSPORT_VALID_ABORTS;
+    snapshot->flags = MTFS_SENTINEL_TRANSPORT_FLAG_COUNTERS_SATURATE;
+    snapshot->transport_errors = d.error_callbacks;
+    snapshot->transfer_timeouts = d.completion_timeouts;
+    snapshot->ready_timeouts = d.card_state_timeouts;
+    snapshot->aborts = d.aborts;
+    if (d.error_callbacks == UINT32_MAX ||
+        d.completion_timeouts == UINT32_MAX ||
+        d.card_state_timeouts == UINT32_MAX || d.aborts == UINT32_MAX)
+        snapshot->flags |=
+            MTFS_SENTINEL_TRANSPORT_FLAG_COUNTER_SATURATED;
     return MTFS_OK;
 }
 

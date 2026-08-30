@@ -93,20 +93,40 @@ mtfs_error_t mtfs_block_diagnostics_attach_locked(
 }
 #endif
 
-void mtfs_block_diagnostics_record_begin(
+mtfs_error_t mtfs_block_diagnostics_record_begin(
     mtfs_block_device_t *device, mtfs_block_operation_t operation,
     uint32_t sectors)
 {
     mtfs_block_diagnostics_t *d;
+    mtfs_error_t result = MTFS_OK;
     if ((device == NULL) ||
         ((device->capabilities & MTFS_BLOCK_CAPABILITY_DIAGNOSTICS) == 0U) ||
         (device->diagnostics == NULL)) {
-        return;
+        return MTFS_OK;
     }
 #if MTFS_ENABLE_STORAGE_SENTINEL
-    if (device->diagnostics->lock != NULL &&
-        device->diagnostics->lock(device->diagnostics->lock_context) != MTFS_OK)
-        return;
+    if (device->diagnostics->lock != NULL) {
+        result = device->diagnostics->lock(
+            device->diagnostics->lock_context);
+        if (result != MTFS_OK) {
+            /*
+             * Ordinary diagnostics remain best-effort.  An operation hook,
+             * however, is also a lifecycle gate and must fail closed.
+             */
+            return device->diagnostics->operation_begin != NULL
+                ? result : MTFS_OK;
+        }
+    }
+    if (device->diagnostics->operation_begin != NULL) {
+        result = device->diagnostics->operation_begin(
+            device->diagnostics->operation_context);
+        if (result != MTFS_OK) {
+            if (device->diagnostics->unlock != NULL)
+                device->diagnostics->unlock(
+                    device->diagnostics->lock_context);
+            return result;
+        }
+    }
 #endif
     ++device->diagnostics->sequence;
     d = &device->diagnostics->snapshot;
@@ -132,6 +152,7 @@ void mtfs_block_diagnostics_record_begin(
     if (device->diagnostics->unlock != NULL)
         device->diagnostics->unlock(device->diagnostics->lock_context);
 #endif
+    return MTFS_OK;
 }
 
 void mtfs_block_diagnostics_record_end(
@@ -193,6 +214,11 @@ void mtfs_block_diagnostics_record_end(
     if (result != MTFS_OK) {
         mtfs_diagnostics_classify_error(d, result);
     }
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (device->diagnostics->operation_end != NULL)
+        device->diagnostics->operation_end(
+            device->diagnostics->operation_context);
+#endif
     ++device->diagnostics->sequence;
 #if MTFS_ENABLE_STORAGE_SENTINEL
     if (device->diagnostics->unlock != NULL)

@@ -88,11 +88,23 @@ int main(void)
     frame.inserted_events = 9U;
     frame.removed_events = 10U;
     frame.media_error_events = 11U;
+    frame.transport.validity_mask = MTFS_SENTINEL_TRANSPORT_VALID_ALL;
+    frame.transport.flags = MTFS_SENTINEL_TRANSPORT_FLAG_COUNTERS_SATURATE;
+    frame.transport.reset_epoch = 12U;
+    frame.transport.transport_errors = UINT64_MAX;
+    frame.transport.transfer_timeouts = UINT64_C(13);
+    frame.transport.ready_timeouts = UINT64_C(14);
+    frame.transport.aborts = UINT64_C(15);
+    frame.transport.clock_errors = UINT64_C(16);
     if (mtfs_sentinel_recorder_format_csv(line, sizeof(line), &frame,
             "controlled", 8U) != MTFS_OK)
         return 1;
     if (strstr(mtfs_sentinel_recorder_csv_header(),
             ",sync_calls,sync_sectors,sync_ok,sync_fail,") == NULL ||
+        strstr(mtfs_sentinel_recorder_csv_header(),
+            ",transport_validity,transport_flags,transport_reset_epoch,"
+            "transport_errors,transfer_timeouts,ready_timeouts,aborts,"
+            "clock_errors,") == NULL ||
         count_character(mtfs_sentinel_recorder_csv_header(), ',') !=
             count_character(line, ','))
         return 1;
@@ -101,7 +113,9 @@ int main(void)
             "9223372036854775808,6,7,controlled,8,") == NULL ||
         strstr(line,
             ",18446744073709551615,4294967296,"
-            "18446744073709551615") == NULL)
+            "18446744073709551615") == NULL ||
+        strstr(line,
+            ",31,1,12,18446744073709551615,13,14,15,16,") == NULL)
         return 1;
     if (mtfs_sentinel_recorder_format_csv(small, sizeof(small), &frame,
             "controlled", 8U) != MTFS_ERROR_BUFFER_TOO_SMALL ||

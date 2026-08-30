@@ -6,7 +6,7 @@
 #include "mtfs_block_device.h"
 
 #if MTFS_ENABLE_DIAGNOSTICS
-void mtfs_block_diagnostics_record_begin(
+mtfs_error_t mtfs_block_diagnostics_record_begin(
     mtfs_block_device_t *device, mtfs_block_operation_t operation,
     uint32_t sectors);
 void mtfs_block_diagnostics_record_end(

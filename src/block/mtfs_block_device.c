@@ -66,8 +66,9 @@ mtfs_error_t mtfs_block_initialize(mtfs_block_device_t *device)
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
 #if MTFS_ENABLE_DIAGNOSTICS
-    mtfs_block_diagnostics_record_begin(
+    result = mtfs_block_diagnostics_record_begin(
         device, MTFS_BLOCK_OPERATION_INITIALIZE, 0U);
+    if (result != MTFS_OK) return result;
 #endif
     result = device->ops->initialize(device->context);
 #if MTFS_ENABLE_DIAGNOSTICS
@@ -85,7 +86,9 @@ mtfs_error_t mtfs_block_status(mtfs_block_device_t *device, mtfs_block_status_t 
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
 #if MTFS_ENABLE_DIAGNOSTICS
-    mtfs_block_diagnostics_record_begin(device, MTFS_BLOCK_OPERATION_STATUS, 0U);
+    result = mtfs_block_diagnostics_record_begin(
+        device, MTFS_BLOCK_OPERATION_STATUS, 0U);
+    if (result != MTFS_OK) return result;
 #endif
     result = device->ops->status(device->context, status);
     if ((result == MTFS_OK) &&
@@ -109,8 +112,9 @@ mtfs_error_t mtfs_block_get_geometry(
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
 #if MTFS_ENABLE_DIAGNOSTICS
-    mtfs_block_diagnostics_record_begin(
+    result = mtfs_block_diagnostics_record_begin(
         device, MTFS_BLOCK_OPERATION_GET_GEOMETRY, 0U);
+    if (result != MTFS_OK) return result;
 #endif
     result = device->ops->get_geometry(device->context, geometry);
     if (result != MTFS_OK) {
@@ -140,8 +144,9 @@ mtfs_error_t mtfs_block_read(
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
 #if MTFS_ENABLE_DIAGNOSTICS
-    mtfs_block_diagnostics_record_begin(
+    result = mtfs_block_diagnostics_record_begin(
         device, MTFS_BLOCK_OPERATION_READ, count);
+    if (result != MTFS_OK) return result;
 #endif
     result = mtfs_block_check_range(device, lba, (mtfs_lba_t)count);
     if (result == MTFS_OK) {
@@ -166,8 +171,9 @@ mtfs_error_t mtfs_block_write(
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
 #if MTFS_ENABLE_DIAGNOSTICS
-    mtfs_block_diagnostics_record_begin(
+    result = mtfs_block_diagnostics_record_begin(
         device, MTFS_BLOCK_OPERATION_WRITE, count);
+    if (result != MTFS_OK) return result;
 #endif
     if ((device->capabilities & MTFS_BLOCK_CAPABILITY_READ_ONLY) != 0U) {
         result = MTFS_ERROR_WRITE_PROTECTED;
@@ -192,7 +198,9 @@ mtfs_error_t mtfs_block_sync(mtfs_block_device_t *device)
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
 #if MTFS_ENABLE_DIAGNOSTICS
-    mtfs_block_diagnostics_record_begin(device, MTFS_BLOCK_OPERATION_SYNC, 0U);
+    result = mtfs_block_diagnostics_record_begin(
+        device, MTFS_BLOCK_OPERATION_SYNC, 0U);
+    if (result != MTFS_OK) return result;
 #endif
     result = device->ops->sync(device->context);
 #if MTFS_ENABLE_DIAGNOSTICS
@@ -213,8 +221,10 @@ mtfs_error_t mtfs_block_trim(
         return MTFS_ERROR_INVALID_ARGUMENT;
     }
 #if MTFS_ENABLE_DIAGNOSTICS
-    mtfs_block_diagnostics_record_begin(device, MTFS_BLOCK_OPERATION_TRIM,
+    result = mtfs_block_diagnostics_record_begin(device,
+        MTFS_BLOCK_OPERATION_TRIM,
         (count > UINT32_MAX) ? UINT32_MAX : (uint32_t)count);
+    if (result != MTFS_OK) return result;
 #endif
     if ((device->capabilities & MTFS_BLOCK_CAPABILITY_READ_ONLY) != 0U) {
         result = MTFS_ERROR_WRITE_PROTECTED;

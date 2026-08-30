@@ -57,25 +57,22 @@ static uint64_t saturating_add(uint64_t a, uint64_t b, uint32_t *flags)
     return a + b;
 }
 
-static mtfs_error_t enter_call(mtfs_sentinel_observer_t *observer)
+/* Called with the diagnostics/observer lock held by the public wrapper. */
+static mtfs_error_t operation_begin(void *opaque)
 {
-    mtfs_error_t result = observer->config.lock(observer->config.lock_context);
-    if (result != MTFS_OK) return result;
+    mtfs_sentinel_observer_t *observer = opaque;
     if (!observer->initialized || observer->active_calls == UINT32_MAX) {
-        observer->config.unlock(observer->config.lock_context);
         return MTFS_ERROR_INVALID_STATE;
     }
     ++observer->active_calls;
-    observer->config.unlock(observer->config.lock_context);
     return MTFS_OK;
 }
 
-static void leave_call(mtfs_sentinel_observer_t *observer)
+/* Called with the diagnostics/observer lock held by the public wrapper. */
+static void operation_end(void *opaque)
 {
-    if (observer->config.lock(observer->config.lock_context) == MTFS_OK) {
-        if (observer->active_calls != 0U) --observer->active_calls;
-        observer->config.unlock(observer->config.lock_context);
-    }
+    mtfs_sentinel_observer_t *observer = opaque;
+    if (observer->active_calls != 0U) --observer->active_calls;
 }
 
 static void record_timing(mtfs_sentinel_observer_t *observer,
@@ -109,55 +106,38 @@ static mtfs_error_t timed_call(mtfs_sentinel_observer_t *observer,
     uint64_t start_us = 0U, end_us = 0U;
     int start_valid, end_valid;
     mtfs_error_t result;
-    result = enter_call(observer);
-    if (result != MTFS_OK) return result;
     start_valid = observer->config.clock(observer->config.clock_context,
         &start_us) == MTFS_OK;
     result = call(observer, argument);
     end_valid = observer->config.clock(observer->config.clock_context,
         &end_us) == MTFS_OK;
     record_timing(observer, timing, start_valid, start_us, end_valid, end_us);
-    leave_call(observer);
     return result;
 }
 
 static mtfs_error_t observer_initialize(void *opaque)
 {
     mtfs_sentinel_observer_t *o = opaque;
-    mtfs_error_t result = enter_call(o);
-    if (result != MTFS_OK) return result;
-    result = o->config.downstream->ops->initialize(o->config.downstream->context);
-    leave_call(o);
-    return result;
+    return o->config.downstream->ops->initialize(
+        o->config.downstream->context);
 }
 static mtfs_error_t observer_status(void *opaque, mtfs_block_status_t *status)
 {
     mtfs_sentinel_observer_t *o = opaque;
-    mtfs_error_t result = enter_call(o);
-    if (result != MTFS_OK) return result;
-    result = o->config.downstream->ops->status(o->config.downstream->context, status);
-    leave_call(o);
-    return result;
+    return o->config.downstream->ops->status(
+        o->config.downstream->context, status);
 }
 static mtfs_error_t observer_geometry(void *opaque, mtfs_block_geometry_t *geometry)
 {
     mtfs_sentinel_observer_t *o = opaque;
-    mtfs_error_t result = enter_call(o);
-    if (result != MTFS_OK) return result;
-    result = o->config.downstream->ops->get_geometry(
+    return o->config.downstream->ops->get_geometry(
         o->config.downstream->context, geometry);
-    leave_call(o);
-    return result;
 }
 static mtfs_error_t observer_trim(void *opaque, mtfs_lba_t lba, mtfs_lba_t count)
 {
     mtfs_sentinel_observer_t *o = opaque;
-    mtfs_error_t result = enter_call(o);
-    if (result != MTFS_OK) return result;
-    result = o->config.downstream->ops->trim(
+    return o->config.downstream->ops->trim(
         o->config.downstream->context, lba, count);
-    leave_call(o);
-    return result;
 }
 
 typedef struct io_args { void *buffer; mtfs_lba_t lba; uint32_t count; } io_args_t;
@@ -218,10 +198,20 @@ mtfs_error_t mtfs_sentinel_observer_init(
     observer->snapshot.api_version = MTFS_SENTINEL_OBSERVER_API_VERSION;
     observer->snapshot.struct_size = (uint16_t)sizeof(observer->snapshot);
     observer->initialized = 1U;
+    /*
+     * The observer owns these common diagnostics: the public wrapper must
+     * account for range failures, while downstream ops are called directly
+     * to avoid duplicate range checks and downstream counter updates.
+     */
     result = mtfs_block_diagnostics_attach_locked(
         &observer->block_device, &observer->diagnostics,
         config->lock, config->unlock, config->lock_context);
     if (result != MTFS_OK) observer->initialized = 0U;
+    else {
+        observer->diagnostics.operation_begin = operation_begin;
+        observer->diagnostics.operation_end = operation_end;
+        observer->diagnostics.operation_context = observer;
+    }
     return result;
 }
 

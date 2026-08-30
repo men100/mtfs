@@ -99,7 +99,10 @@ const char *mtfs_sentinel_recorder_csv_header(void)
         "read_calls,read_sectors,read_ok,read_fail,read_timing,read_invalid,read_total_us,read_avg_us,"
         "write_calls,write_sectors,write_ok,write_fail,write_timing,write_invalid,write_total_us,write_avg_us,"
         "sync_calls,sync_sectors,sync_ok,sync_fail,sync_timing,sync_invalid,sync_total_us,sync_avg_us,"
-        "io_error,not_ready,no_media,timeout,insert,remove,media_error,histogram_r_w_s";
+        "io_error,not_ready,no_media,timeout,insert,remove,media_error,"
+        "transport_validity,transport_flags,transport_reset_epoch,"
+        "transport_errors,transfer_timeouts,ready_timeouts,aborts,"
+        "clock_errors,histogram_r_w_s";
 }
 
 mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
@@ -142,6 +145,14 @@ mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
     csv_append_u32_field(&writer, f->inserted_events);
     csv_append_u32_field(&writer, f->removed_events);
     csv_append_u32_field(&writer, f->media_error_events);
+    csv_append_u32_field(&writer, f->transport.validity_mask);
+    csv_append_u32_field(&writer, f->transport.flags);
+    csv_append_u32_field(&writer, f->transport.reset_epoch);
+    csv_append_u64_field(&writer, f->transport.transport_errors);
+    csv_append_u64_field(&writer, f->transport.transfer_timeouts);
+    csv_append_u64_field(&writer, f->transport.ready_timeouts);
+    csv_append_u64_field(&writer, f->transport.aborts);
+    csv_append_u64_field(&writer, f->transport.clock_errors);
     for (op = 0U; op < MTFS_SENTINEL_OPERATION_COUNT; ++op) {
         for (bucket = 0U; bucket < MTFS_SENTINEL_HISTOGRAM_BUCKETS; ++bucket) {
             csv_append_char(&writer,

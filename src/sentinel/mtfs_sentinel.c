@@ -14,6 +14,15 @@ static uint64_t add64(uint64_t a, uint64_t b, uint32_t *flags)
     return a + b;
 }
 
+static uint32_t add32(uint32_t a, uint32_t b, uint32_t *flags)
+{
+    if (b > UINT32_MAX - a) {
+        *flags |= MTFS_SENTINEL_FLAG_COUNTER_SATURATED;
+        return UINT32_MAX;
+    }
+    return a + b;
+}
+
 static int delta64(uint64_t current, uint64_t previous, uint64_t *delta)
 {
     if (current < previous) return 0;
@@ -119,6 +128,53 @@ static int timing_delta(const mtfs_sentinel_timing_t *current,
         operation->average_latency_us = divide64(operation->total_latency_us,
             operation->timing_samples);
     return 1;
+}
+
+static int transport_counter_delta(uint32_t validity_bit,
+    uint64_t current, uint64_t previous,
+    mtfs_sentinel_transport_feature_t *feature, uint64_t *delta)
+{
+    if ((feature->validity_mask & validity_bit) == 0U) {
+        *delta = 0U;
+        return 1;
+    }
+    return delta64(current, previous, delta);
+}
+
+static int transport_delta(
+    const mtfs_sentinel_transport_snapshot_t *current,
+    const mtfs_sentinel_transport_snapshot_t *previous,
+    mtfs_sentinel_transport_feature_t *feature)
+{
+    feature->reset_epoch = current->reset_epoch;
+    feature->validity_mask = current->validity_mask;
+    feature->flags = current->flags;
+    return transport_counter_delta(
+            MTFS_SENTINEL_TRANSPORT_VALID_TRANSPORT_ERRORS,
+            current->transport_errors, previous->transport_errors,
+            feature, &feature->transport_errors) &&
+        transport_counter_delta(
+            MTFS_SENTINEL_TRANSPORT_VALID_TRANSFER_TIMEOUTS,
+            current->transfer_timeouts, previous->transfer_timeouts,
+            feature, &feature->transfer_timeouts) &&
+        transport_counter_delta(
+            MTFS_SENTINEL_TRANSPORT_VALID_READY_TIMEOUTS,
+            current->ready_timeouts, previous->ready_timeouts,
+            feature, &feature->ready_timeouts) &&
+        transport_counter_delta(MTFS_SENTINEL_TRANSPORT_VALID_ABORTS,
+            current->aborts, previous->aborts, feature, &feature->aborts) &&
+        transport_counter_delta(MTFS_SENTINEL_TRANSPORT_VALID_CLOCK_ERRORS,
+            current->clock_errors, previous->clock_errors,
+            feature, &feature->clock_errors);
+}
+
+static void transport_metadata(
+    const mtfs_sentinel_transport_snapshot_t *snapshot,
+    mtfs_sentinel_transport_feature_t *feature)
+{
+    feature->reset_epoch = snapshot->reset_epoch;
+    feature->validity_mask = snapshot->validity_mask;
+    feature->flags = snapshot->flags;
 }
 
 static int add_product(uint64_t *sum, uint64_t value, uint64_t count)
@@ -237,8 +293,10 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
 {
     mtfs_block_diagnostics_t diagnostics;
     mtfs_sentinel_observer_snapshot_t observer;
+    mtfs_sentinel_transport_snapshot_t transport;
     uint64_t now_us = 0U;
     int time_valid;
+    int transport_valid;
     int discontinuity = 0;
     if (context == NULL || metadata == NULL || feature == NULL)
         return MTFS_ERROR_INVALID_ARGUMENT;
@@ -247,6 +305,10 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
             &diagnostics) != MTFS_OK ||
         mtfs_sentinel_observer_get(context->config.observer, &observer) != MTFS_OK)
         return MTFS_ERROR_NOT_READY;
+    (void)memset(&transport, 0, sizeof(transport));
+    transport_valid = context->config.transport_sample != NULL &&
+        context->config.transport_sample(context->config.transport_context,
+            &transport) == MTFS_OK;
     time_valid = context->config.clock(context->config.clock_context,
         &now_us) == MTFS_OK;
     (void)memset(feature, 0, sizeof(*feature));
@@ -263,6 +325,8 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
         MTFS_SENTINEL_VALID_MEDIA;
     if (!context->baseline_valid) {
         feature->flags |= MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA;
+        if (transport_valid) transport_metadata(&transport,
+            &feature->transport);
         goto save_baseline;
     }
     if (diagnostics.reset_epoch != context->previous_diagnostics.reset_epoch ||
@@ -271,8 +335,16 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
         metadata->media_reset_epoch != context->previous_media.media_reset_epoch ||
         context->config.target_id != context->previous_target_id ||
         context->config.transport_id != context->previous_transport_id ||
+        transport_valid != context->previous_transport_valid ||
+        (transport_valid &&
+         (transport.reset_epoch != context->previous_transport.reset_epoch ||
+          transport.validity_mask !=
+              context->previous_transport.validity_mask)) ||
         diagnostics_saturated(&diagnostics) ||
-        (observer.flags & MTFS_SENTINEL_OBSERVER_FLAG_SATURATED) != 0U)
+        (observer.flags & MTFS_SENTINEL_OBSERVER_FLAG_SATURATED) != 0U ||
+        (transport_valid &&
+         (transport.flags &
+          MTFS_SENTINEL_TRANSPORT_FLAG_COUNTER_SATURATED) != 0U))
         discontinuity = 1;
     if (!time_valid) feature->flags |= MTFS_SENTINEL_FLAG_TIMING_UNAVAILABLE;
     else if (now_us < context->previous_timestamp_us) discontinuity = 1;
@@ -284,13 +356,19 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
         feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY |
             MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA;
         if (diagnostics_saturated(&diagnostics) ||
-            (observer.flags & MTFS_SENTINEL_OBSERVER_FLAG_SATURATED) != 0U)
+            (observer.flags & MTFS_SENTINEL_OBSERVER_FLAG_SATURATED) != 0U ||
+            (transport_valid &&
+             (transport.flags &
+              MTFS_SENTINEL_TRANSPORT_FLAG_COUNTER_SATURATED) != 0U))
             feature->flags |= MTFS_SENTINEL_FLAG_COUNTER_SATURATED;
         (void)media_event_delta(metadata, &context->previous_media, feature);
+        if (transport_valid) transport_metadata(&transport,
+            &feature->transport);
         goto save_baseline;
     }
     if (!diagnostics_delta(&diagnostics, &context->previous_diagnostics, feature)) {
-        feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY;
+        feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY |
+            MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA;
         goto save_baseline;
     }
     feature->validity_mask |= MTFS_SENTINEL_VALID_IO_COUNTERS |
@@ -318,24 +396,38 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
         feature->operation[2].timing_invalid != 0U)
         feature->flags |= MTFS_SENTINEL_FLAG_TIMING_UNAVAILABLE;
     if (!media_event_delta(metadata, &context->previous_media, feature))
-        feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY;
-    if ((feature->operation[0].calls + feature->operation[1].calls +
-         feature->operation[2].calls) == 0U)
+        feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY |
+            MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA;
+    if (feature->operation[0].calls == 0U &&
+        feature->operation[1].calls == 0U &&
+        feature->operation[2].calls == 0U)
         feature->flags |= MTFS_SENTINEL_FLAG_NO_ACTIVITY;
-    if (context->config.transport_sample != NULL &&
-        context->config.transport_sample(context->config.transport_context,
-            &feature->transport) == MTFS_OK)
-        feature->validity_mask |= MTFS_SENTINEL_VALID_TRANSPORT;
+    if (transport_valid && context->previous_transport_valid) {
+        if (transport_delta(&transport, &context->previous_transport,
+                &feature->transport)) {
+            feature->validity_mask |= MTFS_SENTINEL_VALID_TRANSPORT;
+        } else {
+            (void)memset(&feature->transport, 0,
+                sizeof(feature->transport));
+            transport_metadata(&transport, &feature->transport);
+            feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY |
+                MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA;
+        }
+    }
+    if ((feature->flags & MTFS_SENTINEL_FLAG_DISCONTINUITY) != 0U)
+        feature->flags |= MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA;
 save_baseline:
     context->previous_diagnostics = diagnostics;
     context->previous_observer = observer;
+    context->previous_transport = transport;
     context->previous_media = *metadata;
     context->previous_target_id = context->config.target_id;
     context->previous_transport_id = context->config.transport_id;
     if (time_valid) context->previous_timestamp_us = now_us;
     else feature->flags |= MTFS_SENTINEL_FLAG_TIMING_UNAVAILABLE;
     context->baseline_valid = time_valid ? 1U : 0U;
-    ++context->sample_sequence;
+    context->previous_transport_valid = transport_valid ? 1U : 0U;
+    if (context->sample_sequence != UINT32_MAX) ++context->sample_sequence;
     return MTFS_OK;
 }
 
@@ -361,8 +453,7 @@ mtfs_error_t mtfs_sentinel_window_push(mtfs_sentinel_window_t *window,
     if (window == NULL || feature == NULL || window->storage == NULL ||
         feature->version != MTFS_SENTINEL_SCHEMA_VERSION ||
         feature->struct_size != sizeof(*feature)) return MTFS_ERROR_INVALID_ARGUMENT;
-    if ((feature->flags & (MTFS_SENTINEL_FLAG_DISCONTINUITY |
-            MTFS_SENTINEL_FLAG_COUNTER_SATURATED)) != 0U)
+    if ((feature->flags & MTFS_SENTINEL_FLAG_DISCONTINUITY) != 0U)
         mtfs_sentinel_window_reset(window);
     else if (window->count != 0U) {
         uint32_t newest = (window->next + window->capacity - 1U) % window->capacity;
@@ -397,13 +488,28 @@ mtfs_error_t mtfs_sentinel_window_get(const mtfs_sentinel_window_t *window,
     feature->inserted_events = feature->removed_events = feature->media_error_events = 0U;
     feature->observation_interval_us = 0U;
     feature->sample_count = 0U;
+    feature->flags = 0U;
+    feature->transport.transport_errors = 0U;
+    feature->transport.transfer_timeouts = 0U;
+    feature->transport.ready_timeouts = 0U;
+    feature->transport.aborts = 0U;
+    feature->transport.clock_errors = 0U;
+    feature->transport.flags = 0U;
+    for (n = 0U; n < window->count; ++n) {
+        f = &window->storage[(index + n) % window->capacity];
+        if ((f->validity_mask & MTFS_SENTINEL_VALID_TRANSPORT) == 0U)
+            feature->transport.validity_mask = 0U;
+        else
+            feature->transport.validity_mask &= f->transport.validity_mask;
+    }
     for (n = 0U; n < window->count; ++n) {
         f = &window->storage[(index + n) % window->capacity];
         feature->validity_mask &= f->validity_mask;
-        feature->flags |= f->flags;
+        feature->flags |= f->flags & ~MTFS_SENTINEL_FLAG_NO_ACTIVITY;
         feature->timestamp_us = f->timestamp_us;
         feature->media_generation = f->media_generation;
-        feature->sample_count += f->sample_count;
+        feature->sample_count = add32(feature->sample_count,
+            f->sample_count, &feature->flags);
         feature->observation_interval_us = add64(feature->observation_interval_us,
             f->observation_interval_us, &feature->flags);
         for (op = 0U; op < MTFS_SENTINEL_OPERATION_COUNT; ++op) {
@@ -440,9 +546,38 @@ mtfs_error_t mtfs_sentinel_window_get(const mtfs_sentinel_window_t *window,
             f->timeout_errors, &feature->flags);
         feature->other_errors = add64(feature->other_errors,
             f->other_errors, &feature->flags);
-        feature->inserted_events += f->inserted_events;
-        feature->removed_events += f->removed_events;
-        feature->media_error_events += f->media_error_events;
+        feature->inserted_events = add32(feature->inserted_events,
+            f->inserted_events, &feature->flags);
+        feature->removed_events = add32(feature->removed_events,
+            f->removed_events, &feature->flags);
+        feature->media_error_events = add32(feature->media_error_events,
+            f->media_error_events, &feature->flags);
+        feature->transport.reset_epoch = f->transport.reset_epoch;
+        feature->transport.flags |= f->transport.flags;
+        if ((feature->transport.validity_mask &
+                MTFS_SENTINEL_TRANSPORT_VALID_TRANSPORT_ERRORS) != 0U)
+            feature->transport.transport_errors = add64(
+                feature->transport.transport_errors,
+                f->transport.transport_errors, &feature->flags);
+        if ((feature->transport.validity_mask &
+                MTFS_SENTINEL_TRANSPORT_VALID_TRANSFER_TIMEOUTS) != 0U)
+            feature->transport.transfer_timeouts = add64(
+                feature->transport.transfer_timeouts,
+                f->transport.transfer_timeouts, &feature->flags);
+        if ((feature->transport.validity_mask &
+                MTFS_SENTINEL_TRANSPORT_VALID_READY_TIMEOUTS) != 0U)
+            feature->transport.ready_timeouts = add64(
+                feature->transport.ready_timeouts,
+                f->transport.ready_timeouts, &feature->flags);
+        if ((feature->transport.validity_mask &
+                MTFS_SENTINEL_TRANSPORT_VALID_ABORTS) != 0U)
+            feature->transport.aborts = add64(feature->transport.aborts,
+                f->transport.aborts, &feature->flags);
+        if ((feature->transport.validity_mask &
+                MTFS_SENTINEL_TRANSPORT_VALID_CLOCK_ERRORS) != 0U)
+            feature->transport.clock_errors = add64(
+                feature->transport.clock_errors,
+                f->transport.clock_errors, &feature->flags);
     }
     for (op = 0U; op < MTFS_SENTINEL_OPERATION_COUNT; ++op) {
         mtfs_sentinel_operation_feature_t *a = &feature->operation[op];
@@ -453,6 +588,30 @@ mtfs_error_t mtfs_sentinel_window_get(const mtfs_sentinel_window_t *window,
             a->average_latency_us = divide64(
                 a->total_latency_us, a->timing_samples);
     }
+    if ((feature->transport.validity_mask &
+            MTFS_SENTINEL_TRANSPORT_VALID_TRANSPORT_ERRORS) == 0U)
+        feature->transport.transport_errors = 0U;
+    if ((feature->transport.validity_mask &
+            MTFS_SENTINEL_TRANSPORT_VALID_TRANSFER_TIMEOUTS) == 0U)
+        feature->transport.transfer_timeouts = 0U;
+    if ((feature->transport.validity_mask &
+            MTFS_SENTINEL_TRANSPORT_VALID_READY_TIMEOUTS) == 0U)
+        feature->transport.ready_timeouts = 0U;
+    if ((feature->transport.validity_mask &
+            MTFS_SENTINEL_TRANSPORT_VALID_ABORTS) == 0U)
+        feature->transport.aborts = 0U;
+    if ((feature->transport.validity_mask &
+            MTFS_SENTINEL_TRANSPORT_VALID_CLOCK_ERRORS) == 0U)
+        feature->transport.clock_errors = 0U;
+    if (feature->operation[MTFS_SENTINEL_OPERATION_READ].calls == 0U &&
+        feature->operation[MTFS_SENTINEL_OPERATION_WRITE].calls == 0U &&
+        feature->operation[MTFS_SENTINEL_OPERATION_SYNC].calls == 0U)
+        feature->flags |= MTFS_SENTINEL_FLAG_NO_ACTIVITY;
+    if (window->count < window->capacity ||
+        (feature->flags & MTFS_SENTINEL_FLAG_DISCONTINUITY) != 0U ||
+        (feature->validity_mask & MTFS_SENTINEL_VALID_REQUIRED) !=
+            MTFS_SENTINEL_VALID_REQUIRED)
+        feature->flags |= MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA;
     return MTFS_OK;
 }
 

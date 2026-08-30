@@ -88,19 +88,31 @@ static void observer_unlock(void *opaque)
 }
 
 static mtfs_error_t transport_sample(void *opaque,
-    mtfs_sentinel_transport_feature_t *feature)
+    mtfs_sentinel_transport_snapshot_t *snapshot)
 {
     mtfs_ra_sd_spi_diagnostics_t diagnostics;
     mtfs_error_t error = mtfs_ra_sd_spi_diagnostics_get(opaque, &diagnostics);
     if (error != MTFS_OK) {
         return error;
     }
-    feature->validity_mask = UINT32_C(0x0f);
-    feature->flags = 0U;
-    feature->counters[0] = diagnostics.transfer_errors;
-    feature->counters[1] = diagnostics.token_timeouts;
-    feature->counters[2] = diagnostics.ready_timeouts;
-    feature->counters[3] = diagnostics.monotonic_clock_errors;
+    snapshot->reset_epoch = diagnostics.reset_epoch;
+    snapshot->validity_mask =
+        MTFS_SENTINEL_TRANSPORT_VALID_TRANSPORT_ERRORS |
+        MTFS_SENTINEL_TRANSPORT_VALID_TRANSFER_TIMEOUTS |
+        MTFS_SENTINEL_TRANSPORT_VALID_READY_TIMEOUTS |
+        MTFS_SENTINEL_TRANSPORT_VALID_CLOCK_ERRORS;
+    snapshot->flags = MTFS_SENTINEL_TRANSPORT_FLAG_COUNTERS_SATURATE;
+    snapshot->transport_errors = diagnostics.transfer_errors;
+    snapshot->transfer_timeouts = diagnostics.token_timeouts;
+    snapshot->ready_timeouts = diagnostics.ready_timeouts;
+    snapshot->clock_errors = diagnostics.monotonic_clock_errors;
+    if (diagnostics.transfer_errors == UINT32_MAX ||
+        diagnostics.token_timeouts == UINT32_MAX ||
+        diagnostics.ready_timeouts == UINT32_MAX ||
+        diagnostics.monotonic_clock_errors == UINT32_MAX) {
+        snapshot->flags |=
+            MTFS_SENTINEL_TRANSPORT_FLAG_COUNTER_SATURATED;
+    }
     return MTFS_OK;
 }
 

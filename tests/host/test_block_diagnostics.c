@@ -54,6 +54,17 @@ static const mtfs_block_device_ops_t fake_ops = {
     fake_geometry, fake_trim
 };
 
+static mtfs_error_t failing_diagnostics_lock(void *opaque)
+{
+    (void)opaque;
+    return MTFS_ERROR_NOT_READY;
+}
+
+static void diagnostics_unlock(void *opaque)
+{
+    (void)opaque;
+}
+
 int test_block_diagnostics(mtfs_test_t *test)
 {
     fake_block_t fake;
@@ -165,5 +176,15 @@ int test_block_diagnostics(mtfs_test_t *test)
                 MTFS_ERROR_NOT_READY,
             "snapshot reports a simulated update collision")) return 1;
     state.sequence = 2U;
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    fake.result = MTFS_OK;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_block_diagnostics_attach_locked(&device, &state,
+                failing_diagnostics_lock, diagnostics_unlock, NULL) ==
+                MTFS_OK &&
+            mtfs_block_sync(&device) == MTFS_OK,
+            "ordinary diagnostics lock failure does not change I/O result"))
+        return 1;
+#endif
     return 0;
 }
