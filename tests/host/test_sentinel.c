@@ -145,8 +145,25 @@ int test_sentinel(mtfs_test_t *test)
     sampler.config.transport_sample=fake_transport;
     (void)mtfs_sentinel_sample(&sampler,&metadata,&frame);
     if(!MTFS_TEST_CHECK(test,(frame.validity_mask&MTFS_SENTINEL_VALID_TRANSPORT)!=0U && frame.transport.counters[0]==3U,"include optional transport supplement without vendor headers")) return 1;
-    ++metadata.media_generation;(void)mtfs_sentinel_sample(&sampler,&metadata,&frame);
-    if(!MTFS_TEST_CHECK(test,(frame.flags&MTFS_SENTINEL_FLAG_DISCONTINUITY)!=0U && mtfs_sentinel_window_push(&window,&frame)==MTFS_OK && window.count==1U,"media change resets window")) return 1;
+    ++metadata.media_generation;++metadata.removed_events;
+    (void)mtfs_sentinel_sample(&sampler,&metadata,&frame);
+    if(!MTFS_TEST_CHECK(test,
+        (frame.flags&(MTFS_SENTINEL_FLAG_DISCONTINUITY|
+            MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA))==
+            (MTFS_SENTINEL_FLAG_DISCONTINUITY|
+             MTFS_SENTINEL_FLAG_INSUFFICIENT_DATA) &&
+        frame.inserted_events==0U && frame.removed_events==1U &&
+        mtfs_sentinel_window_push(&window,&frame)==MTFS_OK && window.count==1U,
+        "media removal event survives discontinuity and resets window")) return 1;
+    (void)mtfs_sentinel_sample(&sampler,&metadata,&frame);
+    if(!MTFS_TEST_CHECK(test,frame.inserted_events==0U &&
+        frame.removed_events==0U,"media event delta is not repeated")) return 1;
+    ++metadata.media_generation;++metadata.inserted_events;
+    (void)mtfs_sentinel_sample(&sampler,&metadata,&frame);
+    if(!MTFS_TEST_CHECK(test,
+        (frame.flags&MTFS_SENTINEL_FLAG_DISCONTINUITY)!=0U &&
+        frame.inserted_events==1U && frame.removed_events==0U,
+        "media insertion event survives discontinuity")) return 1;
     (void)mtfs_sentinel_sample(&sampler,&metadata,&frame);
     (void)mtfs_block_diagnostics_reset(device);
     (void)mtfs_sentinel_sample(&sampler,&metadata,&frame);

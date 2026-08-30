@@ -26,6 +26,26 @@ static int delta32(uint32_t current, uint32_t previous, uint64_t *delta)
     return delta64(current, previous, delta);
 }
 
+static int media_event_delta(
+    const mtfs_sentinel_sample_metadata_t *current,
+    const mtfs_sentinel_sample_metadata_t *previous,
+    mtfs_sentinel_feature_v1_t *feature)
+{
+    uint64_t inserted;
+    uint64_t removed;
+    uint64_t errors;
+    if (!delta32(current->inserted_events, previous->inserted_events,
+            &inserted) ||
+        !delta32(current->removed_events, previous->removed_events,
+            &removed) ||
+        !delta32(current->error_events, previous->error_events, &errors))
+        return 0;
+    feature->inserted_events = (uint32_t)inserted;
+    feature->removed_events = (uint32_t)removed;
+    feature->media_error_events = (uint32_t)errors;
+    return 1;
+}
+
 /* Avoid target runtime-library dependencies for 64-bit division. */
 static uint64_t divide64(uint64_t numerator, uint64_t denominator)
 {
@@ -218,7 +238,6 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
     mtfs_block_diagnostics_t diagnostics;
     mtfs_sentinel_observer_snapshot_t observer;
     uint64_t now_us = 0U;
-    uint64_t delta;
     int time_valid;
     int discontinuity = 0;
     if (context == NULL || metadata == NULL || feature == NULL)
@@ -267,6 +286,7 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
         if (diagnostics_saturated(&diagnostics) ||
             (observer.flags & MTFS_SENTINEL_OBSERVER_FLAG_SATURATED) != 0U)
             feature->flags |= MTFS_SENTINEL_FLAG_COUNTER_SATURATED;
+        (void)media_event_delta(metadata, &context->previous_media, feature);
         goto save_baseline;
     }
     if (!diagnostics_delta(&diagnostics, &context->previous_diagnostics, feature)) {
@@ -297,18 +317,8 @@ mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
         feature->operation[1].timing_invalid != 0U ||
         feature->operation[2].timing_invalid != 0U)
         feature->flags |= MTFS_SENTINEL_FLAG_TIMING_UNAVAILABLE;
-    if (delta32(metadata->inserted_events,
-            context->previous_media.inserted_events, &delta))
-        feature->inserted_events = delta > UINT32_MAX ? UINT32_MAX : (uint32_t)delta;
-    else feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY;
-    if (delta32(metadata->removed_events,
-            context->previous_media.removed_events, &delta))
-        feature->removed_events = delta > UINT32_MAX ? UINT32_MAX : (uint32_t)delta;
-    else feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY;
-    if (delta32(metadata->error_events,
-            context->previous_media.error_events, &delta))
-        feature->media_error_events = delta > UINT32_MAX ? UINT32_MAX : (uint32_t)delta;
-    else feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY;
+    if (!media_event_delta(metadata, &context->previous_media, feature))
+        feature->flags |= MTFS_SENTINEL_FLAG_DISCONTINUITY;
     if ((feature->operation[0].calls + feature->operation[1].calls +
          feature->operation[2].calls) == 0U)
         feature->flags |= MTFS_SENTINEL_FLAG_NO_ACTIVITY;
