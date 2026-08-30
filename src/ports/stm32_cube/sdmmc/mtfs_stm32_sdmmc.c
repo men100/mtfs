@@ -149,6 +149,11 @@ static mtfs_error_t mtfs_stm32_sd_wait_transfer(
 {
     uint32_t started = HAL_GetTick();
 
+    /*
+     * Poll like the STM32 HAL initialization and speed-switch paths do.
+     * A 1 ms task delay is rounded by microT-Kernel's 10 ms tick and can add
+     * a full scheduling quantum to an otherwise completed IDMA transfer.
+     */
     do {
         if (!mtfs_stm32_sd_card_present(context)) {
             mtfs_stm32_sd_invalidate_media(context);
@@ -160,7 +165,6 @@ static mtfs_error_t mtfs_stm32_sd_wait_transfer(
         if (HAL_SD_GetCardState(context->config.hal_sd) == HAL_SD_CARD_TRANSFER) {
             return mtfs_stm32_sd_set_error(context, MTFS_OK);
         }
-        (void)tk_dly_tsk(1U);
     } while ((HAL_GetTick() - started) < context->config.transfer_timeout_ms);
 
     MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
