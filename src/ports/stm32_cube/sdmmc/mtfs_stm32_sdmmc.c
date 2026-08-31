@@ -12,6 +12,7 @@
 #define MTFS_STM32_SD_EVENT_TX       (UINT32_C(1) << 1)
 #define MTFS_STM32_SD_EVENT_ERROR    (UINT32_C(1) << 2)
 #define MTFS_STM32_SD_EVENT_REMOVED  (UINT32_C(1) << 3)
+#define MTFS_STM32_SD_EVENT_READY    (UINT32_C(1) << 4)
 
 #if MTFS_ENABLE_DIAGNOSTICS
 #define MTFS_ST_DIAGNOSTIC(...) do { __VA_ARGS__; } while (0)
@@ -43,6 +44,40 @@ static mtfs_error_t mtfs_stm32_sd_geometry(
 static mtfs_error_t mtfs_stm32_sd_trim(
     void *opaque, mtfs_lba_t lba, mtfs_lba_t count);
 static void mtfs_stm32_sd_abort(mtfs_stm32_sdmmc_context_t *context);
+
+static void mtfs_stm32_sd_ready_irq_disarm(
+    mtfs_stm32_sdmmc_context_t *context)
+{
+    if (!mtfs_stm32_sdmmc_ready_registers_accessible(
+            context->config.use_idma, context->hal_initialized)) {
+        context->ready_wait_active = 0U;
+        return;
+    }
+    __HAL_SD_DISABLE_IT(context->config.hal_sd, SDMMC_IT_BUSYD0END);
+    context->ready_wait_active = 0U;
+    __HAL_SD_CLEAR_FLAG(context->config.hal_sd, SDMMC_FLAG_BUSYD0END);
+}
+
+static ER mtfs_stm32_sd_ready_irq_cleanup(
+    mtfs_stm32_sdmmc_context_t *context)
+{
+    mtfs_stm32_sd_ready_irq_disarm(context);
+    if (context->transfer_event_flag_id > 0) {
+        return tk_clr_flg(context->transfer_event_flag_id,
+            (UINT)~MTFS_STM32_SD_EVENT_READY);
+    }
+    return E_OK;
+}
+
+static ER mtfs_stm32_sd_clear_transfer_events(
+    mtfs_stm32_sdmmc_context_t *context)
+{
+    const UINT transfer_events = MTFS_STM32_SD_EVENT_RX |
+        MTFS_STM32_SD_EVENT_TX | MTFS_STM32_SD_EVENT_ERROR |
+        MTFS_STM32_SD_EVENT_READY;
+    return tk_clr_flg(context->transfer_event_flag_id,
+        (UINT)~transfer_events);
+}
 
 static void mtfs_stm32_sd_invalidate_media(
     mtfs_stm32_sdmmc_context_t *context)
@@ -194,6 +229,185 @@ static mtfs_error_t mtfs_stm32_sd_wait_transfer(
     return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
 }
 
+static mtfs_error_t mtfs_stm32_sd_wait_ready_irq(
+    mtfs_stm32_sdmmc_context_t *context)
+{
+    const uint32_t started = HAL_GetTick();
+    uint32_t busy_poll_started = started;
+    int fallback_recorded = 0;
+
+    MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+        &context->diagnostics.ready_wait_starts));
+    for (;;) {
+        HAL_SD_CardStateTypeDef card_state;
+        mtfs_stm32_sdmmc_ready_action_t action;
+        uint32_t now;
+        uint32_t remaining;
+        UINT events = 0U;
+        ER kernel_result;
+        mtfs_stm32_sdmmc_ready_wakeup_t wakeup;
+
+        if (!mtfs_stm32_sd_card_present(context)) {
+            mtfs_stm32_sd_invalidate_media(context);
+            (void)mtfs_stm32_sd_ready_irq_cleanup(context);
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+        }
+        if (context->media_removal_pending) {
+            (void)mtfs_stm32_sd_ready_irq_cleanup(context);
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
+        }
+        if ((context->transfer_hal_error != HAL_SD_ERROR_NONE) ||
+            (context->config.hal_sd->ErrorCode != HAL_SD_ERROR_NONE)) {
+            (void)mtfs_stm32_sd_ready_irq_cleanup(context);
+            context->last_hal_error = (context->transfer_hal_error !=
+                HAL_SD_ERROR_NONE) ? context->transfer_hal_error
+                                   : context->config.hal_sd->ErrorCode;
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_IO);
+        }
+
+        if (__HAL_SD_GET_FLAG(context->config.hal_sd,
+                SDMMC_FLAG_BUSYD0) == RESET) {
+            card_state = HAL_SD_GetCardState(context->config.hal_sd);
+        } else {
+            card_state = HAL_SD_CARD_PROGRAMMING;
+        }
+        if (context->config.hal_sd->ErrorCode != HAL_SD_ERROR_NONE) {
+            (void)mtfs_stm32_sd_ready_irq_cleanup(context);
+            context->last_hal_error = context->config.hal_sd->ErrorCode;
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_IO);
+        }
+        now = HAL_GetTick();
+        action = mtfs_stm32_sdmmc_ready_policy_evaluate(
+            started, now, context->config.transfer_timeout_ms,
+            card_state == HAL_SD_CARD_TRANSFER,
+            __HAL_SD_GET_FLAG(context->config.hal_sd,
+                SDMMC_FLAG_BUSYD0) != RESET);
+        if (action == MTFS_STM32_SDMMC_READY_COMPLETE) {
+            kernel_result = mtfs_stm32_sd_ready_irq_cleanup(context);
+            if (kernel_result < E_OK) {
+                return mtfs_stm32_sd_kernel_error(context, kernel_result);
+            }
+            return mtfs_stm32_sd_set_error(context, MTFS_OK);
+        }
+        if (action == MTFS_STM32_SDMMC_READY_TIMEOUT) {
+            (void)mtfs_stm32_sd_ready_irq_cleanup(context);
+            MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                &context->diagnostics.ready_wait_timeouts));
+            MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                &context->diagnostics.card_state_timeouts));
+            context->last_hal_error = context->config.hal_sd->ErrorCode;
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
+        }
+
+        kernel_result = tk_clr_flg(context->transfer_event_flag_id,
+            (UINT)~MTFS_STM32_SD_EVENT_READY);
+        if (kernel_result < E_OK) {
+            mtfs_stm32_sd_ready_irq_disarm(context);
+            return mtfs_stm32_sd_kernel_error(context, kernel_result);
+        }
+        __HAL_SD_DISABLE_IT(context->config.hal_sd, SDMMC_IT_BUSYD0END);
+        __HAL_SD_CLEAR_FLAG(context->config.hal_sd, SDMMC_FLAG_BUSYD0END);
+        context->ready_wait_active = 1U;
+        __HAL_SD_ENABLE_IT(context->config.hal_sd, SDMMC_IT_BUSYD0END);
+        __DSB();
+
+        if (!mtfs_stm32_sd_card_present(context)) {
+            mtfs_stm32_sd_invalidate_media(context);
+            (void)mtfs_stm32_sd_ready_irq_cleanup(context);
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+        }
+        if (context->media_removal_pending) {
+            (void)mtfs_stm32_sd_ready_irq_cleanup(context);
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
+        }
+
+        now = HAL_GetTick();
+        action = mtfs_stm32_sdmmc_ready_policy_evaluate(
+            started, now, context->config.transfer_timeout_ms, 0,
+            __HAL_SD_GET_FLAG(context->config.hal_sd,
+                SDMMC_FLAG_BUSYD0) != RESET);
+        if (action != MTFS_STM32_SDMMC_READY_ARM) {
+            kernel_result = mtfs_stm32_sd_ready_irq_cleanup(context);
+            if (kernel_result < E_OK) {
+                return mtfs_stm32_sd_kernel_error(context, kernel_result);
+            }
+            if (action == MTFS_STM32_SDMMC_READY_TIMEOUT) {
+                MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                    &context->diagnostics.ready_wait_timeouts));
+                MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                    &context->diagnostics.card_state_timeouts));
+                return mtfs_stm32_sd_set_error(
+                    context, MTFS_ERROR_NOT_READY);
+            }
+            if ((now - busy_poll_started) >=
+                MTFS_STM32_SDMMC_BUSY_POLL_MS) {
+                if (!fallback_recorded) {
+                    MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                        &context->diagnostics.ready_hybrid_fallbacks));
+                    fallback_recorded = 1;
+                }
+                kernel_result = tk_dly_tsk(1U);
+                if (kernel_result < E_OK) {
+                    return mtfs_stm32_sd_kernel_error(
+                        context, kernel_result);
+                }
+                busy_poll_started = HAL_GetTick();
+            }
+            continue;
+        }
+
+        remaining = mtfs_stm32_sdmmc_ready_remaining_ms(started, now,
+            context->config.transfer_timeout_ms);
+        kernel_result = tk_wai_flg(context->transfer_event_flag_id,
+            MTFS_STM32_SD_EVENT_READY | MTFS_STM32_SD_EVENT_ERROR |
+                MTFS_STM32_SD_EVENT_REMOVED,
+            TWF_ORW | TWF_BITCLR, &events,
+            (TMO)((remaining > (uint32_t)INT_MAX) ? INT_MAX : remaining));
+        {
+            ER cleanup_result = mtfs_stm32_sd_ready_irq_cleanup(context);
+            if ((kernel_result >= E_OK) && (cleanup_result < E_OK)) {
+                kernel_result = cleanup_result;
+            }
+        }
+        wakeup = mtfs_stm32_sdmmc_ready_wakeup_evaluate(
+            kernel_result < E_OK,
+            (events & MTFS_STM32_SD_EVENT_READY) != 0U,
+            (events & MTFS_STM32_SD_EVENT_ERROR) != 0U,
+            (events & MTFS_STM32_SD_EVENT_REMOVED) != 0U);
+        if (wakeup == MTFS_STM32_SDMMC_READY_WAKE_KERNEL_ERROR) {
+            if (MERCD(kernel_result) == MERCD(E_TMOUT)) {
+                if (mtfs_stm32_sdmmc_ready_remaining_ms(started,
+                        HAL_GetTick(),
+                        context->config.transfer_timeout_ms) != 0U) {
+                    continue;
+                }
+                MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                    &context->diagnostics.ready_wait_timeouts));
+                MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                    &context->diagnostics.card_state_timeouts));
+            }
+            return mtfs_stm32_sd_kernel_error(context, kernel_result);
+        }
+        if (wakeup == MTFS_STM32_SDMMC_READY_WAKE_REMOVED) {
+            MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+                &context->diagnostics.media_wait_wakeups));
+            mtfs_stm32_sd_invalidate_media(context);
+            return mtfs_stm32_sd_set_error(context,
+                mtfs_stm32_sd_card_present(context)
+                    ? MTFS_ERROR_NOT_READY : MTFS_ERROR_NO_MEDIA);
+        }
+        if (wakeup == MTFS_STM32_SDMMC_READY_WAKE_ERROR) {
+            context->last_hal_error = context->transfer_hal_error;
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_IO);
+        }
+        if (wakeup != MTFS_STM32_SDMMC_READY_WAKE_READY) {
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_IO);
+        }
+        MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+            &context->diagnostics.ready_event_wakeups));
+    }
+}
+
 static void mtfs_stm32_sd_record_start(
     mtfs_stm32_sdmmc_context_t *context, int write, uint32_t blocks)
 {
@@ -286,6 +500,7 @@ static void mtfs_stm32_sd_abort(mtfs_stm32_sdmmc_context_t *context)
 {
     uint32_t transfer_error = context->transfer_hal_error;
 
+    mtfs_stm32_sd_ready_irq_disarm(context);
     context->transfer_active = 0U;
     context->last_hal_status = HAL_SD_Abort(context->config.hal_sd);
     context->last_hal_error = (transfer_error != HAL_SD_ERROR_NONE)
@@ -330,6 +545,12 @@ static mtfs_error_t mtfs_stm32_sd_wait_event(
     if ((events & completion_event) == 0U) {
         return mtfs_stm32_sd_set_error(context, MTFS_ERROR_IO);
     }
+    if (mtfs_stm32_sdmmc_ready_path_select(
+            context->config.use_idma,
+            completion_event == MTFS_STM32_SD_EVENT_TX) ==
+        MTFS_STM32_SDMMC_READY_PATH_IRQ) {
+        return mtfs_stm32_sd_wait_ready_irq(context);
+    }
     return mtfs_stm32_sd_wait_transfer(context);
 }
 
@@ -348,9 +569,16 @@ static mtfs_error_t mtfs_stm32_sd_idma_read(
         __DSB();
         context->transfer_hal_error = HAL_SD_ERROR_NONE;
         result = mtfs_stm32_sd_kernel_error(context,
-            tk_clr_flg(context->transfer_event_flag_id, 0U));
+            mtfs_stm32_sd_clear_transfer_events(context));
         if (result != MTFS_OK) {
             return result;
+        }
+        if (!mtfs_stm32_sd_card_present(context)) {
+            mtfs_stm32_sd_invalidate_media(context);
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+        }
+        if (context->media_removal_pending) {
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
         }
         context->transfer_active = 1U;
         context->last_hal_status = HAL_SD_ReadBlocks_DMA(context->config.hal_sd,
@@ -392,9 +620,16 @@ static mtfs_error_t mtfs_stm32_sd_idma_write(
         __DSB();
         context->transfer_hal_error = HAL_SD_ERROR_NONE;
         result = mtfs_stm32_sd_kernel_error(context,
-            tk_clr_flg(context->transfer_event_flag_id, 0U));
+            mtfs_stm32_sd_clear_transfer_events(context));
         if (result != MTFS_OK) {
             return result;
+        }
+        if (!mtfs_stm32_sd_card_present(context)) {
+            mtfs_stm32_sd_invalidate_media(context);
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
+        }
+        if (context->media_removal_pending) {
+            return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NOT_READY);
         }
         context->transfer_active = 1U;
         context->last_hal_status = HAL_SD_WriteBlocks_DMA(context->config.hal_sd,
@@ -445,12 +680,29 @@ static mtfs_error_t mtfs_stm32_sd_validate_transfer(
 static void mtfs_stm32_sd_irq_handler(UINT interrupt_number)
 {
     mtfs_stm32_sdmmc_context_t *context = mtfs_stm32_sdmmc_irq_context;
+    uint32_t status;
+    uint32_t interrupt_mask;
     (void)interrupt_number;
     if ((context == NULL) || !context->irq_registered) {
         return;
     }
     MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
         &context->diagnostics.irq_entries));
+    status = context->config.hal_sd->Instance->STA;
+    interrupt_mask = context->config.hal_sd->Instance->MASK;
+    if (((status & SDMMC_FLAG_BUSYD0END) != 0U) &&
+        ((interrupt_mask & SDMMC_IT_BUSYD0END) != 0U)) {
+        __HAL_SD_DISABLE_IT(context->config.hal_sd, SDMMC_IT_BUSYD0END);
+        __HAL_SD_CLEAR_FLAG(context->config.hal_sd, SDMMC_FLAG_BUSYD0END);
+        MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+            &context->diagnostics.busyd0end_irqs));
+        if (mtfs_stm32_sdmmc_ready_event_should_signal(
+                context->ready_wait_active) &&
+            (context->transfer_event_flag_id > 0)) {
+            (void)tk_set_flg(context->transfer_event_flag_id,
+                MTFS_STM32_SD_EVENT_READY);
+        }
+    }
     HAL_SD_IRQHandler(context->config.hal_sd);
 }
 
@@ -486,7 +738,8 @@ void HAL_SD_ErrorCallback(SD_HandleTypeDef *hal_sd)
         context->last_hal_error = hal_sd->ErrorCode;
         MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
             &context->diagnostics.error_callbacks));
-        if (context->transfer_active && (context->transfer_event_flag_id > 0)) {
+        if ((context->transfer_active || context->ready_wait_active) &&
+            (context->transfer_event_flag_id > 0)) {
             (void)tk_set_flg(context->transfer_event_flag_id,
                 MTFS_STM32_SD_EVENT_ERROR);
         }
@@ -598,21 +851,24 @@ mtfs_error_t mtfs_stm32_sdmmc_context_deinit(
     }
 
     if (context->irq_registered) {
+        mtfs_stm32_sd_ready_irq_disarm(context);
         HAL_NVIC_DisableIRQ(context->config.irq_number);
     }
     if (context->hal_initialized || context->transfer_active) {
         if (context->transfer_active) {
             mtfs_stm32_sd_abort(context);
         }
+        /* Prevent an ISR from touching registers while MSP deinit gates them. */
+        context->hal_initialized = 0U;
         context->last_hal_status = HAL_SD_DeInit(context->config.hal_sd);
         if (context->last_hal_status != HAL_OK) {
             result = MTFS_ERROR_IO;
         }
-        context->hal_initialized = 0U;
     }
     context->initialized = 0U;
     context->objects_ready = 0U;
     context->transfer_active = 0U;
+    context->ready_wait_active = 0U;
 
     if (context->irq_registered) {
         if (tk_def_int((UINT)context->config.irq_number, NULL) < E_OK) {
@@ -743,6 +999,7 @@ mtfs_error_t mtfs_stm32_sdmmc_media_changed_isr(
 
     context->media_removal_pending = 1U;
     context->initialized = 0U;
+    mtfs_stm32_sd_ready_irq_disarm(context);
     MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
         &context->diagnostics.media_removal_notifications));
     if (context->transfer_event_flag_id > 0) {
@@ -785,6 +1042,7 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
     */
     context->media_removal_pending = 0U;
     if (context->transfer_event_flag_id > 0) {
+        mtfs_stm32_sd_ready_irq_disarm(context);
         result = mtfs_stm32_sd_kernel_error(context,
             tk_clr_flg(context->transfer_event_flag_id, 0U));
         if (result != MTFS_OK) {
@@ -793,19 +1051,22 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
     }
     mtfs_stm32_sd_invalidate_media(context);
     if (context->hal_initialized) {
+        /* Prevent card-detect ISR register access during peripheral teardown. */
+        context->hal_initialized = 0U;
         context->last_hal_status = HAL_SD_DeInit(context->config.hal_sd);
         if (context->last_hal_status != HAL_OK) {
             result = mtfs_stm32_sd_hal_error(context, context->last_hal_status);
             goto done;
         }
-        context->hal_initialized = 0U;
     }
-    context->hal_initialized = 1U;
     context->last_hal_status = HAL_SD_Init(context->config.hal_sd);
+    /* HAL_SD_MspInit() has returned, so SDMMC registers are now accessible. */
+    context->hal_initialized = 1U;
     if (context->last_hal_status != HAL_OK) {
         result = mtfs_stm32_sd_hal_error(context, context->last_hal_status);
         goto done;
     }
+    mtfs_stm32_sd_ready_irq_disarm(context);
     /* Snapshot while the peripheral clock is known to be enabled. */
     MTFS_ST_DIAGNOSTIC(context->diagnostics.last_clkcr =
         context->config.hal_sd->Instance->CLKCR);
@@ -834,8 +1095,9 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
     goto done;
 
 failed_init:
-    context->last_hal_status = HAL_SD_DeInit(context->config.hal_sd);
+    mtfs_stm32_sd_ready_irq_disarm(context);
     context->hal_initialized = 0U;
+    context->last_hal_status = HAL_SD_DeInit(context->config.hal_sd);
     context->initialized = 0U;
 done:
     mtfs_stm32_sd_unlock(context);

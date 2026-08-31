@@ -23,7 +23,7 @@ extern "C" {
     (MTFS_STM32_SDMMC_SECTOR_SIZE * MTFS_STM32_SDMMC_BOUNCE_SECTORS)
 #define MTFS_STM32_SDMMC_CACHE_LINE_SIZE      (32U)
 #define MTFS_STM32_SDMMC_DEFAULT_TIMEOUT_MS   (5000U)
-#define MTFS_STM32_SDMMC_DIAGNOSTICS_API_VERSION (UINT16_C(1))
+#define MTFS_STM32_SDMMC_DIAGNOSTICS_API_VERSION (UINT16_C(2))
 #define MTFS_STM32_SDMMC_DIAGNOSTICS_VALID_ALL (UINT32_MAX)
 
 typedef int (*mtfs_stm32_sdmmc_signal_fn)(void *opaque);
@@ -78,6 +78,11 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
     uint8_t initialized;
     uint8_t hal_initialized;
     uint8_t transfer_active;
+    uint32_t ready_wait_starts;
+    uint32_t busyd0end_irqs;
+    uint32_t ready_event_wakeups;
+    uint32_t ready_wait_timeouts;
+    uint32_t ready_hybrid_fallbacks;
 } mtfs_stm32_sdmmc_diagnostics_t;
 
 /* Concrete by design: applications statically allocate this object. */
@@ -90,6 +95,7 @@ typedef struct mtfs_stm32_sdmmc_context
     ID transfer_event_flag_id;
     volatile uint32_t transfer_hal_error;
     volatile uint8_t transfer_active;
+    volatile uint8_t ready_wait_active;
     volatile uint8_t media_removal_pending;
     HAL_StatusTypeDef last_hal_status;
     uint32_t last_hal_error;

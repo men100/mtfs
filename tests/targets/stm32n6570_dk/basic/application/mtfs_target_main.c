@@ -612,6 +612,12 @@ static void target_print_diagnostics(
     tm_printf((UB *)"[mtfs] media removal hints=%u wait wakeups=%u\n",
         diagnostics->media_removal_notifications,
         diagnostics->media_wait_wakeups);
+    tm_printf((UB *)"[mtfs] ready starts=%u busyd0end-irq=%u wakeups=%u timeout=%u fallback=%u\n",
+        diagnostics->ready_wait_starts,
+        diagnostics->busyd0end_irqs,
+        diagnostics->ready_event_wakeups,
+        diagnostics->ready_wait_timeouts,
+        diagnostics->ready_hybrid_fallbacks);
     tm_printf((UB *)"[mtfs] read single=%u multi=%u max=%u; write single=%u multi=%u max=%u\n",
         diagnostics->read_single_starts,
         diagnostics->read_multi_starts,
@@ -696,7 +702,12 @@ static int target_st_counters_are_clear(
         (diagnostics->media_removal_notifications == 0U) &&
         (diagnostics->media_wait_wakeups == 0U) &&
         (diagnostics->completion_timeouts == 0U) &&
-        (diagnostics->card_state_timeouts == 0U);
+        (diagnostics->card_state_timeouts == 0U) &&
+        (diagnostics->ready_wait_starts == 0U) &&
+        (diagnostics->busyd0end_irqs == 0U) &&
+        (diagnostics->ready_event_wakeups == 0U) &&
+        (diagnostics->ready_wait_timeouts == 0U) &&
+        (diagnostics->ready_hybrid_fallbacks == 0U);
 }
 
 static int target_run_diagnostics_reset_test(void)
@@ -918,6 +929,11 @@ static int target_run_diagnostics_reset_test(void)
             (port_after.error_callbacks == 0U) &&
             (port_after.completion_timeouts == 0U) &&
             (port_after.card_state_timeouts == 0U) &&
+            (port_after.ready_wait_starts == 0U) &&
+            (port_after.busyd0end_irqs == 0U) &&
+            (port_after.ready_event_wakeups == 0U) &&
+            (port_after.ready_wait_timeouts == 0U) &&
+            (port_after.ready_hybrid_fallbacks == 0U) &&
             (port_after.use_idma
                 ? ((port_after.irq_entries > 0U) &&
                     (port_after.rx_complete_callbacks == 1U))
