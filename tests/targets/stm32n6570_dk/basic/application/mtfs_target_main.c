@@ -546,6 +546,16 @@ static int target_check_idma_diagnostics(
         "IDMA read maximum block count is at least two");
     (void)MTFS_TEST_CHECK(test, diagnostics->write_max_blocks >= 2U,
         "IDMA write maximum block count is at least two");
+    (void)MTFS_TEST_CHECK(test, diagnostics->ready_wait_starts > 0U,
+        "IDMA write entered the card-ready wait path");
+    (void)MTFS_TEST_CHECK(test, diagnostics->busyd0end_irqs > 0U,
+        "BUSYD0END IRQ detected card-ready release");
+    (void)MTFS_TEST_CHECK(test, diagnostics->ready_event_wakeups > 0U,
+        "card-ready IRQ woke the waiting task");
+    (void)MTFS_TEST_CHECK(test, diagnostics->ready_wait_timeouts == 0U,
+        "card-ready IRQ wait completed without timeout");
+    (void)MTFS_TEST_CHECK(test, diagnostics->ready_hybrid_fallbacks == 0U,
+        "card-ready IRQ wait completed without polling fallback");
     return test->failures == 0U ? 0 : 1;
 }
 
@@ -772,6 +782,7 @@ static int target_run_diagnostics_reset_test(void)
     error = mtfs_block_read(device, sector_zero_single, 0U, 1U);
     if (!MTFS_TEST_CHECK(&test, error == MTFS_OK,
             "raw read succeeds before reset")) goto cleanup;
+    if (test_fatfs_roundtrip(&test, "0:") != 0) goto cleanup;
 
     if (!MTFS_TEST_CHECK(&test,
             mtfs_block_diagnostics_get(device, &common_before) == MTFS_OK,
@@ -787,9 +798,22 @@ static int target_run_diagnostics_reset_test(void)
     (void)MTFS_TEST_CHECK(&test,
         (common_before.read_calls > 0U) &&
             (common_before.read_sectors_completed > 0U) &&
+            (common_before.write_calls > 0U) &&
+            (common_before.write_sectors_completed > 0U) &&
             ((port_before.read_single_starts +
-                port_before.read_multi_starts) > 0U),
-        "I/O counters increase before reset");
+                port_before.read_multi_starts) > 0U) &&
+            ((port_before.write_single_starts +
+                port_before.write_multi_starts) > 0U),
+        "read and write counters increase before reset");
+    if (port_before.use_idma) {
+        (void)MTFS_TEST_CHECK(&test,
+            (port_before.ready_wait_starts > 0U) &&
+                (port_before.busyd0end_irqs > 0U) &&
+                (port_before.ready_event_wakeups > 0U) &&
+                (port_before.ready_wait_timeouts == 0U) &&
+                (port_before.ready_hybrid_fallbacks == 0U),
+            "card-ready IRQ counters increase cleanly before reset");
+    }
 
     error = mtfs_block_diagnostics_reset(device);
     (void)MTFS_TEST_CHECK(&test, error == MTFS_OK,

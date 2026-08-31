@@ -98,7 +98,9 @@ mtfs_error_t mtfs_block_diagnostics_record_begin(
     uint32_t sectors)
 {
     mtfs_block_diagnostics_t *d;
+#if MTFS_ENABLE_STORAGE_SENTINEL
     mtfs_error_t result = MTFS_OK;
+#endif
     if ((device == NULL) ||
         ((device->capabilities & MTFS_BLOCK_CAPABILITY_DIAGNOSTICS) == 0U) ||
         (device->diagnostics == NULL)) {
