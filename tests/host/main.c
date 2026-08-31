@@ -16,6 +16,7 @@
 #include "test_fatfs_timestamp.h"
 #include "test_media_lifecycle.h"
 #include "test_ra_sd_spi_deadline.h"
+#include "test_stm32_sdmmc_wait_policy.h"
 #include "test_sealed_reader_fatfs.h"
 #include "test_sentinel.h"
 #include "test_benchmark.h"
@@ -168,6 +169,9 @@ int main(void)
         goto cleanup;
     }
     if (test_ra_sd_spi_deadline(&test) != 0) {
+        goto cleanup;
+    }
+    if (test_stm32_sdmmc_wait_policy(&test) != 0) {
         goto cleanup;
     }
     if (test_console(&test) != 0) {

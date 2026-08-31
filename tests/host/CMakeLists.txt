@@ -24,6 +24,7 @@ add_executable(mtfs_host_tests
     test_block_diagnostics.c
     test_media_lifecycle.c
     test_ra_sd_spi_deadline.c
+    test_stm32_sdmmc_wait_policy.c
     test_sentinel.c
     test_sealed_reader_fatfs.c
     test_console.c
@@ -77,6 +78,7 @@ target_include_directories(mtfs_host_tests PRIVATE
     ../../src/ports/host
     ../../src/ports/ra_fsp/sd_spi
     ../../src/ports/stm32_cube/crypto
+    ../../src/ports/stm32_cube/sdmmc
     ../../src/sentinel
     ../common/console
     ../common/framework

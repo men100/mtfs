@@ -1,4 +1,5 @@
 #include "mtfs_stm32_sdmmc.h"
+#include "mtfs_stm32_sdmmc_wait_policy.h"
 #include "../../../block/mtfs_block_diagnostics_internal.h"
 
 #include <limits.h>
@@ -148,13 +149,19 @@ static mtfs_error_t mtfs_stm32_sd_wait_transfer(
     mtfs_stm32_sdmmc_context_t *context)
 {
     uint32_t started = HAL_GetTick();
+    uint32_t busy_poll_started = started;
 
     /*
-     * Poll like the STM32 HAL initialization and speed-switch paths do.
-     * A 1 ms task delay is rounded by microT-Kernel's 10 ms tick and can add
-     * a full scheduling quantum to an otherwise completed IDMA transfer.
+     * Most cards return to TRANSFER within the initial bounded poll, avoiding
+     * the 10 ms kernel-tick rounding of a 1 ms delay on the normal path.  Once
+     * that bound is exceeded, check the card once per task backoff so a busy
+     * or faulty card cannot monopolize the CPU until the absolute timeout.
      */
-    do {
+    for (;;) {
+        uint32_t now;
+        mtfs_stm32_sdmmc_wait_action_t action;
+        ER delay_result;
+
         if (!mtfs_stm32_sd_card_present(context)) {
             mtfs_stm32_sd_invalidate_media(context);
             return mtfs_stm32_sd_set_error(context, MTFS_ERROR_NO_MEDIA);
@@ -165,7 +172,21 @@ static mtfs_error_t mtfs_stm32_sd_wait_transfer(
         if (HAL_SD_GetCardState(context->config.hal_sd) == HAL_SD_CARD_TRANSFER) {
             return mtfs_stm32_sd_set_error(context, MTFS_OK);
         }
-    } while ((HAL_GetTick() - started) < context->config.transfer_timeout_ms);
+
+        now = HAL_GetTick();
+        action = mtfs_stm32_sdmmc_wait_policy_evaluate(
+            started, busy_poll_started, now,
+            context->config.transfer_timeout_ms);
+        if (action == MTFS_STM32_SDMMC_WAIT_TIMEOUT) {
+            break;
+        }
+        if (action == MTFS_STM32_SDMMC_WAIT_BACKOFF) {
+            delay_result = tk_dly_tsk(1U);
+            if (delay_result < E_OK) {
+                return mtfs_stm32_sd_kernel_error(context, delay_result);
+            }
+        }
+    }
 
     MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
         &context->diagnostics.card_state_timeouts));
