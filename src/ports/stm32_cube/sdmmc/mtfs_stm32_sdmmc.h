@@ -78,7 +78,10 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
     uint8_t initialized;
     uint8_t hal_initialized;
     uint8_t transfer_active;
-    uint32_t ready_wait_starts;
+    /* IDMA writes that entered post-TX card-ready checking, including fast completion. */
+    uint32_t ready_sequences;
+    /* Calls to the kernel event wait after BUSYD0END was armed. */
+    uint32_t ready_event_waits;
     uint32_t busyd0end_irqs;
     uint32_t ready_event_wakeups;
     uint32_t ready_wait_timeouts;

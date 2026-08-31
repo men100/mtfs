@@ -237,7 +237,7 @@ static mtfs_error_t mtfs_stm32_sd_wait_ready_irq(
     int fallback_recorded = 0;
 
     MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
-        &context->diagnostics.ready_wait_starts));
+        &context->diagnostics.ready_sequences));
     for (;;) {
         HAL_SD_CardStateTypeDef card_state;
         mtfs_stm32_sdmmc_ready_action_t action;
@@ -358,6 +358,8 @@ static mtfs_error_t mtfs_stm32_sd_wait_ready_irq(
 
         remaining = mtfs_stm32_sdmmc_ready_remaining_ms(started, now,
             context->config.transfer_timeout_ms);
+        MTFS_ST_DIAGNOSTIC(mtfs_st_diagnostic_increment(
+            &context->diagnostics.ready_event_waits));
         kernel_result = tk_wai_flg(context->transfer_event_flag_id,
             MTFS_STM32_SD_EVENT_READY | MTFS_STM32_SD_EVENT_ERROR |
                 MTFS_STM32_SD_EVENT_REMOVED,
@@ -1091,6 +1093,11 @@ static mtfs_error_t mtfs_stm32_sd_initialize(void *opaque)
     context->geometry.erase_block_size = 1U;
     context->media_removal_pending = 0U;
     context->initialized = 1U;
+    /* Explicit initialize is the recovery boundary for stale transport state. */
+    context->last_hal_status = HAL_OK;
+    context->last_hal_error = HAL_SD_ERROR_NONE;
+    context->transfer_hal_error = HAL_SD_ERROR_NONE;
+    context->last_kernel_error = E_OK;
     result = mtfs_stm32_sd_set_error(context, MTFS_OK);
     goto done;
 

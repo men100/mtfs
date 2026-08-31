@@ -546,12 +546,19 @@ static int target_check_idma_diagnostics(
         "IDMA read maximum block count is at least two");
     (void)MTFS_TEST_CHECK(test, diagnostics->write_max_blocks >= 2U,
         "IDMA write maximum block count is at least two");
-    (void)MTFS_TEST_CHECK(test, diagnostics->ready_wait_starts > 0U,
-        "IDMA write entered the card-ready wait path");
-    (void)MTFS_TEST_CHECK(test, diagnostics->busyd0end_irqs > 0U,
-        "BUSYD0END IRQ detected card-ready release");
-    (void)MTFS_TEST_CHECK(test, diagnostics->ready_event_wakeups > 0U,
-        "card-ready IRQ woke the waiting task");
+    (void)MTFS_TEST_CHECK(test, diagnostics->ready_sequences > 0U,
+        "IDMA write entered the card-ready check sequence");
+    (void)MTFS_TEST_CHECK(test,
+        (diagnostics->ready_event_waits > 0U) &&
+            (diagnostics->ready_event_waits <=
+                diagnostics->ready_sequences),
+        "card-ready event waits are a subset of ready sequences");
+    (void)MTFS_TEST_CHECK(test,
+        (diagnostics->busyd0end_irqs ==
+            diagnostics->ready_event_wakeups) &&
+            (diagnostics->ready_event_wakeups ==
+                diagnostics->ready_event_waits),
+        "each normal card-ready event wait has one IRQ wakeup");
     (void)MTFS_TEST_CHECK(test, diagnostics->ready_wait_timeouts == 0U,
         "card-ready IRQ wait completed without timeout");
     (void)MTFS_TEST_CHECK(test, diagnostics->ready_hybrid_fallbacks == 0U,
@@ -622,8 +629,9 @@ static void target_print_diagnostics(
     tm_printf((UB *)"[mtfs] media removal hints=%u wait wakeups=%u\n",
         diagnostics->media_removal_notifications,
         diagnostics->media_wait_wakeups);
-    tm_printf((UB *)"[mtfs] ready starts=%u busyd0end-irq=%u wakeups=%u timeout=%u fallback=%u\n",
-        diagnostics->ready_wait_starts,
+    tm_printf((UB *)"[mtfs] ready sequences=%u event-waits=%u busyd0end-irq=%u wakeups=%u timeout=%u fallback=%u\n",
+        diagnostics->ready_sequences,
+        diagnostics->ready_event_waits,
         diagnostics->busyd0end_irqs,
         diagnostics->ready_event_wakeups,
         diagnostics->ready_wait_timeouts,
@@ -713,7 +721,8 @@ static int target_st_counters_are_clear(
         (diagnostics->media_wait_wakeups == 0U) &&
         (diagnostics->completion_timeouts == 0U) &&
         (diagnostics->card_state_timeouts == 0U) &&
-        (diagnostics->ready_wait_starts == 0U) &&
+        (diagnostics->ready_sequences == 0U) &&
+        (diagnostics->ready_event_waits == 0U) &&
         (diagnostics->busyd0end_irqs == 0U) &&
         (diagnostics->ready_event_wakeups == 0U) &&
         (diagnostics->ready_wait_timeouts == 0U) &&
@@ -807,7 +816,8 @@ static int target_run_diagnostics_reset_test(void)
         "read and write counters increase before reset");
     if (port_before.use_idma) {
         (void)MTFS_TEST_CHECK(&test,
-            (port_before.ready_wait_starts > 0U) &&
+            (port_before.ready_sequences > 0U) &&
+                (port_before.ready_event_waits > 0U) &&
                 (port_before.busyd0end_irqs > 0U) &&
                 (port_before.ready_event_wakeups > 0U) &&
                 (port_before.ready_wait_timeouts == 0U) &&
@@ -953,7 +963,8 @@ static int target_run_diagnostics_reset_test(void)
             (port_after.error_callbacks == 0U) &&
             (port_after.completion_timeouts == 0U) &&
             (port_after.card_state_timeouts == 0U) &&
-            (port_after.ready_wait_starts == 0U) &&
+            (port_after.ready_sequences == 0U) &&
+            (port_after.ready_event_waits == 0U) &&
             (port_after.busyd0end_irqs == 0U) &&
             (port_after.ready_event_wakeups == 0U) &&
             (port_after.ready_wait_timeouts == 0U) &&
