@@ -199,11 +199,18 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue((output / "evaluation_report.json").exists())
                 outputs.append(output)
             for name in ("model.json", "normalization.json", "threshold.json",
-                         "baselines.json", "test_vectors.json", "evaluation_report.json"):
+                         "baselines.json", "training_manifest.json", "test_vectors.json",
+                         "evaluation_report.json", "artifact_index.json"):
                 self.assertEqual((outputs[0] / name).read_bytes(),
                                  (outputs[1] / name).read_bytes(), name)
             vectors = json.loads((outputs[0] / "test_vectors.json").read_text())
             self.assertIsNotNone(vectors["positive"])
+            training = json.loads((outputs[0] / "training_manifest.json").read_text())
+            self.assertEqual(training["evaluation_datasets"][0]["session_id"],
+                             "delay-session")
+            index = json.loads((outputs[0] / "artifact_index.json").read_text())
+            self.assertEqual(index["evaluation_dataset_sha256"][str(delay_path)],
+                             sha256_file(delay_path))
 
 
 if __name__ == "__main__":

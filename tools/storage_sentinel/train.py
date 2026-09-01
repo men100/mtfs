@@ -126,6 +126,7 @@ def run(args: argparse.Namespace) -> dict:
         "train_sessions": train_details,
         "validation_sessions": validation_details,
         "test_sessions": test_details,
+        "evaluation_datasets": [],
         "threshold_source": validation_session.session_id,
         "held_out_normal_false_warning_rate": float(np.mean(test_scores > threshold)),
         "held_out_normal_score_median": float(np.median(test_scores)),
@@ -146,11 +147,22 @@ def run(args: argparse.Namespace) -> dict:
         "note": "positive vector is populated only from a real injected evaluation dataset",
     }
     evaluation_report = None
+    evaluation_datasets: list[Dataset] = []
     if args.evaluation_dataset:
         evaluation_datasets = [load_dataset(path) for path in args.evaluation_dataset]
         eval_target, eval_transport = assert_same_profile(evaluation_datasets)
         if (eval_target, eval_transport) != (target, transport):
             raise DatasetError("evaluation dataset transport profile mismatch")
+        training_manifest["evaluation_datasets"] = [
+            {
+                "session_id": dataset.session_id,
+                "card_id": dataset.card_id,
+                "command": dataset.manifest.get("command"),
+                "row_count": len(dataset.rows),
+                "dataset_sha256": sha256_file(dataset.path),
+            }
+            for dataset in evaluation_datasets
+        ]
         evaluation_report, evaluated_vectors = evaluate_datasets(
             evaluation_datasets + [test_session], model, normalization,
             threshold_payload, baselines)
@@ -181,6 +193,9 @@ def run(args: argparse.Namespace) -> dict:
         "build_type": build_type,
         "files_sha256": hashes,
         "dataset_sha256": {str(dataset.path): sha256_file(dataset.path) for dataset in datasets},
+        "evaluation_dataset_sha256": {
+            str(dataset.path): sha256_file(dataset.path) for dataset in evaluation_datasets
+        },
     }
     _write_json(args.output_dir / "artifact_index.json", artifact_index)
     return {"artifact": str(args.output_dir), "threshold": threshold,
