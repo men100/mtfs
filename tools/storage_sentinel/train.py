@@ -69,6 +69,7 @@ def run(args: argparse.Namespace) -> dict:
         raise DatasetError("output directory already exists; refusing overwrite")
     datasets = [load_dataset(path) for path in args.dataset]
     target, transport = assert_same_profile(datasets)
+    build_type = datasets[0].build_type
     train_sessions, validation_session, test_session = _split_sessions(datasets, args.seed)
     train_raw, train_details = _matrix(train_sessions, args.minimum_session_frames)
     validation_raw, validation_details = _matrix([validation_session], args.minimum_session_frames)
@@ -94,6 +95,7 @@ def run(args: argparse.Namespace) -> dict:
         "feature_schema_version": 1,
         "target_id": target,
         "transport_id": transport,
+        "build_type": build_type,
         "mean": mean.tolist(),
         "std": std.tolist(),
         "clamp_zscore": 8.0,
@@ -116,6 +118,7 @@ def run(args: argparse.Namespace) -> dict:
         "epochs": args.epochs,
         "target_id": target,
         "transport_id": transport,
+        "build_type": build_type,
         "feature_schema_sha256": schema_hash(),
         "topology_policy": "common-fixed-24-12-4-12-24",
         "candidate_comparison": candidate_report,
@@ -175,6 +178,7 @@ def run(args: argparse.Namespace) -> dict:
         "tool_version": TOOL_VERSION,
         "target_id": target,
         "transport_id": transport,
+        "build_type": build_type,
         "files_sha256": hashes,
         "dataset_sha256": {str(dataset.path): sha256_file(dataset.path) for dataset in datasets},
     }

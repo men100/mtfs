@@ -22,10 +22,14 @@
 #define LAB_RA_LIGHT_DELAY_US (1000U)
 #define LAB_RA_MEDIUM_DELAY_US (4000U)
 #define LAB_RA_STRONG_DELAY_US (12000U)
-#ifdef NDEBUG
+#if !defined(MTFS_SENTINEL_LAB_BUILD_RELEASE)
+#error "MTFS_SENTINEL_LAB_BUILD_RELEASE must be defined by the build configuration"
+#elif MTFS_SENTINEL_LAB_BUILD_RELEASE == 1
 #define LAB_BUILD_TYPE "Release"
-#else
+#elif MTFS_SENTINEL_LAB_BUILD_RELEASE == 0
 #define LAB_BUILD_TYPE "Debug"
+#else
+#error "MTFS_SENTINEL_LAB_BUILD_RELEASE must be 0 or 1"
 #endif
 
 static mtfs_ra_sd_spi_context_t sd_context;
@@ -282,6 +286,7 @@ static void lab_task(INT start_code, void *context)
     tm_printf((UB *)"\nmicroT-FS Storage Sentinel Lab\n");
     tm_printf((UB *)"# target: EK-RA8P1\n");
     tm_printf((UB *)"# transport: SPI\n");
+    tm_printf((UB *)"# build: %s\n", (UB *)LAB_BUILD_TYPE);
 #if MTFS_ENABLE_STORAGE_SENTINEL
     tm_printf((UB *)"# feature schema: v%u\n", MTFS_SENTINEL_SCHEMA_VERSION);
     tm_printf((UB *)"# arithmetic: portable-u64-v3\n");

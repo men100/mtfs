@@ -96,6 +96,7 @@ def run(args: argparse.Namespace) -> dict:
         "transport_name": args.transport_name,
         "target_id": rows[0]["target"],
         "transport_id": rows[0]["transport"],
+        "build_type": rows[0]["build_type"],
         "firmware_commit": args.firmware_commit,
         "command": args.command,
         "row_count": len(rows),

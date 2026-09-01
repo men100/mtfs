@@ -12,9 +12,11 @@ from pathlib import Path
 import numpy as np
 
 from collect import run as collect_run
-from dataset import load_dataset, manifest_path, sha256_file, write_dataset
+from dataset import (Dataset, assert_same_profile, load_dataset, manifest_path,
+                     sha256_file, write_dataset)
 from model import train_autoencoder
-from schema import HEADER, DatasetError, encode_row, parse_lines
+from schema import (HEADER, RAW_HISTOGRAM_BUCKETS, DatasetError, encode_row,
+                    feature_schema, parse_lines)
 from train import run as train_run
 
 
@@ -37,7 +39,7 @@ def valid_row(sequence: int = 1) -> dict:
         row[f"{operation}_timing"] = 10
         row[f"{operation}_total_us"] = 1000
         row[f"{operation}_avg_us"] = 100
-        histogram.extend([10] + [0] * 15)
+        histogram.extend([10] + [0] * 21)
     row["histogram_r_w_s"] = histogram
     return row
 
@@ -56,6 +58,21 @@ def csv_text(rows: list[dict]) -> str:
 
 
 class SchemaTests(unittest.TestCase):
+    def test_histogram_contract_matches_firmware(self):
+        row = valid_row()
+        self.assertEqual(len(row["histogram_r_w_s"]), 66)
+        self.assertEqual(RAW_HISTOGRAM_BUCKETS, 66)
+        self.assertEqual(feature_schema()["raw_histogram"], {
+            "operations": 3,
+            "buckets_per_operation": 22,
+            "serialized_buckets": 66,
+            "feature_groups": [[0, 3], [4, 7], [8, 11], [12, 14], [15, 21]],
+        })
+        self.assertEqual(len(parse_lines(csv_text([row]).splitlines(True))), 1)
+        row["histogram_r_w_s"] = row["histogram_r_w_s"][:48]
+        with self.assertRaisesRegex(DatasetError, "needs 66 buckets"):
+            parse_lines(csv_text([row]).splitlines(True))
+
     def test_metadata_does_not_enter_model_input(self):
         first = valid_row()
         second = copy.deepcopy(first)
@@ -95,6 +112,16 @@ class SchemaTests(unittest.TestCase):
         second["transport"] = 23
         with self.assertRaisesRegex(DatasetError, "mixed transport"):
             parse_lines(csv_text([first, second]).splitlines(True))
+
+    def test_mixed_build_types_are_rejected(self):
+        first, second = valid_row(1), valid_row(2)
+        second["build_type"] = "Release"
+        with self.assertRaisesRegex(DatasetError, "mixed build_type"):
+            parse_lines(csv_text([first, second]).splitlines(True))
+        first_dataset = Dataset(Path("debug.csv"), [first], {"session_id": "a"})
+        second_dataset = Dataset(Path("release.csv"), [second], {"session_id": "b"})
+        with self.assertRaisesRegex(DatasetError, "mixed build_type"):
+            assert_same_profile([first_dataset, second_dataset])
 
 
 class CollectorTests(unittest.TestCase):

@@ -43,6 +43,10 @@ class Dataset:
         value = self.manifest.get("card_id", "unspecified")
         return str(value)
 
+    @property
+    def build_type(self) -> str:
+        return str(self.rows[0]["build_type"])
+
 
 def manifest_path(dataset_path: Path) -> Path:
     return dataset_path.with_suffix(dataset_path.suffix + ".manifest.json")
@@ -99,10 +103,13 @@ def assert_same_profile(datasets: list[Dataset]) -> tuple[int, int]:
         raise DatasetError("no datasets supplied")
     targets = {dataset.target for dataset in datasets}
     transports = {dataset.transport for dataset in datasets}
+    build_types = {dataset.build_type for dataset in datasets}
     if len(targets) != 1:
         raise DatasetError("mixed target datasets")
     if len(transports) != 1:
         raise DatasetError("mixed transport datasets")
+    if len(build_types) != 1:
+        raise DatasetError("mixed build_type datasets")
     sessions = [dataset.session_id for dataset in datasets]
     if len(sessions) != len(set(sessions)):
         raise DatasetError("duplicate session_id; session leakage is ambiguous")

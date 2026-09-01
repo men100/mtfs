@@ -12,6 +12,11 @@ MAGIC = "mtfs-sentinel-dataset-v1"
 UINT64_MAX = (1 << 64) - 1
 REQUIRED_VALIDITY = 0xFF
 REJECTED_FLAGS = 0x1F
+RAW_HISTOGRAM_BUCKETS_PER_OPERATION = 22
+RAW_HISTOGRAM_OPERATION_COUNT = 3
+RAW_HISTOGRAM_BUCKETS = (RAW_HISTOGRAM_BUCKETS_PER_OPERATION *
+                         RAW_HISTOGRAM_OPERATION_COUNT)
+HISTOGRAM_FEATURE_GROUPS = ((0, 4), (4, 8), (8, 12), (12, 15), (15, 22))
 
 HEADER = [
     MAGIC, "feature_schema_version", "size", "target", "transport",
@@ -87,8 +92,10 @@ def parse_row(fields: list[str], line_number: int) -> dict:
             row[name] = value
         elif name == "histogram_r_w_s":
             parts = value.split(":")
-            if len(parts) != 48:
-                raise DatasetError(f"line {line_number}: histogram needs 48 buckets")
+            if len(parts) != RAW_HISTOGRAM_BUCKETS:
+                raise DatasetError(
+                    f"line {line_number}: histogram needs "
+                    f"{RAW_HISTOGRAM_BUCKETS} buckets")
             row[name] = [_uint(part, name) for part in parts]
         else:
             row[name] = _uint(value, name)
@@ -143,10 +150,13 @@ def validate_sequence(rows: list[dict]) -> None:
 def validate_identity(rows: list[dict]) -> None:
     targets = {int(row["target"]) for row in rows}
     transports = {int(row["transport"]) for row in rows}
+    build_types = {str(row["build_type"]) for row in rows}
     if len(targets) != 1:
         raise DatasetError("mixed target dataset")
     if len(transports) != 1:
         raise DatasetError("mixed transport dataset")
+    if len(build_types) != 1:
+        raise DatasetError("mixed build_type dataset")
 
 
 def _permille(numerator: int, denominator: int) -> int:
@@ -185,16 +195,18 @@ def encode_row(row: dict) -> list[int]:
     histogram = row["histogram_r_w_s"]
     vector: list[int] = []
     timings: list[int] = []
-    groups = ((0, 4), (4, 8), (8, 12), (12, 15), (15, 16))
     for op_index, op in enumerate(("read", "write", "sync")):
         timing = int(row[f"{op}_timing"])
         invalid = int(row[f"{op}_invalid"])
-        buckets = [int(v) for v in histogram[op_index * 16:(op_index + 1) * 16]]
+        start = op_index * RAW_HISTOGRAM_BUCKETS_PER_OPERATION
+        end = start + RAW_HISTOGRAM_BUCKETS_PER_OPERATION
+        buckets = [int(v) for v in histogram[start:end]]
         if timing < 1 or sum(buckets) != timing:
             raise DatasetError(f"{op}: insufficient or inconsistent histogram")
         avg = min(1_000_000, int(row[f"{op}_avg_us"]))
         vector.extend([avg, _permille(invalid, timing + invalid)])
-        vector.extend(_permille(sum(buckets[start:end]), timing) for start, end in groups)
+        vector.extend(_permille(sum(buckets[first:last]), timing)
+                      for first, last in HISTOGRAM_FEATURE_GROUPS)
         timings.append(timing)
     total_timing = sum(timings)
     vector.extend(_permille(value, total_timing) for value in timings)

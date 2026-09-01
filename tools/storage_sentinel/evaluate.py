@@ -52,6 +52,8 @@ def evaluate_datasets(datasets: list[Dataset], model: DenseAutoencoder,
     target, transport = assert_same_profile(datasets)
     if target != int(normalization["target_id"]) or transport != int(normalization["transport_id"]):
         raise DatasetError("artifact transport profile mismatch (fail-closed)")
+    if datasets[0].build_type != str(normalization.get("build_type", "")):
+        raise DatasetError("artifact build_type profile mismatch (fail-closed)")
     mean = np.asarray(normalization["mean"], dtype=np.float64)
     std = np.asarray(normalization["std"], dtype=np.float64)
     if mean.shape != (24,) or std.shape != (24,) or np.any(std <= 0.0):
@@ -143,6 +145,7 @@ def evaluate_datasets(datasets: list[Dataset], model: DenseAutoencoder,
         "tool_version": TOOL_VERSION,
         "target_id": target,
         "transport_id": transport,
+        "build_type": datasets[0].build_type,
         "methods": methods,
         "baseline_comparison_conclusion": comparison,
         "stage_score_distributions": stages,
