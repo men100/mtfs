@@ -215,9 +215,6 @@ static int lab_command(void *context, const char *line)
     if (strcmp(line, "help") == 0) {
 #if MTFS_ENABLE_STORAGE_SENTINEL
         lab_console_write(NULL,
-            "LAB ONLY\r\n"
-            "ARTIFICIALLY INJECTED CONDITION\r\n"
-            "NOT A PHYSICAL MEDIA FAILURE\r\n"
             "help\r\n"
             "record [samples]\r\n"
             "pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
@@ -240,8 +237,6 @@ static int lab_command(void *context, const char *line)
     }
     if (parse_command(line, "pseudo-collect-delay-ramp", 100U, 1U,
             &samples, &seed) && samples != 0U && seed != 0U) {
-        tm_printf((UB *)"# LAB ONLY - ARTIFICIALLY INJECTED CONDITION\n");
-        tm_printf((UB *)"# NOT A PHYSICAL MEDIA FAILURE\n");
         tm_printf((UB *)"# delay-ramp samples_per_stage=%u seed=%u\n",
             samples, seed);
         tm_printf((UB *)"# delay_ramp_exit=%d\n",
@@ -251,8 +246,6 @@ static int lab_command(void *context, const char *line)
     }
     if (parse_command(line, "pseudo-collect-hard-fault", 100U, 1U,
             &samples, &seed) && samples != 0U && seed != 0U) {
-        tm_printf((UB *)"# LAB ONLY - ARTIFICIALLY INJECTED CONDITION\n");
-        tm_printf((UB *)"# NOT A PHYSICAL MEDIA FAILURE\n");
         tm_printf((UB *)"# hard-fault samples=%u seed=%u\n",
             samples, seed);
         tm_printf((UB *)"# hard_fault_exit=%d\n",
@@ -272,9 +265,6 @@ static void lab_task(INT start_code, void *context)
     mtfs_sentinel_lab_console_init(&console, lab_console_write, NULL,
         lab_command, NULL);
     tm_printf((UB *)"\nmicroT-FS Storage Sentinel Lab\n");
-    tm_printf((UB *)"LAB ONLY\n");
-    tm_printf((UB *)"ARTIFICIALLY INJECTED CONDITION\n");
-    tm_printf((UB *)"NOT A PHYSICAL MEDIA FAILURE\n");
     tm_printf((UB *)"# target: STM32N6570-DK\n");
     tm_printf((UB *)"# transport: %s\n", (UB *)LAB_TRANSPORT_NAME);
 #if MTFS_ENABLE_STORAGE_SENTINEL
