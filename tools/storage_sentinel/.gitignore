@@ -1,0 +1,6 @@
+artifacts/
+datasets/
+.venv/
+__pycache__/
+*.pyc
+

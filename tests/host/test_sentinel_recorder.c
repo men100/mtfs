@@ -6,6 +6,14 @@
 
 static char opened_path[32];
 static char removed_path[32];
+static FRESULT open_result = FR_OK;
+static uint32_t cleanup_calls;
+
+static void cleanup(void *context)
+{
+    (void)context;
+    ++cleanup_calls;
+}
 
 static size_t count_character(const char *text, char character)
 {
@@ -22,7 +30,7 @@ FRESULT f_open(FIL *file, const TCHAR *path, BYTE mode)
     if (mode != (FA_CREATE_NEW | FA_READ | FA_WRITE)) return FR_INVALID_PARAMETER;
     (void)strncpy(opened_path, path, sizeof(opened_path) - 1U);
     opened_path[sizeof(opened_path) - 1U] = '\0';
-    return FR_OK;
+    return open_result;
 }
 FRESULT f_close(FIL *file) { (void)file; return FR_OK; }
 FRESULT f_read(FIL *file, void *buffer, UINT requested, UINT *read_size)
@@ -131,6 +139,11 @@ int main(void)
         strcmp(removed_path, opened_path) != 0 ||
         workload[0] != UINT8_C(0x45) ||
         workload[sizeof(workload) - 1U] != UINT8_C(0x45))
+        return 1;
+    open_result = FR_NOT_READY;
+    if (mtfs_sentinel_recorder_workload_ex("0:", 1U, workload,
+            sizeof(workload), cleanup, NULL) != MTFS_ERROR_IO ||
+        cleanup_calls != 1U)
         return 1;
     return 0;
 }

@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <tk/tkernel.h>
@@ -13,29 +14,26 @@
 #include "mtfs_ra_sd_spi.h"
 #include "mtfs_sentinel.h"
 #include "mtfs_sentinel_lab_console.h"
+#include "mtfs_sentinel_lab_run.h"
 #include "mtfs_sentinel_recorder.h"
 
 #define LAB_TARGET_ID (UINT32_C(0x52413850))
 #define LAB_TRANSPORT_ID (UINT32_C(0x53504920))
-#define LAB_RECORD_INTERVAL_MS (1000U)
-#define LAB_CSV_LINE_BYTES (4096U)
-#ifndef MTFS_SENTINEL_RECORDER_LABEL
-#define MTFS_SENTINEL_RECORDER_LABEL "controlled"
+#define LAB_RA_LIGHT_DELAY_US (1000U)
+#define LAB_RA_MEDIUM_DELAY_US (4000U)
+#define LAB_RA_STRONG_DELAY_US (12000U)
+#ifdef NDEBUG
+#define LAB_BUILD_TYPE "Release"
+#else
+#define LAB_BUILD_TYPE "Debug"
 #endif
 
 static mtfs_ra_sd_spi_context_t sd_context;
 static mtfs_media_context_t media_context;
 static mtfs_media_service_context_t media_service;
 #if MTFS_ENABLE_STORAGE_SENTINEL
-static mtfs_sentinel_observer_t observer;
-static mtfs_sentinel_context_t sentinel;
-static mtfs_sentinel_feature_v1_t frame;
-#endif
-static FATFS filesystem;
-static uint8_t workload_buffer[4096];
-#if MTFS_ENABLE_STORAGE_SENTINEL
-static char csv_line[LAB_CSV_LINE_BYTES];
 static ID observer_mutex_id;
+static mtfs_sentinel_lab_runtime_t lab_runtime;
 #endif
 
 static void lab_console_write(void *context, const char *text);
@@ -59,21 +57,6 @@ static int sentinel_runtime_self_test(void)
     operation.latency_histogram[10] = 0U;
     operation.latency_histogram[9] = UINT64_C(1);
     return !mtfs_sentinel_operation_timing_is_consistent(&operation);
-}
-
-static uint32_t sentinel_frame_timing_mask(
-    const mtfs_sentinel_feature_v1_t *feature)
-{
-    uint32_t operation;
-    uint32_t mask = 0U;
-    for (operation = 0U; operation < MTFS_SENTINEL_OPERATION_COUNT;
-         ++operation) {
-        if (mtfs_sentinel_operation_timing_is_consistent(
-                &feature->operation[operation])) {
-            mask |= UINT32_C(1) << operation;
-        }
-    }
-    return mask;
 }
 
 static mtfs_error_t observer_lock(void *opaque)
@@ -116,9 +99,11 @@ static mtfs_error_t transport_sample(void *opaque,
     return MTFS_OK;
 }
 
-static void collect_metadata(mtfs_sentinel_sample_metadata_t *metadata)
+static void collect_metadata(void *opaque,
+    mtfs_sentinel_sample_metadata_t *metadata)
 {
     mtfs_media_diagnostics_t diagnostics;
+    (void)opaque;
     if (mtfs_media_diagnostics_get(&media_context, &diagnostics) == MTFS_OK) {
         metadata->media_generation = diagnostics.media_generation;
         metadata->media_reset_epoch = diagnostics.reset_epoch;
@@ -129,119 +114,97 @@ static void collect_metadata(mtfs_sentinel_sample_metadata_t *metadata)
 }
 #endif
 
-static void print_workload_performance(uint32_t marker, uint64_t start_us,
-    uint64_t end_us)
-{
-    uint64_t elapsed_us;
-    if (end_us < start_us || end_us - start_us > UINT32_MAX) {
-        tm_printf((UB *)
-            "# workload-perf marker=%u elapsed_us=invalid sentinel=%u\n",
-            marker, (uint32_t)MTFS_ENABLE_STORAGE_SENTINEL);
-        return;
-    }
-    elapsed_us = end_us - start_us;
-    tm_printf((UB *)
-        "# workload-perf marker=%u elapsed_us=%u sentinel=%u\n",
-        marker, (uint32_t)elapsed_us,
-        (uint32_t)MTFS_ENABLE_STORAGE_SENTINEL);
-}
-
-static int run_record(void)
+#if MTFS_ENABLE_STORAGE_SENTINEL
+static mtfs_error_t platform_prepare(void *opaque,
+    mtfs_block_device_t **device)
 {
     mtfs_ra_sd_spi_config_t sd_config;
-#if MTFS_ENABLE_STORAGE_SENTINEL
     T_CMTX mutex = {.mtxatr = TA_INHERIT};
-    mtfs_sentinel_observer_config_t observer_config;
-    mtfs_sentinel_config_t sentinel_config;
-    mtfs_sentinel_sample_metadata_t metadata = {0};
-    mtfs_error_t sample_error;
-    uint32_t timing_mask;
+    (void)opaque;
+    observer_mutex_id = tk_cre_mtx(&mutex);
+    if (observer_mutex_id <= 0) return MTFS_ERROR_NOT_READY;
+    mtfs_ra8p1_sd_spi_config(&sd_config);
+    if (mtfs_ra_sd_spi_context_init(&sd_context, &sd_config) != MTFS_OK) {
+        (void)tk_del_mtx(observer_mutex_id);
+        observer_mutex_id = 0;
+        return MTFS_ERROR_IO;
+    }
+    if (mtfs_ra8p1_card_detect_start(&media_context, &media_service,
+            &sd_context, NULL, NULL) != MTFS_OK) {
+        (void)mtfs_ra_sd_spi_context_deinit(&sd_context);
+        (void)tk_del_mtx(observer_mutex_id);
+        observer_mutex_id = 0;
+        return MTFS_ERROR_IO;
+    }
+    *device = mtfs_ra_sd_spi_block_device(&sd_context);
+    return MTFS_OK;
+}
+
+static void platform_finish(void *opaque)
+{
+    (void)opaque;
+    (void)mtfs_ra8p1_card_detect_stop();
+    (void)mtfs_ra_sd_spi_context_deinit(&sd_context);
+    if (observer_mutex_id > 0) (void)tk_del_mtx(observer_mutex_id);
+    observer_mutex_id = 0;
+}
+
+static void platform_sleep(void *opaque, uint32_t delay_ms)
+{
+    (void)opaque;
+    (void)tk_dly_tsk(delay_ms);
+}
+
+static void platform_write(void *opaque, const char *text)
+{
+    (void)opaque;
+    lab_console_write(NULL, text);
+}
+
+static int run_collection(mtfs_sentinel_lab_mode_t mode, uint32_t samples,
+    uint32_t seed)
+{
+    mtfs_sentinel_lab_run_config_t config;
+    (void)memset(&config, 0, sizeof(config));
+    config.prepare = platform_prepare;
+    config.finish = platform_finish;
+    config.clock_us = mtfs_ra8p1_benchmark_clock_us;
+    config.sentinel_clock = mtfs_ra8p1_sentinel_clock_us;
+    config.sleep = platform_sleep;
+    config.write = platform_write;
+    config.collect_metadata = collect_metadata;
+    config.observer_lock = observer_lock;
+    config.observer_unlock = observer_unlock;
+    config.observer_lock_context = &observer_mutex_id;
+    config.transport_sample = transport_sample;
+    config.transport_context = &sd_context;
+    config.build_type = LAB_BUILD_TYPE;
+    config.target_id = LAB_TARGET_ID;
+    config.transport_id = LAB_TRANSPORT_ID;
+    config.light_delay_us = LAB_RA_LIGHT_DELAY_US;
+    config.medium_delay_us = LAB_RA_MEDIUM_DELAY_US;
+    config.strong_delay_us = LAB_RA_STRONG_DELAY_US;
+    return mtfs_sentinel_lab_run(&lab_runtime, &config, mode, samples, seed);
+}
 #endif
-    mtfs_block_device_t *device;
-    mtfs_error_t workload_error;
-    uint64_t workload_start_us;
-    uint64_t workload_end_us;
-    uint32_t marker = 1U;
 
 #if MTFS_ENABLE_STORAGE_SENTINEL
-    observer_mutex_id = tk_cre_mtx(&mutex);
-    if (observer_mutex_id <= 0) {
-        return 1;
-    }
-#endif
-    mtfs_ra8p1_sd_spi_config(&sd_config);
-    if (mtfs_ra_sd_spi_context_init(&sd_context, &sd_config) != MTFS_OK ||
-        mtfs_ra8p1_card_detect_start(&media_context, &media_service,
-            &sd_context, NULL, NULL) != MTFS_OK) {
-        return 1;
-    }
-    device = mtfs_ra_sd_spi_block_device(&sd_context);
-#if MTFS_ENABLE_STORAGE_SENTINEL
-    observer_config.downstream = device;
-    observer_config.clock = mtfs_ra8p1_sentinel_clock_us;
-    observer_config.clock_context = NULL;
-    observer_config.lock = observer_lock;
-    observer_config.unlock = observer_unlock;
-    observer_config.lock_context = &observer_mutex_id;
-    if (mtfs_sentinel_observer_init(&observer, &observer_config) != MTFS_OK) {
-        return 1;
-    }
-    device = mtfs_sentinel_observer_block_device(&observer);
-#endif
-    if (mtfs_block_initialize(device) != MTFS_OK ||
-        mtfs_block_registry_register(0U, device) != MTFS_OK ||
-        f_mount(&filesystem, "0:", 1U) != FR_OK) {
-        return 1;
-    }
-#if MTFS_ENABLE_STORAGE_SENTINEL
-    sentinel_config.observer = &observer;
-    sentinel_config.clock = mtfs_ra8p1_sentinel_clock_us;
-    sentinel_config.clock_context = NULL;
-    sentinel_config.target_id = LAB_TARGET_ID;
-    sentinel_config.transport_id = LAB_TRANSPORT_ID;
-    sentinel_config.transport_sample = transport_sample;
-    sentinel_config.transport_context = &sd_context;
-    if (mtfs_sentinel_init(&sentinel, &sentinel_config) != MTFS_OK) {
-        return 1;
-    }
-    collect_metadata(&metadata);
-    (void)mtfs_sentinel_sample(&sentinel, &metadata, &frame);
-    tm_printf((UB *)"%s\n", (UB *)mtfs_sentinel_recorder_csv_header());
-#else
-    tm_printf((UB *)"# sentinel: disabled performance baseline\n");
-#endif
-    for (;;) {
-        workload_start_us = mtfs_ra8p1_benchmark_clock_us(NULL);
-        workload_error = mtfs_sentinel_recorder_workload("0:", marker,
-            workload_buffer, sizeof(workload_buffer));
-        workload_end_us = mtfs_ra8p1_benchmark_clock_us(NULL);
-        print_workload_performance(marker, workload_start_us,
-            workload_end_us);
-        (void)tk_dly_tsk(LAB_RECORD_INTERVAL_MS);
-#if MTFS_ENABLE_STORAGE_SENTINEL
-        collect_metadata(&metadata);
-        sample_error = mtfs_sentinel_sample(&sentinel, &metadata, &frame);
-        if (sample_error == MTFS_OK) {
-            timing_mask = sentinel_frame_timing_mask(&frame);
-            if (timing_mask != UINT32_C(0x07)) {
-                tm_printf((UB *)
-                    "# post-sample timing invariant marker=%u mask=%u flags=%u\n",
-                    marker, timing_mask, frame.flags);
-            }
-            if (mtfs_sentinel_recorder_format_csv(csv_line, sizeof(csv_line),
-                    &frame, MTFS_SENTINEL_RECORDER_LABEL, marker) == MTFS_OK) {
-                tm_printf((UB *)"%s\n", (UB *)csv_line);
-            }
-        }
-#endif
-        if (workload_error != MTFS_OK) {
-            tm_printf((UB *)"# workload_error marker=%u mtfs=%d\n",
-                marker, workload_error);
-        }
-        ++marker;
-    }
-    return 0;
+static int parse_command(const char *line, const char *expected,
+    uint32_t default_first, uint32_t default_second, uint32_t *first,
+    uint32_t *second)
+{
+    char command[40];
+    char extra;
+    unsigned int parsed_first = 0U, parsed_second = 0U;
+    int fields = sscanf(line, "%39s %u %u %c", command, &parsed_first,
+        &parsed_second, &extra);
+    if (fields < 1 || fields > 3 || strcmp(command, expected) != 0)
+        return 0;
+    *first = fields >= 2 ? (uint32_t)parsed_first : default_first;
+    *second = fields >= 3 ? (uint32_t)parsed_second : default_second;
+    return 1;
 }
+#endif
 
 static void lab_console_write(void *context, const char *text)
 {
@@ -260,12 +223,20 @@ static void lab_console_write(void *context, const char *text)
 
 static int lab_command(void *context, const char *line)
 {
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    uint32_t samples, seed;
+#endif
     (void)context;
     if (strcmp(line, "help") == 0) {
 #if MTFS_ENABLE_STORAGE_SENTINEL
         lab_console_write(NULL,
-            "help    show this help\r\n"
-            "record  collect CSV continuously until board reset\r\n");
+            "LAB ONLY\r\n"
+            "ARTIFICIALLY INJECTED CONDITION\r\n"
+            "NOT A PHYSICAL MEDIA FAILURE\r\n"
+            "help\r\n"
+            "record [samples]\r\n"
+            "pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
+            "pseudo-collect-hard-fault [samples] [seed]\r\n");
 #else
         lab_console_write(NULL,
             "help    show this help\r\n"
@@ -273,11 +244,38 @@ static int lab_command(void *context, const char *line)
 #endif
         return 1;
     }
-    if (strcmp(line, "record") == 0) {
-        tm_printf((UB *)"# record: continuous until board reset\n");
-        tm_printf((UB *)"# record_exit=%d\n", run_record());
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (parse_command(line, "record", 0U, 0U, &samples, &seed) &&
+        seed == 0U) {
+        tm_printf((UB *)"# record samples=%u scenario_origin=natural\n",
+            samples);
+        tm_printf((UB *)"# record_exit=%d\n",
+            run_collection(MTFS_SENTINEL_LAB_MODE_RECORD, samples, 0U));
         return 1;
     }
+    if (parse_command(line, "pseudo-collect-delay-ramp", 100U, 1U,
+            &samples, &seed) && samples != 0U && seed != 0U) {
+        tm_printf((UB *)"# LAB ONLY - ARTIFICIALLY INJECTED CONDITION\n");
+        tm_printf((UB *)"# NOT A PHYSICAL MEDIA FAILURE\n");
+        tm_printf((UB *)"# delay-ramp samples_per_stage=%u seed=%u\n",
+            samples, seed);
+        tm_printf((UB *)"# delay_ramp_exit=%d\n",
+            run_collection(MTFS_SENTINEL_LAB_MODE_DELAY_RAMP, samples,
+                seed));
+        return 1;
+    }
+    if (parse_command(line, "pseudo-collect-hard-fault", 100U, 1U,
+            &samples, &seed) && samples != 0U && seed != 0U) {
+        tm_printf((UB *)"# LAB ONLY - ARTIFICIALLY INJECTED CONDITION\n");
+        tm_printf((UB *)"# NOT A PHYSICAL MEDIA FAILURE\n");
+        tm_printf((UB *)"# hard-fault samples=%u seed=%u\n",
+            samples, seed);
+        tm_printf((UB *)"# hard_fault_exit=%d\n",
+            run_collection(MTFS_SENTINEL_LAB_MODE_HARD_FAULT, samples,
+                seed));
+        return 1;
+    }
+#endif
     return 0;
 }
 
@@ -289,6 +287,9 @@ static void lab_task(INT start_code, void *context)
     mtfs_sentinel_lab_console_init(&console, lab_console_write, NULL,
         lab_command, NULL);
     tm_printf((UB *)"\nmicroT-FS Storage Sentinel Lab\n");
+    tm_printf((UB *)"LAB ONLY\n");
+    tm_printf((UB *)"ARTIFICIALLY INJECTED CONDITION\n");
+    tm_printf((UB *)"NOT A PHYSICAL MEDIA FAILURE\n");
     tm_printf((UB *)"# target: EK-RA8P1\n");
     tm_printf((UB *)"# transport: SPI\n");
 #if MTFS_ENABLE_STORAGE_SENTINEL
@@ -299,7 +300,7 @@ static void lab_task(INT start_code, void *context)
 #else
     tm_printf((UB *)"# sentinel: disabled performance baseline\n");
 #endif
-    tm_printf((UB *)"# sample interval: %u ms\n", LAB_RECORD_INTERVAL_MS);
+    tm_printf((UB *)"# sample interval: 1000 ms\n");
     tm_printf((UB *)"# record writes and removes temporary files continuously\n");
     tm_printf((UB *)"# insert a FAT-formatted SD card before recording\n");
     lab_console_write(NULL, "Type help for commands.\r\n> ");

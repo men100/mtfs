@@ -14,7 +14,7 @@ typedef struct mtfs_sentinel_lab_console
     void *write_context;
     mtfs_sentinel_lab_console_command_fn command;
     void *command_context;
-    char line[32];
+    char line[80];
     size_t length;
     int ignore_next_lf;
 } mtfs_sentinel_lab_console_t;

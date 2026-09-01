@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtfs-storage-sentinel"
+version = "1.0.0"
+description = "microT-FS Storage Sentinel dataset, training, and evaluation tools"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+serial = ["pyserial>=3.5"]
+
+[project.scripts]
+mtfs-sentinel-collect = "collect:main"
+mtfs-sentinel-train = "train:main"
+mtfs-sentinel-evaluate = "evaluate:main"
+
+[tool.setuptools]
+py-modules = ["collect", "dataset", "evaluate", "model", "schema", "train", "version"]
+
+[tool.setuptools.data-files]
+"share/mtfs-storage-sentinel" = ["feature_schema_v1.json"]

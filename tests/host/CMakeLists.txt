@@ -285,3 +285,48 @@ target_compile_options(mtfs_sentinel_recorder_test PRIVATE
 )
 add_test(NAME mtfs_sentinel_recorder
     COMMAND mtfs_sentinel_recorder_test)
+
+add_executable(mtfs_sentinel_lab_injector_test
+    test_sentinel_lab_injector.c
+    ../../apps/sentinel-lab/application/mtfs_sentinel_lab_injector.c
+    ../../src/block/mtfs_block_device.c
+    ../../src/block/mtfs_block_diagnostics.c
+)
+target_include_directories(mtfs_sentinel_lab_injector_test PRIVATE
+    ../../apps/sentinel-lab/application
+    ../../src
+    ../../src/block
+)
+target_compile_definitions(mtfs_sentinel_lab_injector_test PRIVATE
+    MTFS_ENABLE_DIAGNOSTICS=0
+)
+set_target_properties(mtfs_sentinel_lab_injector_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES
+)
+target_compile_options(mtfs_sentinel_lab_injector_test PRIVATE
+    -Wall -Wextra -Wpedantic
+)
+add_test(NAME mtfs_sentinel_lab_injector
+    COMMAND mtfs_sentinel_lab_injector_test)
+
+add_library(mtfs_sentinel_lab_run_compile OBJECT
+    ../../apps/sentinel-lab/application/mtfs_sentinel_lab_run.c
+)
+target_include_directories(mtfs_sentinel_lab_run_compile PRIVATE
+    ../../apps/sentinel-lab/application
+    ../../src
+    ../../src/block
+    ../../src/core
+    ../../src/fatfs
+    ../../src/sentinel
+)
+target_compile_definitions(mtfs_sentinel_lab_run_compile PRIVATE
+    MTFS_ENABLE_DIAGNOSTICS=1
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+)
+set_target_properties(mtfs_sentinel_lab_run_compile PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES
+)
+target_compile_options(mtfs_sentinel_lab_run_compile PRIVATE
+    -Wall -Wextra -Wpedantic
+)

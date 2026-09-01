@@ -43,6 +43,16 @@ static void csv_append_text(mtfs_sentinel_csv_writer_t *writer,
         csv_append_char(writer, *text++);
 }
 
+static int csv_token_is_valid(const char *text)
+{
+    if (text == NULL || *text == '\0') return 0;
+    while (*text != '\0') {
+        if (*text == ',' || *text == '\r' || *text == '\n') return 0;
+        ++text;
+    }
+    return 1;
+}
+
 static void csv_append_u64(mtfs_sentinel_csv_writer_t *writer,
     uint64_t value)
 {
@@ -94,8 +104,11 @@ static void csv_append_u32_field(mtfs_sentinel_csv_writer_t *writer,
 
 const char *mtfs_sentinel_recorder_csv_header(void)
 {
-    return "mtfs-sentinel-csv-v1,version,size,target,transport,timestamp_us,"
+    return "mtfs-sentinel-dataset-v1,feature_schema_version,size,target,transport,timestamp_us,"
         "interval_us,media_generation,validity,flags,samples,label,marker,"
+        "build_type,command,scenario_origin,stage,severity,injection_kind,"
+        "injection_operation_mask,injection_rate_permille,requested_delay_us,"
+        "actual_injection_count,random_seed,sequence,"
         "read_calls,read_sectors,read_ok,read_fail,read_timing,read_invalid,read_total_us,read_avg_us,"
         "write_calls,write_sectors,write_ok,write_fail,write_timing,write_invalid,write_total_us,write_avg_us,"
         "sync_calls,sync_sectors,sync_ok,sync_fail,sync_timing,sync_invalid,sync_total_us,sync_avg_us,"
@@ -105,15 +118,24 @@ const char *mtfs_sentinel_recorder_csv_header(void)
         "clock_errors,histogram_r_w_s";
 }
 
-mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
-    const mtfs_sentinel_feature_v1_t *f, const char *label, uint32_t marker)
+mtfs_error_t mtfs_sentinel_recorder_format_dataset_csv(char *buffer,
+    size_t capacity, const mtfs_sentinel_feature_v1_t *f,
+    const mtfs_sentinel_dataset_metadata_t *metadata)
 {
     mtfs_sentinel_csv_writer_t writer;
     uint32_t op, bucket;
-    if (buffer == NULL || capacity == 0U || f == NULL || label == NULL ||
-        f->version != MTFS_SENTINEL_SCHEMA_VERSION) return MTFS_ERROR_INVALID_ARGUMENT;
+    if (buffer == NULL || capacity == 0U || f == NULL || metadata == NULL ||
+        !csv_token_is_valid(metadata->label) ||
+        !csv_token_is_valid(metadata->build_type) ||
+        !csv_token_is_valid(metadata->command) ||
+        !csv_token_is_valid(metadata->scenario_origin) ||
+        !csv_token_is_valid(metadata->stage) ||
+        !csv_token_is_valid(metadata->injection_kind) ||
+        f->version != MTFS_SENTINEL_SCHEMA_VERSION) {
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    }
     csv_writer_init(&writer, buffer, capacity);
-    csv_append_text(&writer, "mtfs-sentinel-csv-v1");
+    csv_append_text(&writer, "mtfs-sentinel-dataset-v1");
     csv_append_u32_field(&writer, f->version);
     csv_append_u32_field(&writer, f->struct_size);
     csv_append_u32_field(&writer, f->target_id);
@@ -125,8 +147,25 @@ mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
     csv_append_u32_field(&writer, f->flags);
     csv_append_u32_field(&writer, f->sample_count);
     csv_append_char(&writer, ',');
-    csv_append_text(&writer, label);
-    csv_append_u32_field(&writer, marker);
+    csv_append_text(&writer, metadata->label);
+    csv_append_u32_field(&writer, metadata->marker);
+    csv_append_char(&writer, ',');
+    csv_append_text(&writer, metadata->build_type);
+    csv_append_char(&writer, ',');
+    csv_append_text(&writer, metadata->command);
+    csv_append_char(&writer, ',');
+    csv_append_text(&writer, metadata->scenario_origin);
+    csv_append_char(&writer, ',');
+    csv_append_text(&writer, metadata->stage);
+    csv_append_u32_field(&writer, metadata->severity);
+    csv_append_char(&writer, ',');
+    csv_append_text(&writer, metadata->injection_kind);
+    csv_append_u32_field(&writer, metadata->injection_operation_mask);
+    csv_append_u32_field(&writer, metadata->injection_rate_permille);
+    csv_append_u32_field(&writer, metadata->requested_delay_us);
+    csv_append_u32_field(&writer, metadata->actual_injection_count);
+    csv_append_u32_field(&writer, metadata->random_seed);
+    csv_append_u32_field(&writer, metadata->sequence);
     for (op = 0U; op < MTFS_SENTINEL_OPERATION_COUNT; ++op) {
         const mtfs_sentinel_operation_feature_t *o = &f->operation[op];
         csv_append_u64_field(&writer, o->calls);
@@ -163,10 +202,42 @@ mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
     }
     return writer.overflow ? MTFS_ERROR_BUFFER_TOO_SMALL : MTFS_OK;
 }
+
+mtfs_error_t mtfs_sentinel_recorder_format_csv(char *buffer, size_t capacity,
+    const mtfs_sentinel_feature_v1_t *f, const char *label, uint32_t marker)
+{
+    mtfs_sentinel_dataset_metadata_t metadata;
+    if (!csv_token_is_valid(label)) return MTFS_ERROR_INVALID_ARGUMENT;
+    metadata.label = label;
+    metadata.marker = marker;
+    metadata.build_type = "unspecified";
+    metadata.command = "record";
+    metadata.scenario_origin = "natural";
+    metadata.stage = "natural";
+    metadata.severity = 0U;
+    metadata.injection_kind = "none";
+    metadata.injection_operation_mask = 0U;
+    metadata.injection_rate_permille = 0U;
+    metadata.requested_delay_us = 0U;
+    metadata.actual_injection_count = 0U;
+    metadata.random_seed = 0U;
+    metadata.sequence = marker;
+    return mtfs_sentinel_recorder_format_dataset_csv(buffer, capacity, f,
+        &metadata);
+}
 #endif
 
 mtfs_error_t mtfs_sentinel_recorder_workload(const char *volume,
     uint32_t marker, void *buffer, uint32_t size)
+{
+    return mtfs_sentinel_recorder_workload_ex(volume, marker, buffer, size,
+        NULL, NULL);
+}
+
+mtfs_error_t mtfs_sentinel_recorder_workload_ex(const char *volume,
+    uint32_t marker, void *buffer, uint32_t size,
+    mtfs_sentinel_recorder_cleanup_fn before_cleanup,
+    void *cleanup_context)
 {
     FIL file;
     char path[32];
@@ -175,15 +246,21 @@ mtfs_error_t mtfs_sentinel_recorder_workload(const char *volume,
     mtfs_error_t error = MTFS_ERROR_IO;
     if (volume == NULL || buffer == NULL || size == 0U) return MTFS_ERROR_INVALID_ARGUMENT;
     if (snprintf(path, sizeof(path), "%s/MTFS%04" PRIX32 ".TMP",
-            volume, marker & UINT32_C(0xffff)) >= (int)sizeof(path))
+            volume, marker & UINT32_C(0xffff)) >= (int)sizeof(path)) {
+        if (before_cleanup != NULL) before_cleanup(cleanup_context);
         return MTFS_ERROR_BUFFER_TOO_SMALL;
+    }
     (void)memset(buffer, (int)(marker & 0xffU), size);
     result = f_open(&file, path, FA_CREATE_NEW | FA_READ | FA_WRITE);
-    if (result != FR_OK) return result == FR_EXIST ? MTFS_ERROR_ALREADY_EXISTS : MTFS_ERROR_IO;
+    if (result != FR_OK) {
+        if (before_cleanup != NULL) before_cleanup(cleanup_context);
+        return result == FR_EXIST ? MTFS_ERROR_ALREADY_EXISTS : MTFS_ERROR_IO;
+    }
     if (f_write(&file, buffer, size, &transferred) == FR_OK && transferred == size &&
         f_sync(&file) == FR_OK && f_lseek(&file, 0U) == FR_OK &&
         f_read(&file, buffer, size, &transferred) == FR_OK && transferred == size)
         error = MTFS_OK;
+    if (before_cleanup != NULL) before_cleanup(cleanup_context);
     if (f_close(&file) != FR_OK) error = MTFS_ERROR_IO;
     if (f_unlink(path) != FR_OK) error = MTFS_ERROR_IO;
     return error;
