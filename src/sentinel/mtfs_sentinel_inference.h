@@ -121,7 +121,8 @@ typedef struct mtfs_sentinel_runtime_info
     uint16_t api_version;
     uint16_t struct_size;
     uint16_t runtime_type;
-    uint16_t reserved;
+    /* Zero-origin slot in persistent_offset[]/persistent_size[]. */
+    uint16_t runtime_index;
     uint32_t provider_id;
     uint32_t accelerator_id;
     uint32_t model_format;
@@ -152,9 +153,14 @@ typedef struct mtfs_sentinel_runtime_info
  * raw features, tensors, and inference result remain caller-owned elsewhere.
  * The bundle occupies [0, bundle_size). Persistent regions are retained for
  * every runtime, while scratch is shared because CPU/NPU comparison is
- * sequential. The allocation base must satisfy required_alignment. Integrity
- * of a plain bundle is not established until an outer sealed AEAD authenticates
- * it; embedded provenance remains opaque even after authentication.
+ * sequential. persistent_offset[runtime_index] and persistent_size[
+ * runtime_index] describe the region for that runtime. The allocation base
+ * must satisfy required_alignment and the allocation must contain at least
+ * required_ram bytes. The parser/planner validates additions and offsets;
+ * callers must bounds-check allocation_size against required_ram before forming
+ * allocation_base + persistent_offset[] or allocation_base + scratch_offset.
+ * Integrity of a plain bundle is not established until an outer sealed AEAD
+ * authenticates it; embedded provenance remains opaque after authentication.
  */
 typedef struct mtfs_sentinel_memory_plan
 {
@@ -170,6 +176,14 @@ typedef struct mtfs_sentinel_memory_plan
     uint32_t persistent_size[MTFS_SENTINEL_BUNDLE_MAX_RUNTIMES];
 } mtfs_sentinel_memory_plan_t;
 
+/*
+ * Lifetime contract: parsing does not copy the bundle. mtfs_sentinel_bundle_t,
+ * mtfs_sentinel_runtime_info_t::binary, and an initialized CPU context contain
+ * pointers into bytes. The backing buffer must remain alive and byte-for-byte
+ * unchanged until all of those views and contexts are no longer used.
+ * Runtime binary pointers are returned only after checked section-offset and
+ * binary-offset validation.
+ */
 mtfs_error_t mtfs_sentinel_bundle_parse(const void *bytes, size_t size,
     const mtfs_sentinel_bundle_policy_t *policy,
     mtfs_sentinel_bundle_t *bundle);
@@ -178,7 +192,10 @@ mtfs_error_t mtfs_sentinel_bundle_runtime_count(
 mtfs_error_t mtfs_sentinel_bundle_runtime_get(
     const mtfs_sentinel_bundle_t *bundle, uint32_t index,
     mtfs_sentinel_runtime_info_t *runtime);
-/* Provider and accelerator IDs are both mandatory; zero is never a wildcard. */
+/*
+ * Provider and accelerator IDs are both mandatory; zero is never a wildcard.
+ * Both get and find return the runtime's memory-plan slot in runtime_index.
+ */
 mtfs_error_t mtfs_sentinel_bundle_runtime_find(
     const mtfs_sentinel_bundle_t *bundle, uint32_t provider_id,
     uint32_t accelerator_id, mtfs_sentinel_runtime_info_t *runtime);

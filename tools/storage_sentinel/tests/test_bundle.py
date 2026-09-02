@@ -58,7 +58,8 @@ def fixture_bundle() -> bytes:
 
 def fixture_dual_bundle(alignment: int = 16, persistent: int = 64,
                         scratch: int = 128, second_npu: bool = False,
-                        include_cpu: bool = True) -> bytes:
+                        include_cpu: bool = True,
+                        npu_first: bool = False) -> bytes:
     parsed = parse_bundle(fixture_bundle())
     fixed = []
     for section in parsed.sections:
@@ -76,8 +77,14 @@ def fixture_dual_bundle(alignment: int = 16, persistent: int = 64,
     binary = b"synthetic-npu-v1"
     npu = _runtime_descriptor(2, 0x4E505250, 0x4E505531, 0x564E4431,
         1, alignment, persistent, scratch, binary, bytes(32), bytes(32)) + binary
-    fixed.append(Section(SECTION_NPU, SECTION_REQUIRED, alignment,
-                         0x4E505250, npu, "npu_runtime_4e505250"))
+    npu_section = Section(SECTION_NPU, SECTION_REQUIRED, alignment,
+                          0x4E505250, npu, "npu_runtime_4e505250")
+    if npu_first:
+        runtime_index = next(index for index, section in enumerate(fixed)
+                             if section.type == SECTION_CPU)
+        fixed.insert(runtime_index, npu_section)
+    else:
+        fixed.append(npu_section)
     if second_npu:
         fixed.append(Section(SECTION_NPU, SECTION_REQUIRED, alignment,
                              0x4E505251,
@@ -158,6 +165,29 @@ class BundleParserTests(unittest.TestCase):
             "scratch_offset": scratch_offset, "scratch_size": 128,
             "required_ram": cursor,
         })
+        reversed_raw = fixture_dual_bundle(npu_first=True)
+        reversed_bundle = parse_bundle(reversed_raw,
+                                       expected_accelerator=0x4E505531)
+        reversed_runtimes = [Section(
+            section.type, section.flags, section.alignment, section.provider,
+            section.payload, section.name) for section in reversed_bundle.sections
+            if section.type in {SECTION_CPU, SECTION_NPU}]
+        reversed_plan = _memory_plan(len(reversed_raw), reversed_runtimes)
+        self.assertEqual([section.provider for section in reversed_runtimes],
+                         [0x4E505250, PROVIDER_CPU_REFERENCE])
+        reversed_cursor = (len(reversed_raw) + 15) & ~15
+        npu_persistent = reversed_cursor
+        reversed_cursor += 64
+        cpu_persistent = reversed_cursor
+        reversed_cursor += 32
+        scratch_offset = reversed_cursor
+        reversed_cursor += 128
+        self.assertEqual(reversed_plan, {
+            "required_alignment": 16,
+            "persistent_offsets": [npu_persistent, cpu_persistent],
+            "scratch_offset": scratch_offset, "scratch_size": 128,
+            "required_ram": reversed_cursor,
+        })
         with self.assertRaisesRegex(BundleError, "outer/inner"):
             parse_bundle(raw, expected_accelerator=ACCELERATOR_CPU_REFERENCE)
         npu_only = parse_bundle(fixture_dual_bundle(include_cpu=False),
@@ -166,6 +196,13 @@ class BundleParserTests(unittest.TestCase):
                              for section in npu_only.sections), 1)
         self.assertFalse(any(section.type == SECTION_CPU
                              for section in npu_only.sections))
+        npu_only_runtimes = [Section(
+            section.type, section.flags, section.alignment, section.provider,
+            section.payload, section.name) for section in npu_only.sections
+            if section.type in {SECTION_CPU, SECTION_NPU}]
+        npu_only_plan = _memory_plan(len(npu_only.raw), npu_only_runtimes)
+        self.assertEqual(npu_only_runtimes[0].provider, 0x4E505250)
+        self.assertEqual(len(npu_only_plan["persistent_offsets"]), 1)
         larger = parse_bundle(fixture_dual_bundle(32, 100, 200))
         larger_runtimes = [Section(section.type, section.flags, section.alignment,
             section.provider, section.payload, section.name)

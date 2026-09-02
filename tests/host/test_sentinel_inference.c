@@ -92,29 +92,8 @@ static void make_bundle(uint8_t bundle[TEST_BUNDLE_SIZE])
     bundle[1760] = '{'; bundle[1761] = '}';
 }
 
-static void make_dual_bundle(uint8_t bundle[TEST_DUAL_BUNDLE_SIZE])
+static void make_npu_runtime(uint8_t *runtime)
 {
-    uint8_t cpu_bundle[TEST_BUNDLE_SIZE];
-    uint8_t *runtime;
-    make_bundle(cpu_bundle);
-    (void)memset(bundle, 0, TEST_DUAL_BUNDLE_SIZE);
-    (void)memcpy(bundle, "MTFSSB1", 7U);
-    put16(bundle + 8U, 1U); put16(bundle + 10U, 224U);
-    put32(bundle + 12U, TEST_DUAL_BUNDLE_SIZE); put16(bundle + 16U, 6U);
-    put16(bundle + 18U, 32U);
-    directory(bundle, 0U, 1U, 224U, 128U, 4U, 0U);
-    directory(bundle, 1U, 2U, 352U, 304U, 8U, 0U);
-    directory(bundle, 2U, 3U, 656U, 32U, 8U, 0U);
-    directory(bundle, 3U, 0x0100U, 688U, 1104U, 4U, 0x43505552U);
-    directory(bundle, 4U, 0x0101U, 1792U, 208U, 16U, 0x4e505250U);
-    directory(bundle, 5U, 4U, 2000U, 2U, 4U, 0U);
-    (void)memcpy(bundle + 224U, cpu_bundle + 192U, 128U);
-    (void)memcpy(bundle + 352U, cpu_bundle + 320U, 304U);
-    (void)memcpy(bundle + 656U, cpu_bundle + 624U, 32U);
-    (void)memcpy(bundle + 688U, cpu_bundle + 656U, 1104U);
-    (void)memcpy(bundle + 2000U, cpu_bundle + 1760U, 2U);
-    put32(bundle + 224U + 60U, 0x4e505531U);
-    runtime = bundle + 1792U;
     put16(runtime, 1U); put16(runtime + 2U, 2U);
     put32(runtime + 4U, 0x4e505250U); put32(runtime + 8U, 0x4e505531U);
     put32(runtime + 12U, 0x564e4431U); put32(runtime + 16U, 1U);
@@ -126,6 +105,44 @@ static void make_dual_bundle(uint8_t bundle[TEST_DUAL_BUNDLE_SIZE])
     put32(runtime + 56U, 128U); put32(runtime + 60U, 16U);
     put32(runtime + 160U, 192U);
     (void)memset(runtime + 192U, 0xa5, 16U);
+}
+
+static void make_dual_bundle_ordered(
+    uint8_t bundle[TEST_DUAL_BUNDLE_SIZE], int npu_first)
+{
+    uint8_t cpu_bundle[TEST_BUNDLE_SIZE];
+    uint32_t cpu_offset = npu_first ? 896U : 688U;
+    uint32_t npu_offset = npu_first ? 688U : 1792U;
+    make_bundle(cpu_bundle);
+    (void)memset(bundle, 0, TEST_DUAL_BUNDLE_SIZE);
+    (void)memcpy(bundle, "MTFSSB1", 7U);
+    put16(bundle + 8U, 1U); put16(bundle + 10U, 224U);
+    put32(bundle + 12U, TEST_DUAL_BUNDLE_SIZE); put16(bundle + 16U, 6U);
+    put16(bundle + 18U, 32U);
+    directory(bundle, 0U, 1U, 224U, 128U, 4U, 0U);
+    directory(bundle, 1U, 2U, 352U, 304U, 8U, 0U);
+    directory(bundle, 2U, 3U, 656U, 32U, 8U, 0U);
+    directory(bundle, 3U, npu_first ? 0x0101U : 0x0100U,
+        npu_first ? npu_offset : cpu_offset, npu_first ? 208U : 1104U,
+        npu_first ? 16U : 4U,
+        npu_first ? 0x4e505250U : 0x43505552U);
+    directory(bundle, 4U, npu_first ? 0x0100U : 0x0101U,
+        npu_first ? cpu_offset : npu_offset, npu_first ? 1104U : 208U,
+        npu_first ? 4U : 16U,
+        npu_first ? 0x43505552U : 0x4e505250U);
+    directory(bundle, 5U, 4U, 2000U, 2U, 4U, 0U);
+    (void)memcpy(bundle + 224U, cpu_bundle + 192U, 128U);
+    (void)memcpy(bundle + 352U, cpu_bundle + 320U, 304U);
+    (void)memcpy(bundle + 656U, cpu_bundle + 624U, 32U);
+    (void)memcpy(bundle + cpu_offset, cpu_bundle + 656U, 1104U);
+    (void)memcpy(bundle + 2000U, cpu_bundle + 1760U, 2U);
+    put32(bundle + 224U + 60U, 0x4e505531U);
+    make_npu_runtime(bundle + npu_offset);
+}
+
+static void make_dual_bundle(uint8_t bundle[TEST_DUAL_BUNDLE_SIZE])
+{
+    make_dual_bundle_ordered(bundle, 0);
 }
 
 static void make_feature(mtfs_sentinel_feature_v1_t *feature)
@@ -173,10 +190,13 @@ int test_sentinel_inference(mtfs_test_t *test)
     uint8_t bytes[TEST_BUNDLE_SIZE], damaged[TEST_BUNDLE_SIZE], work[48];
     uint8_t dual_storage[TEST_DUAL_BUNDLE_SIZE + 31U];
     uint8_t dual_damaged_storage[TEST_DUAL_BUNDLE_SIZE + 31U];
+    uint8_t reversed_storage[TEST_DUAL_BUNDLE_SIZE + 31U];
     uint8_t *dual = (uint8_t *)(((uintptr_t)dual_storage + 31U) &
         ~(uintptr_t)31U);
     uint8_t *dual_damaged = (uint8_t *)
         (((uintptr_t)dual_damaged_storage + 31U) & ~(uintptr_t)31U);
+    uint8_t *reversed = (uint8_t *)
+        (((uintptr_t)reversed_storage + 31U) & ~(uintptr_t)31U);
     mtfs_sentinel_bundle_policy_t policy = {1U, (uint16_t)sizeof(policy),
         0x52413850U, 0x53504920U, 0x43505520U, 0x534e5431U, 123U, 4096U};
     mtfs_sentinel_bundle_t bundle;
@@ -202,11 +222,13 @@ int test_sentinel_inference(mtfs_test_t *test)
             runtime_info.api_version == MTFS_SENTINEL_INFERENCE_API_VERSION &&
             runtime_info.struct_size == sizeof(runtime_info) &&
             runtime_info.runtime_type == MTFS_SENTINEL_RUNTIME_CPU_INT8 &&
+            runtime_info.runtime_index == 0U &&
             runtime_info.provider_id == MTFS_SENTINEL_PROVIDER_CPU_REFERENCE &&
             runtime_info.binary_size == MTFS_SENTINEL_CPU_MODEL_BINARY_SIZE &&
             mtfs_sentinel_bundle_runtime_find(&bundle,
                 MTFS_SENTINEL_PROVIDER_CPU_REFERENCE,
-                MTFS_SENTINEL_OUTER_ACCELERATOR_CPU, &runtime_info) == MTFS_OK,
+                MTFS_SENTINEL_OUTER_ACCELERATOR_CPU, &runtime_info) == MTFS_OK &&
+            runtime_info.runtime_index == 0U,
             "enumerate, inspect, and strictly find the CPU runtime")) return 1;
     if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_runtime_find(&bundle, 0U,
@@ -270,6 +292,7 @@ int test_sentinel_inference(mtfs_test_t *test)
             runtime_count == 2U &&
             mtfs_sentinel_bundle_runtime_get(&bundle, 1U, &runtime_info) == MTFS_OK &&
             runtime_info.runtime_type == MTFS_SENTINEL_RUNTIME_NPU &&
+            runtime_info.runtime_index == 1U &&
             runtime_info.provider_id == 0x4e505250U &&
             runtime_info.accelerator_id == 0x4e505531U &&
             runtime_info.model_format == 0x564e4431U &&
@@ -293,7 +316,8 @@ int test_sentinel_inference(mtfs_test_t *test)
             runtime_info.runtime_binary_hash[0] == 0U &&
             runtime_info.conversion_manifest_hash[0] == 0U &&
             mtfs_sentinel_bundle_runtime_find(&bundle, 0x4e505250U,
-                0x4e505531U, &runtime_info) == MTFS_OK,
+                0x4e505531U, &runtime_info) == MTFS_OK &&
+            runtime_info.runtime_index == 1U,
             "expose a target NPU runtime without target-side directory parsing")) return 1;
     if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK &&
@@ -304,6 +328,34 @@ int test_sentinel_inference(mtfs_test_t *test)
             memory_plan.scratch_size == 128U && memory_plan.required_ram == 2240U,
             "sum persistent memory and share maximum scratch for sequential comparison"))
         return 1;
+    make_dual_bundle_ordered(reversed, 1);
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_bundle_parse(reversed, TEST_DUAL_BUNDLE_SIZE,
+                &policy, &bundle) == MTFS_OK && bundle.runtime_count == 2U &&
+            bundle.accelerator_id == 0x4e505531U &&
+            mtfs_sentinel_bundle_runtime_get(&bundle, 0U, &runtime_info) == MTFS_OK &&
+            runtime_info.runtime_type == MTFS_SENTINEL_RUNTIME_NPU &&
+            runtime_info.runtime_index == 0U &&
+            runtime_info.binary == reversed + 880U &&
+            mtfs_sentinel_bundle_runtime_find(&bundle, 0x4e505250U,
+                0x4e505531U, &runtime_info) == MTFS_OK &&
+            runtime_info.runtime_index == 0U &&
+            mtfs_sentinel_bundle_runtime_get(&bundle, 1U, &runtime_info) == MTFS_OK &&
+            runtime_info.runtime_type == MTFS_SENTINEL_RUNTIME_CPU_INT8 &&
+            runtime_info.runtime_index == 1U &&
+            mtfs_sentinel_bundle_runtime_find(&bundle,
+                MTFS_SENTINEL_PROVIDER_CPU_REFERENCE,
+                MTFS_SENTINEL_OUTER_ACCELERATOR_CPU, &runtime_info) == MTFS_OK &&
+            runtime_info.runtime_index == 1U &&
+            mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK &&
+            memory_plan.persistent_offset[0] == 2016U &&
+            memory_plan.persistent_size[0] == 64U &&
+            memory_plan.persistent_offset[1] == 2080U &&
+            memory_plan.persistent_size[1] == 32U &&
+            memory_plan.scratch_offset == 2112U &&
+            memory_plan.scratch_size == 128U && memory_plan.required_ram == 2240U,
+            "bind reversed NPU/CPU identity to the corresponding memory slots"))
+        return 1;
     (void)memcpy(dual_damaged, dual, TEST_DUAL_BUNDLE_SIZE);
     put16(dual_damaged + 32U + 3U * 32U, 0x7777U);
     put16(dual_damaged + 32U + 3U * 32U + 2U, 0U);
@@ -311,11 +363,21 @@ int test_sentinel_inference(mtfs_test_t *test)
             mtfs_sentinel_bundle_parse(dual_damaged, TEST_DUAL_BUNDLE_SIZE,
                 &policy, &bundle) == MTFS_OK && bundle.runtime_count == 1U &&
             mtfs_sentinel_bundle_runtime_get(&bundle, 0U, &runtime_info) == MTFS_OK &&
-            runtime_info.runtime_type == MTFS_SENTINEL_RUNTIME_NPU,
+            runtime_info.runtime_type == MTFS_SENTINEL_RUNTIME_NPU &&
+            runtime_info.runtime_index == 0U &&
+            mtfs_sentinel_bundle_runtime_find(&bundle, 0x4e505250U,
+                0x4e505531U, &runtime_info) == MTFS_OK &&
+            runtime_info.runtime_index == 0U &&
+            mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK &&
+            memory_plan.persistent_offset[0] == 2016U &&
+            memory_plan.persistent_size[0] == 64U &&
+            memory_plan.scratch_offset == 2080U &&
+            memory_plan.scratch_size == 128U && memory_plan.required_ram == 2208U,
             "V1 parser and API support an NPU-only runtime")) return 1;
     if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_parse(dual, TEST_DUAL_BUNDLE_SIZE,
-                &policy, &bundle) == MTFS_OK,
+                &policy, &bundle) == MTFS_OK &&
+            mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK,
             "restore dual runtime fixture")) return 1;
 #if MTFS_ENABLE_SEALED_MODEL
     {

@@ -866,7 +866,7 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
     if dvalues[:8] != (1, 24, 4, 4, 8, 1, 1, 0) or dvalues[9] != 65025 or \
             dvalues[8] > dvalues[9]:
         raise BundleError("invalid decision contract")
-    runtime_accelerators = []
+    npu_accelerator = None
     runtime_canonical_hashes = []
     runtime_sections = []
     cpu_runtime_count = 0
@@ -896,7 +896,6 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
             raise BundleError("malformed runtime manifest")
         binary = section.payload[binary_offset:]
         runtime_sections.append(section)
-        runtime_accelerators.append(runtime_accel)
         runtime_canonical_hashes.append(section.payload[64:96])
         if hashlib.sha256(binary).digest() != section.payload[96:128]:
             raise BundleError("runtime binary hash mismatch")
@@ -911,13 +910,14 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
             npu_runtime_count += 1
             if runtime_type != 2:
                 raise BundleError("NPU runtime type mismatch")
+            npu_accelerator = runtime_accel
     if cpu_runtime_count > 1 or npu_runtime_count > 1 or \
             cpu_runtime_count + npu_runtime_count > MAX_RUNTIMES:
         raise BundleError("runtime count outside V1 contract")
     if len(set(runtime_canonical_hashes)) != 1:
         raise BundleError("runtime canonical model hash mismatch")
     expected_composition_accelerator = (
-        runtime_accelerators[-1] if npu_runtime_count else
+        npu_accelerator if npu_accelerator is not None else
         ACCELERATOR_CPU_REFERENCE)
     if accelerator != expected_composition_accelerator:
         raise BundleError("runtime composition does not match outer accelerator identity")

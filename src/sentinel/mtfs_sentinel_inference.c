@@ -358,6 +358,7 @@ typedef struct runtime_section_view
     uint32_t alignment;
     uint32_t provider;
     uint16_t section_type;
+    uint16_t runtime_index;
 } runtime_section_view_t;
 
 static mtfs_error_t runtime_section_at(const mtfs_sentinel_bundle_t *bundle,
@@ -399,6 +400,7 @@ static mtfs_error_t runtime_section_at(const mtfs_sentinel_bundle_t *bundle,
                 view->alignment = le32(entry + 12U);
                 view->provider = le32(entry + 16U);
                 view->section_type = type;
+                view->runtime_index = (uint16_t)runtime_index;
                 return MTFS_OK;
             }
             ++runtime_index;
@@ -420,6 +422,7 @@ static mtfs_error_t decode_runtime_info(const runtime_section_view_t *view,
     decoded.api_version = MTFS_SENTINEL_INFERENCE_API_VERSION;
     decoded.struct_size = (uint16_t)sizeof(decoded);
     decoded.runtime_type = le16(view->section + 2U);
+    decoded.runtime_index = view->runtime_index;
     decoded.provider_id = le32(view->section + 4U);
     decoded.accelerator_id = le32(view->section + 8U);
     decoded.model_format = le32(view->section + 12U);
@@ -526,19 +529,23 @@ mtfs_error_t mtfs_sentinel_bundle_memory_plan(
     calculated.bundle_size = bundle->size;
     cursor = bundle->size;
     for (i = 0U; i < count; ++i) {
+        uint32_t slot;
         status = mtfs_sentinel_bundle_runtime_get(bundle, i, &runtime);
         if (status != MTFS_OK) return status;
+        slot = runtime.runtime_index;
+        if (slot != i || slot >= MTFS_SENTINEL_BUNDLE_MAX_RUNTIMES)
+            return MTFS_ERROR_INVALID_STATE;
         if (runtime.required_alignment > calculated.required_alignment)
             calculated.required_alignment = runtime.required_alignment;
         if (runtime.scratch_memory > calculated.scratch_size)
             calculated.scratch_size = runtime.scratch_memory;
-        calculated.persistent_size[i] = runtime.persistent_memory;
+        calculated.persistent_size[slot] = runtime.persistent_memory;
         if (runtime.persistent_memory != 0U) {
             status = align_ram_cursor(cursor, runtime.required_alignment, &cursor);
             if (status != MTFS_OK ||
                 runtime.persistent_memory > MTFS_SENTINEL_MAX_REQUIRED_RAM - cursor)
                 return MTFS_ERROR_OVERFLOW;
-            calculated.persistent_offset[i] = cursor;
+            calculated.persistent_offset[slot] = cursor;
             cursor += runtime.persistent_memory;
         }
     }
