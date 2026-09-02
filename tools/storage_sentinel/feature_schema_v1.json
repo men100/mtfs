@@ -7,6 +7,7 @@
     "operations": 3,
     "buckets_per_operation": 22,
     "serialized_buckets": 66,
+    "feature_group_bounds": "inclusive",
     "feature_groups": [[0,3],[4,7],[8,11],[12,14],[15,21]]
   },
   "missing_policy": "reject_frame",

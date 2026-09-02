@@ -8,6 +8,8 @@ from pathlib import Path
 
 from schema import HEADER, DatasetError, encode_row, parse_lines
 
+UNSPECIFIED_CARD_ID = "unspecified"
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -40,7 +42,7 @@ class Dataset:
 
     @property
     def card_id(self) -> str:
-        value = self.manifest.get("card_id", "unspecified")
+        value = self.manifest.get("card_id", UNSPECIFIED_CARD_ID)
         return str(value)
 
     @property
@@ -114,3 +116,22 @@ def assert_same_profile(datasets: list[Dataset]) -> tuple[int, int]:
     if len(sessions) != len(set(sessions)):
         raise DatasetError("duplicate session_id; session leakage is ambiguous")
     return next(iter(targets)), next(iter(transports))
+
+
+def card_identity(datasets: list[Dataset]) -> dict:
+    card_ids = {dataset.card_id for dataset in datasets}
+    has_unspecified = UNSPECIFIED_CARD_ID in card_ids
+    identified = sorted(card_id for card_id in card_ids
+                        if card_id != UNSPECIFIED_CARD_ID)
+    if has_unspecified and identified:
+        status = "partial"
+    elif has_unspecified:
+        status = "unspecified"
+    else:
+        status = "complete"
+    return {
+        "status": status,
+        "count_known": not has_unspecified,
+        "identified_card_count": len(identified),
+        "identified_card_ids": identified,
+    }

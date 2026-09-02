@@ -16,7 +16,7 @@ RAW_HISTOGRAM_BUCKETS_PER_OPERATION = 22
 RAW_HISTOGRAM_OPERATION_COUNT = 3
 RAW_HISTOGRAM_BUCKETS = (RAW_HISTOGRAM_BUCKETS_PER_OPERATION *
                          RAW_HISTOGRAM_OPERATION_COUNT)
-HISTOGRAM_FEATURE_GROUPS = ((0, 4), (4, 8), (8, 12), (12, 15), (15, 22))
+HISTOGRAM_FEATURE_GROUPS = ((0, 3), (4, 7), (8, 11), (12, 14), (15, 21))
 
 HEADER = [
     MAGIC, "feature_schema_version", "size", "target", "transport",
@@ -62,10 +62,18 @@ def feature_schema() -> dict:
     return json.loads(_schema_path().read_text(encoding="utf-8"))
 
 
-def schema_hash() -> str:
+def canonical_json_bytes(payload: object) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, allow_nan=False).encode("utf-8")
+
+
+def canonical_json_sha256(payload: object) -> str:
     import hashlib
-    raw = _schema_path().read_bytes()
-    return hashlib.sha256(raw).hexdigest()
+    return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+
+
+def schema_canonical_hash() -> str:
+    return canonical_json_sha256(feature_schema())
 
 
 def _uint(text: str, column: str) -> int:
@@ -205,7 +213,7 @@ def encode_row(row: dict) -> list[int]:
             raise DatasetError(f"{op}: insufficient or inconsistent histogram")
         avg = min(1_000_000, int(row[f"{op}_avg_us"]))
         vector.extend([avg, _permille(invalid, timing + invalid)])
-        vector.extend(_permille(sum(buckets[first:last]), timing)
+        vector.extend(_permille(sum(buckets[first:last + 1]), timing)
                       for first, last in HISTOGRAM_FEATURE_GROUPS)
         timings.append(timing)
     total_timing = sum(timings)

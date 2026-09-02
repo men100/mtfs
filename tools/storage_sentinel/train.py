@@ -8,10 +8,12 @@ from pathlib import Path
 
 import numpy as np
 
-from dataset import Dataset, assert_same_profile, load_dataset, sha256_file, usable_vectors
+from dataset import (Dataset, assert_same_profile, card_identity, load_dataset,
+                     sha256_file, usable_vectors)
 from evaluate import evaluate_datasets
 from model import Baselines, train_candidates
-from schema import DatasetError, feature_schema, fixed_point_normalization, normalize, schema_hash
+from schema import (DatasetError, feature_schema, fixed_point_normalization,
+                    normalize, schema_canonical_hash)
 from version import TOOL_VERSION
 
 
@@ -119,7 +121,7 @@ def run(args: argparse.Namespace) -> dict:
         "target_id": target,
         "transport_id": transport,
         "build_type": build_type,
-        "feature_schema_sha256": schema_hash(),
+        "feature_schema_canonical_sha256": schema_canonical_hash(),
         "topology_policy": "common-fixed-24-12-4-12-24",
         "candidate_comparison": candidate_report,
         "split_unit": "session",
@@ -130,10 +132,22 @@ def run(args: argparse.Namespace) -> dict:
         "threshold_source": validation_session.session_id,
         "held_out_normal_false_warning_rate": float(np.mean(test_scores > threshold)),
         "held_out_normal_score_median": float(np.median(test_scores)),
-        "card_count": len({dataset.card_id for dataset in datasets}),
+        "card_identity": card_identity(datasets),
+        "numeric_artifact_contract": {
+            "host_training_arithmetic": "numpy-float64",
+            "model_json": "JSON numbers from float64 Host reference model",
+            "reported_model_size_bytes": 2896,
+            "reported_model_size_basis": "724 parameters converted to float32",
+            "fixed_point_normalization_parameters": "generated",
+            "c_fixed_point_encoder_bit_exact_validation": "not-performed",
+            "float32_canonical_model": "not-generated",
+            "int8_weight_output_quantization": "not-performed",
+            "npu_model_binary": "not-generated",
+            "threshold_neighborhood_quantized_decision_validation": "not-performed",
+        },
         "limitations": [
             "Threshold uses normal validation only; injected evaluation data never tunes it.",
-            "A single card_id means within-card evidence only, not card-generalization evidence."
+            "Unspecified card identity does not establish a physical card count or cross-card generalization."
         ],
     }
     negative_index = int(np.argmin(test_scores))
@@ -163,6 +177,7 @@ def run(args: argparse.Namespace) -> dict:
             }
             for dataset in evaluation_datasets
         ]
+        training_manifest["card_identity"] = card_identity(datasets + evaluation_datasets)
         evaluation_report, evaluated_vectors = evaluate_datasets(
             evaluation_datasets + [test_session], model, normalization,
             threshold_payload, baselines)
@@ -191,6 +206,7 @@ def run(args: argparse.Namespace) -> dict:
         "target_id": target,
         "transport_id": transport,
         "build_type": build_type,
+        "feature_schema_canonical_sha256": schema_canonical_hash(),
         "files_sha256": hashes,
         "dataset_sha256": {str(dataset.path): sha256_file(dataset.path) for dataset in datasets},
         "evaluation_dataset_sha256": {

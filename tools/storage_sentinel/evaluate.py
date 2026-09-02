@@ -8,7 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from dataset import Dataset, assert_same_profile, load_dataset, sha256_file
+from dataset import (Dataset, assert_same_profile, card_identity, load_dataset,
+                     sha256_file)
 from model import Baselines, DenseAutoencoder, load_artifact
 from schema import DatasetError, deterministic_rule, encode_row, normalize
 from version import TOOL_VERSION
@@ -146,6 +147,7 @@ def evaluate_datasets(datasets: list[Dataset], model: DenseAutoencoder,
         "target_id": target,
         "transport_id": transport,
         "build_type": datasets[0].build_type,
+        "card_identity": card_identity(datasets),
         "methods": methods,
         "baseline_comparison_conclusion": comparison,
         "stage_score_distributions": stages,
@@ -157,7 +159,8 @@ def evaluate_datasets(datasets: list[Dataset], model: DenseAutoencoder,
         "hard_fault_frames": hard_total,
         "session_metrics": session_metrics,
         "limitations": [
-            "Scores demonstrate only the supplied cards, sessions, workloads, targets, and transports.",
+            "Scores demonstrate only the supplied sessions, workloads, targets, transports, and identified cards.",
+            "Unspecified card identity does not establish a physical card count or cross-card generalization.",
             "The detector identifies statistical I/O deviation; it does not predict media lifetime or failure time."
         ],
     }

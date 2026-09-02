@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Iterable
 
 from dataset import manifest_path, sha256_file, write_dataset
-from schema import HEADER, MAGIC, DatasetError, parse_lines, schema_hash
+from schema import (HEADER, MAGIC, DatasetError, parse_lines,
+                    schema_canonical_hash)
 from version import TOOL_VERSION
 
 
@@ -104,7 +105,7 @@ def run(args: argparse.Namespace) -> dict:
         "source": source,
         "source_sha256": source_hash,
         "dataset_sha256": sha256_file(args.output),
-        "feature_schema_sha256": schema_hash(),
+        "feature_schema_canonical_sha256": schema_canonical_hash(),
     }
     with manifest_path(args.output).open("x", encoding="utf-8") as output:
         output.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

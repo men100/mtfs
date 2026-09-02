@@ -12,12 +12,13 @@ from pathlib import Path
 import numpy as np
 
 from collect import run as collect_run
-from dataset import (Dataset, assert_same_profile, load_dataset, manifest_path,
-                     sha256_file, write_dataset)
+from dataset import (Dataset, assert_same_profile, card_identity, load_dataset,
+                     manifest_path, sha256_file, write_dataset)
 from model import train_autoencoder
-from schema import (HEADER, RAW_HISTOGRAM_BUCKETS, DatasetError, encode_row,
-                    feature_schema, parse_lines)
-from train import run as train_run
+from schema import (HEADER, HISTOGRAM_FEATURE_GROUPS, RAW_HISTOGRAM_BUCKETS,
+                    DatasetError, canonical_json_sha256, encode_row,
+                    feature_schema, parse_lines, schema_canonical_hash)
+from train import (_matrix, _split_sessions, run as train_run)
 
 
 def valid_row(sequence: int = 1) -> dict:
@@ -66,12 +67,52 @@ class SchemaTests(unittest.TestCase):
             "operations": 3,
             "buckets_per_operation": 22,
             "serialized_buckets": 66,
+            "feature_group_bounds": "inclusive",
             "feature_groups": [[0, 3], [4, 7], [8, 11], [12, 14], [15, 21]],
         })
+        groups = feature_schema()["raw_histogram"]["feature_groups"]
+        self.assertEqual(tuple(tuple(group) for group in groups),
+                         HISTOGRAM_FEATURE_GROUPS)
+        covered = [bucket for first, last in groups
+                   for bucket in range(first, last + 1)]
+        self.assertEqual(covered, list(range(22)))
+        histogram_feature_names = [item["name"] for item in feature_schema()["features"]
+                                   if "_hist_" in item["name"]]
+        expected_suffixes = [f"hist_{first}_{last}_permille"
+                             for first, last in groups]
+        self.assertEqual(histogram_feature_names,
+                         [f"{operation}_{suffix}" for operation in ("read", "write", "sync")
+                          for suffix in expected_suffixes])
+        for bucket in range(22):
+            encoded_row = valid_row()
+            histogram = []
+            for _ in ("read", "write", "sync"):
+                operation_buckets = [0] * 22
+                operation_buckets[bucket] = 10
+                histogram.extend(operation_buckets)
+            encoded_row["histogram_r_w_s"] = histogram
+            vector = encode_row(encoded_row)
+            expected_group = next(index for index, (first, last) in enumerate(groups)
+                                  if first <= bucket <= last)
+            for operation_index in range(3):
+                self.assertEqual(vector[operation_index * 7 + 2:
+                                        operation_index * 7 + 7],
+                                 [1000 if index == expected_group else 0
+                                  for index in range(5)])
         self.assertEqual(len(parse_lines(csv_text([row]).splitlines(True))), 1)
         row["histogram_r_w_s"] = row["histogram_r_w_s"][:48]
         with self.assertRaisesRegex(DatasetError, "needs 66 buckets"):
             parse_lines(csv_text([row]).splitlines(True))
+
+    def test_canonical_schema_hash_is_deterministic(self):
+        schema = feature_schema()
+        reversed_schema = dict(reversed(list(schema.items())))
+        self.assertEqual(canonical_json_sha256(schema),
+                         canonical_json_sha256(reversed_schema))
+        reparsed = json.loads(json.dumps(schema, indent=4, ensure_ascii=False))
+        self.assertEqual(canonical_json_sha256(reparsed), schema_canonical_hash())
+        with self.assertRaises(ValueError):
+            canonical_json_sha256({"invalid": float("nan")})
 
     def test_metadata_does_not_enter_model_input(self):
         first = valid_row()
@@ -137,6 +178,8 @@ class CollectorTests(unittest.TestCase):
                 command="record", expected_rows=2, partial=False)
             manifest = collect_run(args)
             self.assertTrue(manifest["partial"])
+            self.assertEqual(manifest["feature_schema_canonical_sha256"],
+                             schema_canonical_hash())
             self.assertEqual(load_dataset(output).session_id, "session-a")
             self.assertTrue(manifest_path(output).exists())
             with self.assertRaisesRegex(DatasetError, "refusing overwrite"):
@@ -144,6 +187,32 @@ class CollectorTests(unittest.TestCase):
 
 
 class ModelTests(unittest.TestCase):
+    def test_card_identity_metadata(self):
+        def dataset(session: str, card: str) -> Dataset:
+            return Dataset(Path(f"{session}.csv"), [valid_row()],
+                           {"session_id": session, "card_id": card})
+
+        self.assertEqual(card_identity([dataset("a", "unspecified")]), {
+            "status": "unspecified", "count_known": False,
+            "identified_card_count": 0, "identified_card_ids": [],
+        })
+        self.assertEqual(card_identity([dataset("a", "card-a"),
+                                        dataset("b", "card-a")]), {
+            "status": "complete", "count_known": True,
+            "identified_card_count": 1, "identified_card_ids": ["card-a"],
+        })
+        self.assertEqual(card_identity([dataset("a", "card-b"),
+                                        dataset("b", "card-a")]), {
+            "status": "complete", "count_known": True,
+            "identified_card_count": 2,
+            "identified_card_ids": ["card-a", "card-b"],
+        })
+        self.assertEqual(card_identity([dataset("a", "card-a"),
+                                        dataset("b", "unspecified")]), {
+            "status": "partial", "count_known": False,
+            "identified_card_count": 1, "identified_card_ids": ["card-a"],
+        })
+
     def test_training_is_deterministic(self):
         rng = np.random.default_rng(7)
         values = rng.normal(size=(32, 24))
@@ -151,6 +220,27 @@ class ModelTests(unittest.TestCase):
         second = train_autoencoder(values, [24, 12, 4, 12, 24], 17, epochs=3)
         for left, right in zip(first.weights + first.biases, second.weights + second.biases):
             np.testing.assert_array_equal(left, right)
+
+    def test_injected_data_is_rejected_from_training(self):
+        row = valid_row()
+        row.update({"command": "pseudo-collect-delay-ramp",
+                    "scenario_origin": "injected", "stage": "light",
+                    "severity": 1, "injection_kind": "delay"})
+        dataset = Dataset(Path("injected.csv"), [row],
+                          {"session_id": "injected", "card_id": "card-a",
+                           "partial": False})
+        with self.assertRaisesRegex(DatasetError, "forbidden in training"):
+            _matrix([dataset], 1)
+
+    def test_session_split_contract_is_stable(self):
+        datasets = [Dataset(Path(f"{index}.csv"), [valid_row()],
+                            {"session_id": f"session-{index}",
+                             "card_id": "card-a"})
+                    for index in range(1, 4)]
+        train, validation, test = _split_sessions(datasets, 4303)
+        self.assertEqual([item.session_id for item in train], ["session-3"])
+        self.assertEqual(validation.session_id, "session-1")
+        self.assertEqual(test.session_id, "session-2")
 
     def test_end_to_end_artifacts_are_reproducible(self):
         def save(path: Path, rows: list[dict], session: str) -> None:
@@ -208,9 +298,17 @@ class ModelTests(unittest.TestCase):
             training = json.loads((outputs[0] / "training_manifest.json").read_text())
             self.assertEqual(training["evaluation_datasets"][0]["session_id"],
                              "delay-session")
+            self.assertEqual(training["card_identity"]["status"], "complete")
+            self.assertEqual(training["feature_schema_canonical_sha256"],
+                             schema_canonical_hash())
             index = json.loads((outputs[0] / "artifact_index.json").read_text())
             self.assertEqual(index["evaluation_dataset_sha256"][str(delay_path)],
                              sha256_file(delay_path))
+            self.assertEqual(index["feature_schema_canonical_sha256"],
+                             schema_canonical_hash())
+            artifact_schema = json.loads((outputs[0] / "feature_schema_v1.json").read_text())
+            self.assertEqual(canonical_json_sha256(artifact_schema),
+                             schema_canonical_hash())
 
 
 if __name__ == "__main__":
