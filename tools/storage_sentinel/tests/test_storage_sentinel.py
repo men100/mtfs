@@ -16,7 +16,7 @@ from dataset import (Dataset, assert_same_profile, card_identity, load_dataset,
                      manifest_path, sha256_file, write_dataset)
 from model import train_autoencoder
 from schema import (HEADER, HISTOGRAM_FEATURE_GROUPS, RAW_HISTOGRAM_BUCKETS,
-                    DatasetError, canonical_json_sha256, encode_row,
+                    DatasetError, _permille, canonical_json_sha256, encode_row,
                     feature_schema, parse_lines, schema_canonical_hash)
 from train import (_matrix, _split_sessions, run as train_run)
 
@@ -59,6 +59,14 @@ def csv_text(rows: list[dict]) -> str:
 
 
 class SchemaTests(unittest.TestCase):
+    def test_permille_reference_boundaries(self):
+        maximum = (1 << 64) - 1
+        self.assertEqual(_permille(0, maximum), 0)
+        self.assertEqual(_permille(1, 2000), 1)
+        self.assertEqual(_permille(1999, 2000), 1000)
+        self.assertEqual(_permille(maximum, maximum), 1000)
+        self.assertEqual(_permille(maximum // 3, maximum), 333)
+
     def test_histogram_contract_matches_firmware(self):
         row = valid_row()
         self.assertEqual(len(row["histogram_r_w_s"]), 66)

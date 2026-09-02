@@ -16,9 +16,12 @@ extern "C" {
 #define MTFS_MODEL_POLICY_API_VERSION (1U)
 #define MTFS_MODEL_INFO_API_VERSION (1U)
 
-/* Registry rule: zero is invalid in every namespace and is never a wildcard.
- * Concrete format IDs remain outside this API until a runtime format exists. */
+/* Registry rule: zero is invalid in every namespace and is never a wildcard. */
 #define MTFS_MODEL_ID_INVALID (0U)
+/* FourCC "SNT1": authenticated plaintext is Sentinel bundle v1. */
+#define MTFS_MODEL_FORMAT_SENTINEL_BUNDLE_V1 (UINT32_C(0x534e5431))
+/* Outer accelerator policy ID for a CPU-only Sentinel bundle. */
+#define MTFS_ACCELERATOR_CPU_REFERENCE (UINT32_C(0x43505520))
 
 typedef enum mtfs_model_state
 {

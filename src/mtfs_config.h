@@ -12,6 +12,11 @@
 #define MTFS_ENABLE_STORAGE_SENTINEL (0)
 #endif
 
+/* Optional heapless fixed-point Sentinel bundle parser and CPU inference. */
+#ifndef MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+#define MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE (0)
+#endif
+
 /*
  * Optional sealed-model storage and hardware-crypto integration. Keep this
  * disabled by default so a FatFs-only integration has no crypto dependency.
@@ -130,6 +135,15 @@
 
 #if MTFS_ENABLE_STORAGE_SENTINEL && !MTFS_ENABLE_DIAGNOSTICS
 #error MTFS_ENABLE_STORAGE_SENTINEL requires MTFS_ENABLE_DIAGNOSTICS
+#endif
+
+#if (MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE != 0) && \
+    (MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE != 1)
+#error MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE must be 0 or 1
+#endif
+
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && !MTFS_ENABLE_STORAGE_SENTINEL
+#error MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE requires MTFS_ENABLE_STORAGE_SENTINEL
 #endif
 
 #if (MTFS_ENABLE_SEALED_MODEL != 0) && (MTFS_ENABLE_SEALED_MODEL != 1)

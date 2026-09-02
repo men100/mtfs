@@ -16,9 +16,12 @@ serial = ["pyserial>=3.5"]
 mtfs-sentinel-collect = "collect:main"
 mtfs-sentinel-train = "train:main"
 mtfs-sentinel-evaluate = "evaluate:main"
+mtfs-sentinel-pack = "pack:main"
+mtfs-sentinel-inspect = "inspect_bundle_cli:main"
+mtfs-sentinel-verify = "verify:main"
 
 [tool.setuptools]
-py-modules = ["collect", "dataset", "evaluate", "model", "schema", "train", "version"]
+py-modules = ["bundle", "collect", "dataset", "evaluate", "inspect_bundle_cli", "model", "pack", "schema", "train", "verify", "version"]
 
 [tool.setuptools.data-files]
 "share/mtfs-storage-sentinel" = ["feature_schema_v1.json"]

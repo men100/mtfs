@@ -23,6 +23,12 @@
 #if MTFS_ENABLE_STORAGE_SENTINEL
 #include "sentinel/mtfs_sentinel.h"
 #include "sentinel/mtfs_sentinel_observer.h"
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+#include "sentinel/mtfs_sentinel_inference.h"
+#if MTFS_ENABLE_SEALED_MODEL
+#include "sentinel/mtfs_sentinel_sealed_adapter.h"
+#endif
+#endif
 #endif
 #include "core/mtfs_media.h"
 #include "core/mtfs_time.h"

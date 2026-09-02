@@ -26,6 +26,7 @@ add_executable(mtfs_host_tests
     test_ra_sd_spi_deadline.c
     test_stm32_sdmmc_wait_policy.c
     test_sentinel.c
+    test_sentinel_inference.c
     test_sealed_reader_fatfs.c
     test_console.c
     test_time_provider.c
@@ -55,13 +56,17 @@ add_executable(mtfs_host_tests
     ../../src/ports/ra_fsp/sd_spi/mtfs_ra_sd_spi_deadline.c
     ../../src/ports/stm32_cube/crypto/mtfs_stm32_nor_key_store.c
     ../../src/sentinel/mtfs_sentinel.c
+    ../../src/sentinel/mtfs_sentinel_inference.c
+    ../../src/sentinel/mtfs_sentinel_sealed_adapter.c
     ../../src/sentinel/mtfs_sentinel_observer.c
 )
 
 add_library(mtfs_public_headers_cpp_compile OBJECT test_public_headers.cpp)
 target_include_directories(mtfs_public_headers_cpp_compile PRIVATE ../../src)
 target_compile_definitions(mtfs_public_headers_cpp_compile PRIVATE
-    MTFS_ENABLE_STORAGE_SENTINEL=1)
+    MTFS_ENABLE_SEALED_MODEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1)
 set_target_properties(mtfs_public_headers_cpp_compile PROPERTIES
     CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES)
 target_compile_options(mtfs_public_headers_cpp_compile PRIVATE
@@ -89,6 +94,7 @@ target_include_directories(mtfs_host_tests PRIVATE
 target_compile_definitions(mtfs_host_tests PRIVATE
     MTFS_ENABLE_SEALED_MODEL=1
     MTFS_ENABLE_STORAGE_SENTINEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1
     MTFS_FF_USE_MKFS=1
     MTFS_FF_USE_LFN=${MTFS_HOST_FF_USE_LFN}
     MTFS_FF_MAX_LFN=${MTFS_HOST_FF_MAX_LFN}
@@ -145,11 +151,22 @@ target_compile_options(mtfs_diagnostics_disabled_compile PRIVATE
 add_library(mtfs_sentinel_disabled_compile OBJECT
     ../../src/sentinel/mtfs_sentinel.c
     ../../src/sentinel/mtfs_sentinel_observer.c
+    ../../src/sentinel/mtfs_sentinel_inference.c
 )
 target_include_directories(mtfs_sentinel_disabled_compile PRIVATE ../../src)
 target_compile_definitions(mtfs_sentinel_disabled_compile PRIVATE
     MTFS_ENABLE_STORAGE_SENTINEL=0)
 target_compile_options(mtfs_sentinel_disabled_compile PRIVATE
+    -Wall -Wextra -Wpedantic)
+
+add_library(mtfs_sentinel_inference_disabled_compile OBJECT
+    ../../src/sentinel/mtfs_sentinel_inference.c
+    ../../src/sentinel/mtfs_sentinel_sealed_adapter.c)
+target_include_directories(mtfs_sentinel_inference_disabled_compile PRIVATE ../../src)
+target_compile_definitions(mtfs_sentinel_inference_disabled_compile PRIVATE
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=0)
+target_compile_options(mtfs_sentinel_inference_disabled_compile PRIVATE
     -Wall -Wextra -Wpedantic)
 
 # Prove that the optional sealed-model sources and public headers compile
@@ -201,6 +218,22 @@ target_compile_options(mtfs_fatfs_nonreentrant_compile PRIVATE
 )
 
 add_test(NAME mtfs_host_roundtrip COMMAND mtfs_host_tests)
+
+add_executable(mtfs_sentinel_inference_test
+    test_sentinel_inference_main.c
+    test_sentinel_inference.c
+    ../common/framework/mtfs_test.c
+    ../../src/sentinel/mtfs_sentinel_inference.c)
+target_include_directories(mtfs_sentinel_inference_test PRIVATE
+    ../../src ../../src/sentinel ../common/framework)
+target_compile_definitions(mtfs_sentinel_inference_test PRIVATE
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1)
+set_target_properties(mtfs_sentinel_inference_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES)
+target_compile_options(mtfs_sentinel_inference_test PRIVATE
+    -Wall -Wextra -Wpedantic)
+add_test(NAME mtfs_sentinel_inference COMMAND mtfs_sentinel_inference_test)
 
 add_executable(mtfs_fattime_enabled_test
     test_fattime_symbol.c
