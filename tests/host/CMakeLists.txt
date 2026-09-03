@@ -57,6 +57,8 @@ add_executable(mtfs_host_tests
     ../../src/ports/stm32_cube/crypto/mtfs_stm32_nor_key_store.c
     ../../src/sentinel/mtfs_sentinel.c
     ../../src/sentinel/mtfs_sentinel_inference.c
+    ../../src/sentinel/mtfs_sentinel_npu_provider.c
+    ../../src/sentinel/mtfs_sentinel_sha256.c
     ../../src/sentinel/mtfs_sentinel_sealed_adapter.c
     ../../src/sentinel/mtfs_sentinel_observer.c
 )
@@ -223,7 +225,9 @@ add_executable(mtfs_sentinel_inference_test
     test_sentinel_inference_main.c
     test_sentinel_inference.c
     ../common/framework/mtfs_test.c
-    ../../src/sentinel/mtfs_sentinel_inference.c)
+    ../../src/sentinel/mtfs_sentinel_inference.c
+    ../../src/sentinel/mtfs_sentinel_npu_provider.c
+    ../../src/sentinel/mtfs_sentinel_sha256.c)
 target_include_directories(mtfs_sentinel_inference_test PRIVATE
     ../../src ../../src/sentinel ../common/framework)
 target_compile_definitions(mtfs_sentinel_inference_test PRIVATE

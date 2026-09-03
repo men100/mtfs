@@ -19,9 +19,10 @@ mtfs-sentinel-evaluate = "evaluate:main"
 mtfs-sentinel-pack = "pack:main"
 mtfs-sentinel-inspect = "inspect_bundle_cli:main"
 mtfs-sentinel-verify = "verify:main"
+mtfs-sentinel-convert-st = "convert_st_neural_art:main"
 
 [tool.setuptools]
-py-modules = ["bundle", "collect", "dataset", "evaluate", "inspect_bundle_cli", "model", "pack", "schema", "train", "verify", "version"]
+py-modules = ["bundle", "collect", "convert_st_neural_art", "dataset", "evaluate", "inspect_bundle_cli", "model", "pack", "schema", "train", "verify", "version"]
 
 [tool.setuptools.data-files]
 "share/mtfs-storage-sentinel" = ["feature_schema_v1.json"]

@@ -16,7 +16,11 @@ from bundle import (ACCELERATOR_CPU_REFERENCE, MODEL_FORMAT_CPU_INT8_V1,
                     SECTION_REQUIRED, BundleError, QuantizedModel, Section,
                     _assemble, _compatibility, _cpu_binary, _decision,
                     _memory_plan, _normalization, _runtime_descriptor, atomic_write,
-                    fixed_normalize, parse_bundle, verify_bundle, _npu_runtime)
+                    fixed_normalize, parse_bundle, verify_bundle, _npu_runtime,
+                    _npu_runtime_descriptor_v2, REGION_EXECUTABLE_COPY,
+                    REGION_ACTIVATION, REGION_PARAMETERS,
+                    PLACEMENT_CALLER_RELATIVE, PLACEMENT_FIXED_ABSOLUTE,
+                    PLACEMENT_BINARY_CONTAINED, REGION_LIFETIME_INSTANCE)
 from schema import canonical_json_bytes
 
 
@@ -75,8 +79,33 @@ def fixture_dual_bundle(alignment: int = 16, persistent: int = 64,
         fixed.append(Section(section.type, section.flags, section.alignment,
                              section.provider, payload, section.name))
     binary = b"synthetic-npu-v1"
-    npu = _runtime_descriptor(2, 0x4E505250, 0x4E505531, 0x564E4431,
-        1, alignment, persistent, scratch, binary, bytes(32), bytes(32)) + binary
+    manifest = {
+        "provider_id": 0x4E505250, "accelerator_id": 0x4E505531,
+        "model_format": 0x564E4431, "model_version": 1,
+        "runtime_abi": 0x00080000, "required_alignment": alignment,
+        "persistent_memory": persistent, "scratch_memory": 0,
+        "input_scale_numerator": 1, "input_scale_shift": 4,
+        "input_zero_point": 0, "output_scale_numerator": 1,
+        "output_scale_shift": 4, "output_zero_point": 0,
+        "runtime_version_major": 8,
+        "memory_regions": [
+            {"kind": REGION_EXECUTABLE_COPY, "placement": PLACEMENT_CALLER_RELATIVE,
+             "logical_size": persistent, "storage_size": persistent,
+             "alignment": alignment, "address_or_offset": 0,
+             "lifetime": REGION_LIFETIME_INSTANCE, "install_access": 3,
+             "inference_access": 5, "requirements": 5},
+            {"kind": REGION_ACTIVATION, "placement": PLACEMENT_FIXED_ABSOLUTE,
+             "logical_size": 56, "alignment": 8,
+             "address_or_offset": 0x342E0000,
+             "lifetime": REGION_LIFETIME_INSTANCE, "install_access": 2,
+             "inference_access": 3, "requirements": 21},
+            {"kind": REGION_PARAMETERS, "placement": PLACEMENT_BINARY_CONTAINED,
+             "logical_size": 8, "storage_size": 8, "alignment": 8,
+             "address_or_offset": 8, "lifetime": REGION_LIFETIME_INSTANCE,
+             "install_access": 1, "inference_access": 1},
+        ],
+    }
+    npu = _npu_runtime_descriptor_v2(manifest, binary, bytes(32), bytes(32)) + binary
     npu_section = Section(SECTION_NPU, SECTION_REQUIRED, alignment,
                           0x4E505250, npu, "npu_runtime_4e505250")
     if npu_first:
@@ -86,10 +115,12 @@ def fixture_dual_bundle(alignment: int = 16, persistent: int = 64,
     else:
         fixed.append(npu_section)
     if second_npu:
+        second_manifest = dict(manifest)
+        second_manifest["provider_id"] = 0x4E505251
         fixed.append(Section(SECTION_NPU, SECTION_REQUIRED, alignment,
                              0x4E505251,
-            _runtime_descriptor(2, 0x4E505251, 0x4E505531, 0x564E4431,
-                1, alignment, 1, 1, binary, bytes(32), bytes(32)) + binary,
+            _npu_runtime_descriptor_v2(second_manifest, binary, bytes(32),
+                                       bytes(32)) + binary,
             "npu_runtime_4e505251"))
     _, hashes = _assemble(fixed)
     provenance = canonical_json_bytes({
@@ -158,11 +189,11 @@ class BundleParserTests(unittest.TestCase):
         cursor += 64
         cursor = (cursor + 15) & ~15
         scratch_offset = cursor
-        cursor += 128
+        cursor += 48
         self.assertEqual(plan, {
             "required_alignment": 16,
             "persistent_offsets": [cpu_persistent, npu_persistent],
-            "scratch_offset": scratch_offset, "scratch_size": 128,
+            "scratch_offset": scratch_offset, "scratch_size": 48,
             "required_ram": cursor,
         })
         reversed_raw = fixture_dual_bundle(npu_first=True)
@@ -181,11 +212,11 @@ class BundleParserTests(unittest.TestCase):
         cpu_persistent = reversed_cursor
         reversed_cursor += 32
         scratch_offset = reversed_cursor
-        reversed_cursor += 128
+        reversed_cursor += 48
         self.assertEqual(reversed_plan, {
             "required_alignment": 16,
             "persistent_offsets": [npu_persistent, cpu_persistent],
-            "scratch_offset": scratch_offset, "scratch_size": 128,
+            "scratch_offset": scratch_offset, "scratch_size": 48,
             "required_ram": reversed_cursor,
         })
         with self.assertRaisesRegex(BundleError, "outer/inner"):
@@ -209,7 +240,7 @@ class BundleParserTests(unittest.TestCase):
             for section in larger.sections if section.type in {SECTION_CPU, SECTION_NPU}]
         larger_plan = _memory_plan(len(larger.raw), larger_runtimes)
         self.assertEqual(larger_plan["required_alignment"], 32)
-        self.assertEqual(larger_plan["scratch_size"], 200)
+        self.assertEqual(larger_plan["scratch_size"], 48)
         self.assertGreater(larger_plan["required_ram"], plan["required_ram"])
 
     def test_embedded_contract_runtime_negatives(self):
@@ -233,12 +264,52 @@ class BundleParserTests(unittest.TestCase):
             parse_bundle(changed(npu_offset + 64, b"\x01"))
         with self.assertRaisesRegex(BundleError, "runtime count"):
             parse_bundle(fixture_dual_bundle(second_npu=True))
-        with self.assertRaisesRegex(BundleError, "runtime manifest"):
+        with self.assertRaisesRegex(BundleError, "runtime region table"):
             parse_bundle(changed(npu_offset + 164, b"\x01"))
         with self.assertRaisesRegex(BundleError, "runtime manifest"):
             parse_bundle(changed(npu_offset + 160, (193).to_bytes(4, "little")))
         with self.assertRaisesRegex(BundleError, "overflows"):
             parse_bundle(fixture_dual_bundle(persistent=0xffffffff))
+
+    def test_npu_region_table_negative_matrix(self):
+        raw = fixture_dual_bundle()
+        runtime = next_offset(raw, SECTION_NPU)
+        first = runtime + 192
+        second = first + 64
+        third = second + 64
+
+        def changed(*updates: tuple[int, bytes]) -> bytes:
+            value = bytearray(raw)
+            for offset, data in updates:
+                value[offset:offset + len(data)] = data
+            return bytes(value)
+
+        malformed = {
+            "region-count-zero": changed((runtime + 168, b"\0\0")),
+            "region-count-too-large": changed((runtime + 168, (17).to_bytes(2, "little"))),
+            "entry-size": changed((runtime + 170, (56).to_bytes(2, "little"))),
+            "table-offset": changed((runtime + 164, (200).to_bytes(4, "little"))),
+            "binary-offset-before-table": changed((runtime + 160, (128).to_bytes(4, "little"))),
+            "alignment": changed((first + 16, (3).to_bytes(4, "little"))),
+            "fixed-overflow": changed(
+                (second + 24, (0xfffffffffffffff8).to_bytes(8, "little")),
+                (second + 48, (56).to_bytes(8, "little"))),
+            "overlap": changed(
+                (third + 4, PLACEMENT_CALLER_RELATIVE.to_bytes(2, "little")),
+                (third + 24, (32).to_bytes(8, "little"))),
+            "binary-contained-out-of-range": changed(
+                (third + 24, (15).to_bytes(8, "little"))),
+            "duplicate-fixed": changed(
+                (third + 2, REGION_ACTIVATION.to_bytes(2, "little")),
+                (third + 4, PLACEMENT_FIXED_ABSOLUTE.to_bytes(2, "little")),
+                (third + 24, (0x342e0000).to_bytes(8, "little"))),
+            "unknown-required-region": changed((third + 2, (0xffff).to_bytes(2, "little"))),
+            "entry-reserved": changed((first + 56, b"\x01")),
+            "header-reserved": changed((runtime + 188, b"\x01")),
+        }
+        for name, candidate in malformed.items():
+            with self.subTest(name=name), self.assertRaises(BundleError):
+                parse_bundle(candidate)
 
     def test_malformed_corpus(self):
         raw = fixture_bundle()
@@ -367,15 +438,35 @@ class BundleParserTests(unittest.TestCase):
             binary.write_bytes(b"synthetic-parser-fixture")
             manifest = {
                 "provider_id": 0x53544E50, "accelerator_id": 0x4E415254,
-                "model_format": 0x56454E44, "model_version": 1, "runtime_abi": 1,
+                "model_format": 0x56454E44, "model_version": 1,
+                "runtime_abi": 0x00080000,
                 "required_alignment": 16, "persistent_memory": 64,
-                "scratch_memory": 128, "canonical_model_sha256": bytes(32).hex(),
+                "scratch_memory": 0, "canonical_model_sha256": bytes(32).hex(),
                 "runtime_binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                 "input_shape": [24], "output_shape": [24],
                 "input_dtype": "int8", "output_dtype": "int8",
                 "input_scale_numerator": 1, "input_scale_shift": 4,
                 "input_zero_point": 0, "output_scale_numerator": 1,
                 "output_scale_shift": 4, "output_zero_point": 0,
+                "runtime_version_major": 8,
+                "memory_regions": [
+                    {"kind": REGION_EXECUTABLE_COPY,
+                     "placement": PLACEMENT_CALLER_RELATIVE,
+                     "logical_size": 64, "alignment": 16,
+                     "address_or_offset": 0, "lifetime": REGION_LIFETIME_INSTANCE,
+                     "install_access": 3, "inference_access": 5},
+                    {"kind": REGION_ACTIVATION,
+                     "placement": PLACEMENT_FIXED_ABSOLUTE,
+                     "logical_size": 56, "alignment": 8,
+                     "address_or_offset": 0x342E0000,
+                     "lifetime": REGION_LIFETIME_INSTANCE,
+                     "install_access": 2, "inference_access": 3},
+                    {"kind": REGION_PARAMETERS,
+                     "placement": PLACEMENT_BINARY_CONTAINED,
+                     "logical_size": 8, "alignment": 8,
+                     "address_or_offset": 8, "lifetime": REGION_LIFETIME_INSTANCE,
+                     "install_access": 1, "inference_access": 1},
+                ],
             }
             manifest["conversion_manifest_sha256"] = hashlib.sha256(
                 canonical_json_bytes(manifest)).hexdigest()

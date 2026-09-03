@@ -34,6 +34,10 @@ extern "C" {
   * @brief This is the list of modules to be used in the HAL driver
   */
 #define HAL_MODULE_ENABLED
+#define HAL_CRYP_MODULE_ENABLED
+#define HAL_RNG_MODULE_ENABLED
+#define HAL_XSPI_MODULE_ENABLED
+#define HAL_CACHEAXI_MODULE_ENABLED
 /*#define HAL_BSEC_MODULE_ENABLED   */
 /*#define HAL_CRC_MODULE_ENABLED   */
 /*#define HAL_DCMI_MODULE_ENABLED   */
@@ -64,7 +68,7 @@ extern "C" {
 /*#define HAL_PKA_MODULE_ENABLED   */
 /*#define HAL_PSSI_MODULE_ENABLED   */
 /*#define HAL_RAMCFG_MODULE_ENABLED   */
-/*#define HAL_RIF_MODULE_ENABLED   */
+#define HAL_RIF_MODULE_ENABLED
 #if defined(MTFS_FF_FS_NORTC) && !MTFS_FF_FS_NORTC
 #endif
 /*#define HAL_SAI_MODULE_ENABLED   */

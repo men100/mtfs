@@ -46,11 +46,27 @@ MEMORY
 {
   ROM    (xrw)    : ORIGIN = 0x34000400,   LENGTH = 511K
   RAM    (xrw)    : ORIGIN = 0x34080000,   LENGTH = 1536K
+  NPU_ACTIVATION (rw) : ORIGIN = 0x342E0000, LENGTH = 56
 }
 
 /* Sections */
 SECTIONS
 {
+  .mtfs_npu_activation (NOLOAD) :
+  {
+    . = ALIGN(8);
+    __mtfs_npu_activation_start__ = .;
+    . = . + 56;
+    __mtfs_npu_activation_end__ = .;
+  } >NPU_ACTIVATION
+
+  ASSERT(__mtfs_npu_activation_start__ == 0x342E0000,
+         "Storage Sentinel NPU activation address changed")
+  ASSERT(SIZEOF(.mtfs_npu_activation) == 56,
+         "Storage Sentinel NPU activation size changed")
+  ASSERT(ORIGIN(RAM) + LENGTH(RAM) <= ORIGIN(NPU_ACTIVATION),
+         "Storage Sentinel CPU RAM overlaps NPU activation")
+
   /* The startup code into "Rom" Rom type memory */
   .isr_vector :
   {

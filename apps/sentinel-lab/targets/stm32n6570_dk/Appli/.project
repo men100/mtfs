@@ -31,6 +31,13 @@
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
 	<linkedResources>
+		<link><name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_cryp.c</name><type>1</type><locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_cryp.c</locationURI></link>
+		<link><name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_cryp_ex.c</name><type>1</type><locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_cryp_ex.c</locationURI></link>
+		<link><name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_rng.c</name><type>1</type><locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_rng.c</locationURI></link>
+		<link><name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_rng_ex.c</name><type>1</type><locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_rng_ex.c</locationURI></link>
+		<link><name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_xspi.c</name><type>1</type><locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_xspi.c</locationURI></link>
+		<link><name>Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_xspi.c</name><type>1</type><locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_xspi.c</locationURI></link>
+		<link><name>Drivers/BSP/Components/mx66uw1g45g/mx66uw1g45g.c</name><type>1</type><locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Drivers/BSP/Components/mx66uw1g45g/mx66uw1g45g.c</locationURI></link>
 		<link>
 			<name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal.c</name>
 			<type>1</type>
@@ -201,5 +208,19 @@
 			<type>2</type>
 			<locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/boards/stm32n6570_dk</locationURI>
 		</link>
+		<link>
+			<name>mtfs_stm32_npu</name>
+			<type>2</type>
+			<locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/npu</locationURI>
+		</link>
+		<link>
+			<name>STEdgeAINpu</name>
+			<type>2</type>
+			<locationURI>PARENT-5-PROJECT_LOC/external/stm32_cube/stm32n6570_dk/Middlewares/ST/AI/Npu</locationURI>
+		</link>
+		<link><name>mtfs_stm32_crypto</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/ports/stm32_cube/crypto</locationURI></link>
+		<link><name>mtfs_include</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src</locationURI></link>
+		<link><name>mtfs_sealed_blob</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/extensions/security/sealed_blob</locationURI></link>
+		<link><name>mtfs_model_store</name><type>2</type><locationURI>PARENT-5-PROJECT_LOC/src/extensions/ai/model_store</locationURI></link>
 	</linkedResources>
 </projectDescription>

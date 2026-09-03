@@ -64,6 +64,95 @@ static int power_of_two(uint32_t value)
     return value != 0U && (value & (value - 1U)) == 0U;
 }
 
+static int known_region_kind(uint16_t kind)
+{
+    return kind >= MTFS_SENTINEL_REGION_EXECUTABLE_COPY &&
+        kind <= MTFS_SENTINEL_REGION_PROVIDER_CONTEXT;
+}
+
+static int known_region_placement(uint16_t placement)
+{
+    return placement >= MTFS_SENTINEL_PLACEMENT_CALLER_RELATIVE &&
+        placement <= MTFS_SENTINEL_PLACEMENT_PROVIDER_ASSIGNED;
+}
+
+static mtfs_error_t validate_npu_regions(const uint8_t *section,
+    uint32_t binary_offset, uint32_t binary_size)
+{
+    uint32_t table_offset = le32(section + 164U);
+    uint16_t count = le16(section + 168U);
+    uint16_t entry_size = le16(section + 170U);
+    uint64_t caller_end = 0U;
+    uint32_t caller_alignment = 1U;
+    uint16_t i, j;
+    const uint32_t access_mask = MTFS_SENTINEL_REGION_ACCESS_READ |
+        MTFS_SENTINEL_REGION_ACCESS_WRITE | MTFS_SENTINEL_REGION_ACCESS_EXECUTE;
+    const uint32_t requirement_mask = MTFS_SENTINEL_REGION_REQUIRE_ZEROIZE |
+        MTFS_SENTINEL_REGION_REQUIRE_CACHE_COHERENCY |
+        MTFS_SENTINEL_REGION_REQUIRE_EXCLUSIVE |
+        MTFS_SENTINEL_REGION_REQUIRE_SHAREABLE |
+        MTFS_SENTINEL_REGION_REQUIRE_INPUT_OUTPUT_SHARED;
+    if (table_offset != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE || count == 0U ||
+        count > MTFS_SENTINEL_RUNTIME_REGION_MAX_COUNT ||
+        entry_size != MTFS_SENTINEL_RUNTIME_REGION_ENTRY_SIZE ||
+        le16(section + 172U) != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE ||
+        le16(section + 174U) != 0U || !all_zero(section + 188U, 4U) ||
+        (uint32_t)count > (binary_offset - table_offset) / entry_size)
+        return MTFS_ERROR_MALFORMED_FORMAT;
+    for (i = 0U; i < count; ++i) {
+        const uint8_t *entry = section + table_offset + (uint32_t)i * entry_size;
+        uint16_t kind = le16(entry + 2U), placement = le16(entry + 4U);
+        uint64_t logical = le64(entry + 8U), address = le64(entry + 24U);
+        uint64_t storage = le64(entry + 48U);
+        uint32_t alignment = le32(entry + 16U);
+        uint32_t lifetime = le32(entry + 32U);
+        if (le16(entry) != 1U || !known_region_kind(kind) ||
+            !known_region_placement(placement) ||
+            le16(entry + 6U) != MTFS_SENTINEL_RUNTIME_REGION_FLAG_REQUIRED ||
+            logical == 0U || storage < logical || storage > UINT64_MAX - address ||
+            !power_of_two(alignment) ||
+            alignment > 4096U || lifetime < MTFS_SENTINEL_REGION_LIFETIME_INSTALL ||
+            lifetime > MTFS_SENTINEL_REGION_LIFETIME_INFERENCE ||
+            (le32(entry + 36U) & ~access_mask) != 0U ||
+            (le32(entry + 40U) & ~access_mask) != 0U ||
+            (le32(entry + 44U) & ~requirement_mask) != 0U ||
+            !all_zero(entry + 56U, 8U)) return MTFS_ERROR_MALFORMED_FORMAT;
+        for (j = 0U; j < i; ++j) {
+            const uint8_t *prior = section + table_offset + (uint32_t)j * entry_size;
+            if (le16(prior + 2U) == kind && le16(prior + 4U) == placement)
+                return MTFS_ERROR_MALFORMED_FORMAT;
+            if (le16(prior + 4U) == placement &&
+                placement != MTFS_SENTINEL_PLACEMENT_PROVIDER_ASSIGNED) {
+                uint64_t prior_address = le64(prior + 24U);
+                uint64_t prior_storage = le64(prior + 48U);
+                if (address < prior_address + prior_storage &&
+                    prior_address < address + storage)
+                    return MTFS_ERROR_MALFORMED_FORMAT;
+            }
+        }
+        if (placement == MTFS_SENTINEL_PLACEMENT_CALLER_RELATIVE) {
+            if ((address & ((uint64_t)alignment - 1U)) != 0U ||
+                storage > UINT32_MAX || address > UINT32_MAX - storage)
+                return MTFS_ERROR_MALFORMED_FORMAT;
+            if (address + storage > caller_end) caller_end = address + storage;
+            if (alignment > caller_alignment) caller_alignment = alignment;
+        } else if (placement == MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE) {
+            if (address == 0U || (address & ((uint64_t)alignment - 1U)) != 0U ||
+                storage > UINT64_MAX - address)
+                return MTFS_ERROR_MALFORMED_FORMAT;
+        } else if (placement == MTFS_SENTINEL_PLACEMENT_BINARY_CONTAINED) {
+            if (address > binary_size || storage > binary_size - address)
+                return MTFS_ERROR_MALFORMED_FORMAT;
+        } else if (address != 0U) return MTFS_ERROR_MALFORMED_FORMAT;
+    }
+    if (!all_zero(section + table_offset + (uint32_t)count * entry_size,
+            binary_offset - table_offset - (uint32_t)count * entry_size) ||
+        caller_end != le32(section + 52U) || le32(section + 56U) != 0U ||
+        caller_alignment != le32(section + 48U))
+        return MTFS_ERROR_MALFORMED_FORMAT;
+    return MTFS_OK;
+}
+
 static int known_section(uint16_t type)
 {
     return type == MTFS_SENTINEL_SECTION_COMPATIBILITY ||
@@ -132,13 +221,12 @@ static mtfs_error_t validate_runtime(const uint8_t *section, uint32_t size,
     binary_size = le32(section + 60U);
     binary_offset = le32(section + 160U);
     required_alignment = le32(section + 48U);
-    if (le16(section) != 1U || le32(section + 4U) == 0U ||
+    if (le32(section + 4U) == 0U ||
         le32(section + 4U) != directory_provider ||
         le32(section + 8U) == 0U || le32(section + 12U) == 0U ||
-        le32(section + 16U) == 0U || le32(section + 20U) != 1U ||
+        le32(section + 16U) == 0U || le32(section + 20U) == 0U ||
         le16(section + 24U) != 24U || le16(section + 26U) != 24U ||
         section[28] != 1U || section[29] != 1U ||
-        section[30] != 0U || section[31] != 0U ||
         le32(section + 32U) == 0U || le32(section + 36U) > 31U ||
         le32(section + 40U) == 0U || le32(section + 44U) > 31U ||
         !power_of_two(required_alignment) || required_alignment > 4096U ||
@@ -146,18 +234,20 @@ static mtfs_error_t validate_runtime(const uint8_t *section, uint32_t size,
         binary_offset < MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE ||
         (binary_offset & (required_alignment - 1U)) != 0U ||
         binary_offset > size || binary_size == 0U ||
-        binary_size != size - binary_offset ||
-        !all_zero(section + MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE,
-            binary_offset - MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE) ||
-        !all_zero(section + 164U, 28U)) return MTFS_ERROR_MALFORMED_FORMAT;
+        binary_size != size - binary_offset) return MTFS_ERROR_MALFORMED_FORMAT;
     if (expected_type == MTFS_SENTINEL_SECTION_CPU_INT8_RUNTIME) {
-        if (runtime_type != MTFS_SENTINEL_RUNTIME_CPU_INT8)
+        if (le16(section) != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_CPU_VERSION ||
+            runtime_type != MTFS_SENTINEL_RUNTIME_CPU_INT8 ||
+            !all_zero(section + MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE,
+                binary_offset - MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE) ||
+            !all_zero(section + 164U, 28U))
             return MTFS_ERROR_UNSUPPORTED_FORMAT;
         return validate_cpu_model(section, size);
     }
-    if (runtime_type != MTFS_SENTINEL_RUNTIME_NPU)
+    if (le16(section) != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_NPU_VERSION ||
+        runtime_type != MTFS_SENTINEL_RUNTIME_NPU)
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
-    return MTFS_OK;
+    return validate_npu_regions(section, binary_offset, binary_size);
 }
 
 mtfs_error_t mtfs_sentinel_bundle_parse(const void *input, size_t input_size,
@@ -446,6 +536,14 @@ static mtfs_error_t decode_runtime_info(const runtime_section_view_t *view,
     (void)memcpy(decoded.canonical_model_hash, view->section + 64U, 32U);
     (void)memcpy(decoded.runtime_binary_hash, view->section + 96U, 32U);
     (void)memcpy(decoded.conversion_manifest_hash, view->section + 128U, 32U);
+    decoded.descriptor_version = le16(view->section);
+    if (decoded.descriptor_version == MTFS_SENTINEL_RUNTIME_DESCRIPTOR_NPU_VERSION) {
+        decoded.region_count = le16(view->section + 168U);
+        decoded.runtime_version_major = le16(view->section + 176U);
+        decoded.runtime_version_minor = le16(view->section + 178U);
+        decoded.runtime_variant = le32(view->section + 180U);
+        decoded.runtime_extra = le32(view->section + 184U);
+    }
     *runtime = decoded;
     return MTFS_OK;
 }
@@ -497,6 +595,129 @@ mtfs_error_t mtfs_sentinel_bundle_runtime_find(
     if (matches == 0U) return MTFS_ERROR_NOT_FOUND;
     if (matches != 1U) return MTFS_ERROR_MALFORMED_FORMAT;
     *runtime = found;
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_sentinel_bundle_runtime_region_get(
+    const mtfs_sentinel_bundle_t *bundle, uint32_t runtime_index,
+    uint32_t region_index, mtfs_sentinel_runtime_region_info_t *region)
+{
+    runtime_section_view_t view;
+    mtfs_sentinel_runtime_region_info_t decoded;
+    const uint8_t *entry;
+    uint32_t binary_offset;
+    mtfs_error_t status;
+    if (region == NULL) return MTFS_ERROR_INVALID_ARGUMENT;
+    status = runtime_section_at(bundle, runtime_index, &view);
+    if (status != MTFS_OK) return status;
+    status = validate_runtime(view.section, view.size, view.section_type,
+        view.provider, view.alignment);
+    if (status != MTFS_OK) return status;
+    if (le16(view.section) != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_NPU_VERSION ||
+        region_index >= le16(view.section + 168U)) return MTFS_ERROR_NOT_FOUND;
+    binary_offset = le32(view.section + 160U);
+    if (binary_offset > view.size) return MTFS_ERROR_INVALID_STATE;
+    entry = view.section + le32(view.section + 164U) +
+        region_index * MTFS_SENTINEL_RUNTIME_REGION_ENTRY_SIZE;
+    (void)memset(&decoded, 0, sizeof(decoded));
+    decoded.api_version = MTFS_SENTINEL_INFERENCE_API_VERSION;
+    decoded.struct_size = (uint16_t)sizeof(decoded);
+    decoded.kind = le16(entry + 2U);
+    decoded.placement = le16(entry + 4U);
+    decoded.flags = le16(entry + 6U);
+    decoded.region_index = region_index;
+    decoded.logical_size = le64(entry + 8U);
+    decoded.alignment = le32(entry + 16U);
+    decoded.provider_pool_id = le32(entry + 20U);
+    decoded.address_or_offset = le64(entry + 24U);
+    decoded.lifetime = le32(entry + 32U);
+    decoded.install_access = le32(entry + 36U);
+    decoded.inference_access = le32(entry + 40U);
+    decoded.requirements = le32(entry + 44U);
+    decoded.storage_size = le64(entry + 48U);
+    *region = decoded;
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_sentinel_bundle_runtime_regions_validate_policy(
+    const mtfs_sentinel_bundle_t *bundle, uint32_t runtime_index,
+    const mtfs_sentinel_runtime_region_policy_t *policies,
+    uint32_t policy_count, mtfs_sentinel_runtime_policy_result_t *result)
+{
+    mtfs_sentinel_runtime_info_t runtime;
+    mtfs_sentinel_runtime_region_info_t region;
+    mtfs_sentinel_runtime_policy_result_t checked;
+    uint32_t i, j;
+    mtfs_error_t status;
+    if (policies == NULL || policy_count == 0U || result == NULL)
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    status = mtfs_sentinel_bundle_runtime_get(bundle, runtime_index, &runtime);
+    if (status != MTFS_OK) return status;
+    if (runtime.descriptor_version != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_NPU_VERSION ||
+        runtime.region_count == 0U) return MTFS_ERROR_NOT_SUPPORTED;
+    (void)memset(&checked, 0, sizeof(checked));
+    checked.api_version = MTFS_SENTINEL_INFERENCE_API_VERSION;
+    checked.struct_size = (uint16_t)sizeof(checked);
+    checked.region_count = runtime.region_count;
+    for (i = 0U; i < runtime.region_count; ++i) {
+        const mtfs_sentinel_runtime_region_policy_t *match = NULL;
+        uint32_t matches = 0U;
+        status = mtfs_sentinel_bundle_runtime_region_get(bundle, runtime_index, i,
+            &region);
+        if (status != MTFS_OK) return status;
+        for (j = 0U; j < policy_count; ++j) {
+            const mtfs_sentinel_runtime_region_policy_t *candidate = &policies[j];
+            if (candidate->provider_id == runtime.provider_id &&
+                candidate->accelerator_id == runtime.accelerator_id &&
+                candidate->kind == region.kind &&
+                candidate->placement == region.placement) {
+                match = candidate;
+                ++matches;
+            }
+        }
+        if (matches != 1U || match == NULL ||
+            !power_of_two(match->minimum_alignment) ||
+            region.alignment < match->minimum_alignment ||
+            (region.alignment & (match->minimum_alignment - 1U)) != 0U ||
+            region.storage_size > match->maximum_storage_size ||
+            (region.install_access & ~match->allowed_install_access) != 0U ||
+            (region.inference_access & ~match->allowed_inference_access) != 0U ||
+            (region.requirements & ~match->allowed_requirements) != 0U)
+            return MTFS_ERROR_NOT_SUPPORTED;
+        if (region.placement == MTFS_SENTINEL_PLACEMENT_PROVIDER_ASSIGNED) {
+            if (match->address_minimum != 0U || match->address_limit != 0U)
+                return MTFS_ERROR_NOT_SUPPORTED;
+        } else if (match->address_limit <= match->address_minimum ||
+            region.address_or_offset < match->address_minimum ||
+            region.address_or_offset >= match->address_limit ||
+            region.storage_size > match->address_limit - region.address_or_offset)
+            return MTFS_ERROR_NOT_SUPPORTED;
+        if (region.placement == MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE &&
+            (match->policy_flags & MTFS_SENTINEL_REGION_POLICY_OWNED) == 0U)
+            return MTFS_ERROR_NOT_SUPPORTED;
+        if ((region.requirements & MTFS_SENTINEL_REGION_REQUIRE_EXCLUSIVE) != 0U &&
+            (match->policy_flags & MTFS_SENTINEL_REGION_POLICY_EXCLUSIVE) == 0U)
+            return MTFS_ERROR_NOT_SUPPORTED;
+        if ((region.requirements & MTFS_SENTINEL_REGION_REQUIRE_CACHE_COHERENCY) != 0U &&
+            (match->policy_flags & MTFS_SENTINEL_REGION_POLICY_CACHE_MAINTENANCE) == 0U)
+            return MTFS_ERROR_NOT_SUPPORTED;
+        if ((region.requirements & MTFS_SENTINEL_REGION_REQUIRE_ZEROIZE) != 0U &&
+            (match->policy_flags & (MTFS_SENTINEL_REGION_POLICY_OWNED |
+             MTFS_SENTINEL_REGION_POLICY_ALLOW_ZEROIZE)) !=
+            (MTFS_SENTINEL_REGION_POLICY_OWNED |
+             MTFS_SENTINEL_REGION_POLICY_ALLOW_ZEROIZE))
+            return MTFS_ERROR_NOT_SUPPORTED;
+        checked.accepted_mask |= UINT32_C(1) << i;
+        if ((match->policy_flags & MTFS_SENTINEL_REGION_POLICY_OWNED) != 0U)
+            checked.owned_mask |= UINT32_C(1) << i;
+        if ((match->policy_flags & MTFS_SENTINEL_REGION_POLICY_CACHE_MAINTENANCE) != 0U)
+            checked.cache_maintenance_mask |= UINT32_C(1) << i;
+        if ((match->policy_flags & MTFS_SENTINEL_REGION_POLICY_ALLOW_ZEROIZE) != 0U)
+            checked.zeroize_mask |= UINT32_C(1) << i;
+        if ((match->policy_flags & MTFS_SENTINEL_REGION_POLICY_GLOBAL_SERIALIZATION) != 0U)
+            checked.global_serialization_required = 1U;
+    }
+    *result = checked;
     return MTFS_OK;
 }
 
@@ -805,8 +1026,7 @@ mtfs_error_t mtfs_sentinel_cpu_infer(
     uint8_t *storage = (uint8_t *)work;
     int8_t *current, *next;
     uint32_t layer, weight_offset = 0U, bias_offset = 0U;
-    uint32_t squared_sum = 0U;
-    mtfs_sentinel_inference_result_t completed;
+    mtfs_error_t status;
     if (context == NULL || input == NULL || work == NULL || output == NULL ||
         result == NULL) return MTFS_ERROR_INVALID_ARGUMENT;
     if (context->api_version != MTFS_SENTINEL_INFERENCE_API_VERSION ||
@@ -849,19 +1069,31 @@ mtfs_error_t mtfs_sentinel_cpu_infer(
     }
     if (weight_offset != 672U || bias_offset != 208U)
         return MTFS_ERROR_INVALID_STATE;
-    for (layer = 0U; layer < 24U; ++layer) {
-        int32_t difference = (int32_t)current[layer] - (int32_t)input[layer];
-        uint32_t square = (uint32_t)(difference * difference);
-        if (square > UINT32_MAX - squared_sum) return MTFS_ERROR_OVERFLOW;
-        squared_sum += square;
+    status = mtfs_sentinel_score_q8(input, current, context->threshold_q8, result);
+    if (status != MTFS_OK) return status;
+    (void)memcpy(output, current, 24U);
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_sentinel_score_q8(const int8_t input_q4[24],
+    const int8_t output_q4[24], uint64_t threshold_q8,
+    mtfs_sentinel_inference_result_t *result)
+{
+    mtfs_sentinel_inference_result_t completed;
+    uint64_t sum = 0U;
+    uint32_t i;
+    if (input_q4 == NULL || output_q4 == NULL || result == NULL)
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    for (i = 0U; i < 24U; ++i) {
+        int32_t difference = (int32_t)input_q4[i] - output_q4[i];
+        sum += (uint64_t)(difference * difference);
     }
     (void)memset(&completed, 0, sizeof(completed));
     completed.api_version = MTFS_SENTINEL_INFERENCE_API_VERSION;
     completed.struct_size = (uint16_t)sizeof(completed);
-    completed.score_q8 = (squared_sum + 12U) / 24U;
-    completed.threshold_q8 = context->threshold_q8;
-    completed.anomaly = completed.score_q8 > completed.threshold_q8 ? 1U : 0U;
-    (void)memcpy(output, current, 24U);
+    completed.score_q8 = (sum + 12U) / 24U;
+    completed.threshold_q8 = threshold_q8;
+    completed.anomaly = completed.score_q8 > threshold_q8 ? 1U : 0U;
     *result = completed;
     return MTFS_OK;
 }

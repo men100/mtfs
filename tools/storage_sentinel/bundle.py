@@ -45,6 +45,39 @@ SCHEMA_HASH = bytes.fromhex(
     "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8")
 DIMENSIONS = (24, 12, 4, 12, 24)
 RUNTIME_DESCRIPTOR_SIZE = 192
+RUNTIME_REGION_ENTRY_SIZE = 64
+RUNTIME_REGION_ENTRY_VERSION = 1
+RUNTIME_REGION_FLAG_REQUIRED = 1
+REGION_EXECUTABLE_COPY = 1
+REGION_ACTIVATION = 2
+REGION_PARAMETERS = 3
+REGION_EXTERNAL_RW = 4
+REGION_PROVIDER_CONTEXT = 5
+PLACEMENT_CALLER_RELATIVE = 1
+PLACEMENT_FIXED_ABSOLUTE = 2
+PLACEMENT_BINARY_CONTAINED = 3
+PLACEMENT_PROVIDER_ASSIGNED = 4
+REGION_ACCESS_READ = 1
+REGION_ACCESS_WRITE = 2
+REGION_ACCESS_EXECUTE = 4
+REGION_LIFETIME_INSTALL = 1
+REGION_LIFETIME_INSTANCE = 2
+REGION_LIFETIME_INFERENCE = 3
+REGION_REQUIRE_ZEROIZE = 1
+REGION_REQUIRE_CACHE_COHERENCY = 2
+REGION_REQUIRE_EXCLUSIVE = 4
+REGION_REQUIRE_SHAREABLE = 8
+REGION_REQUIRE_INPUT_OUTPUT_SHARED = 16
+_REGION_KINDS = {REGION_EXECUTABLE_COPY, REGION_ACTIVATION, REGION_PARAMETERS,
+                 REGION_EXTERNAL_RW, REGION_PROVIDER_CONTEXT}
+_REGION_PLACEMENTS = {PLACEMENT_CALLER_RELATIVE, PLACEMENT_FIXED_ABSOLUTE,
+                      PLACEMENT_BINARY_CONTAINED, PLACEMENT_PROVIDER_ASSIGNED}
+_REGION_LIFETIMES = {REGION_LIFETIME_INSTALL, REGION_LIFETIME_INSTANCE,
+                     REGION_LIFETIME_INFERENCE}
+_REGION_ACCESS_MASK = REGION_ACCESS_READ | REGION_ACCESS_WRITE | REGION_ACCESS_EXECUTE
+_REGION_REQUIREMENT_MASK = (REGION_REQUIRE_ZEROIZE | REGION_REQUIRE_CACHE_COHERENCY |
+                            REGION_REQUIRE_EXCLUSIVE | REGION_REQUIRE_SHAREABLE |
+                            REGION_REQUIRE_INPUT_OUTPUT_SHARED)
 MAX_RUNTIMES = 2
 MAX_REQUIRED_RAM = (1 << 32) - 1
 CPU_MODEL_BINARY_SIZE = 912
@@ -456,6 +489,116 @@ def _runtime_descriptor(runtime_type: int, provider: int, accelerator: int,
     return bytes(descriptor)
 
 
+def _npu_runtime_descriptor_v2(manifest: dict, binary: bytes,
+                               canonical_hash: bytes,
+                               conversion_hash: bytes) -> bytes:
+    regions = manifest.get("memory_regions")
+    if not isinstance(regions, list) or not regions or len(regions) > 16:
+        raise BundleError("invalid NPU runtime memory region table")
+    table = bytearray()
+    caller_end = 0
+    caller_alignment = 1
+    seen = set()
+    placed = []
+    for source in regions:
+        if not isinstance(source, dict):
+            raise BundleError("invalid NPU runtime memory region")
+        try:
+            kind = int(source["kind"]); placement = int(source["placement"])
+            flags = int(source.get("flags", RUNTIME_REGION_FLAG_REQUIRED))
+            logical_size = int(source["logical_size"])
+            storage_size = int(source.get("storage_size", logical_size))
+            alignment = int(source["alignment"])
+            pool_id = int(source.get("provider_pool_id", 0))
+            address = int(source.get("address_or_offset", 0))
+            lifetime = int(source["lifetime"])
+            install_access = int(source["install_access"])
+            inference_access = int(source["inference_access"])
+            requirements = int(source.get("requirements", 0))
+        except (KeyError, TypeError, ValueError) as error:
+            raise BundleError("invalid NPU runtime memory region") from error
+        identity = (kind, placement)
+        if identity in seen or kind not in _REGION_KINDS or \
+                placement not in _REGION_PLACEMENTS or flags != 1 or \
+                logical_size <= 0 or logical_size > 0xffffffffffffffff or \
+                storage_size < logical_size or storage_size > 0xffffffffffffffff or \
+                not 0 < alignment <= 4096 or alignment & (alignment - 1) or \
+                not 0 <= pool_id <= 0xffffffff or \
+                not 0 <= address <= 0xffffffffffffffff or \
+                lifetime not in _REGION_LIFETIMES or \
+                install_access & ~_REGION_ACCESS_MASK or \
+                inference_access & ~_REGION_ACCESS_MASK or \
+                requirements & ~_REGION_REQUIREMENT_MASK:
+            raise BundleError("invalid NPU runtime memory region")
+        if placement == PLACEMENT_CALLER_RELATIVE:
+            if address & (alignment - 1) or address + storage_size > 0xffffffff:
+                raise BundleError("invalid caller-relative NPU region")
+            caller_end = max(caller_end, address + storage_size)
+            caller_alignment = max(caller_alignment, alignment)
+        elif placement == PLACEMENT_FIXED_ABSOLUTE:
+            if address == 0 or address & (alignment - 1) or \
+                    address + storage_size > 0xffffffffffffffff:
+                raise BundleError("invalid fixed NPU region")
+        elif placement == PLACEMENT_BINARY_CONTAINED:
+            if address > len(binary) or storage_size > len(binary) - address:
+                raise BundleError("invalid binary-contained NPU region")
+        elif address != 0:
+            raise BundleError("provider-assigned NPU region has an address")
+        for prior_placement, prior_address, prior_storage in placed:
+            if prior_placement == placement and placement != PLACEMENT_PROVIDER_ASSIGNED and \
+                    address < prior_address + prior_storage and \
+                    prior_address < address + storage_size:
+                raise BundleError("overlapping NPU runtime memory regions")
+        placed.append((placement, address, storage_size))
+        seen.add(identity)
+        entry = bytearray(RUNTIME_REGION_ENTRY_SIZE)
+        struct.pack_into("<HHHHQIIQIIIIQ", entry, 0,
+            RUNTIME_REGION_ENTRY_VERSION, kind, placement, flags, logical_size,
+            alignment, pool_id, address, lifetime, install_access,
+            inference_access, requirements, storage_size)
+        table.extend(entry)
+    declared_alignment = _u32(int(manifest["required_alignment"]),
+                              "required_alignment")
+    declared_persistent = _u32(int(manifest["persistent_memory"]),
+                               "persistent_memory")
+    declared_scratch = int(manifest["scratch_memory"])
+    if not 0 <= declared_scratch <= 0xffffffff:
+        raise BundleError("scratch_memory: expected uint32")
+    if declared_alignment != caller_alignment or declared_persistent != caller_end or \
+            declared_scratch != 0:
+        raise BundleError("NPU memory summary does not match region table")
+    binary_offset = (RUNTIME_DESCRIPTOR_SIZE + len(table) + declared_alignment - 1) & \
+        ~(declared_alignment - 1)
+    descriptor = bytearray(binary_offset)
+    struct.pack_into("<HHIIIIIHHBBbbIIIIIIII", descriptor, 0,
+        2, 2, _u32(int(manifest["provider_id"]), "provider_id"),
+        _u32(int(manifest["accelerator_id"]), "accelerator_id"),
+        _u32(int(manifest["model_format"]), "model_format"),
+        _u32(int(manifest["model_version"]), "model_version"),
+        _u32(int(manifest["runtime_abi"]), "runtime_abi"), 24, 24, 1, 1,
+        int(manifest["input_zero_point"]), int(manifest["output_zero_point"]),
+        _u32(int(manifest["input_scale_numerator"]), "input_scale_numerator"),
+        _u32(int(manifest["input_scale_shift"]), "input_scale_shift"),
+        _u32(int(manifest["output_scale_numerator"]), "output_scale_numerator"),
+        _u32(int(manifest["output_scale_shift"]), "output_scale_shift"),
+        declared_alignment, declared_persistent, declared_scratch, len(binary))
+    descriptor[64:96] = canonical_hash
+    descriptor[96:128] = hashlib.sha256(binary).digest()
+    descriptor[128:160] = conversion_hash
+    runtime_variant = int(manifest.get("runtime_variant", 0))
+    runtime_extra = int(manifest.get("runtime_extra", 0))
+    if not 0 <= runtime_variant <= 0xffffffff or \
+            not 0 <= runtime_extra <= 0xffffffff:
+        raise BundleError("invalid NPU runtime version metadata")
+    struct.pack_into("<IIHHHHHHIII", descriptor, 160, binary_offset,
+        RUNTIME_DESCRIPTOR_SIZE, len(regions), RUNTIME_REGION_ENTRY_SIZE,
+        RUNTIME_DESCRIPTOR_SIZE, 0, int(manifest.get("runtime_version_major", 0)),
+        int(manifest.get("runtime_version_minor", 0)),
+        runtime_variant, runtime_extra, 0)
+    descriptor[RUNTIME_DESCRIPTOR_SIZE:RUNTIME_DESCRIPTOR_SIZE + len(table)] = table
+    return bytes(descriptor)
+
+
 def _npu_runtime(binary_path: Path, manifest_path: Path,
                  canonical_hash: bytes) -> tuple[int, bytes, dict]:
     manifest = _json(manifest_path)
@@ -468,7 +611,8 @@ def _npu_runtime(binary_path: Path, manifest_path: Path,
                 "runtime_binary_sha256", "conversion_manifest_sha256",
                 "input_shape", "output_shape", "input_dtype", "output_dtype",
                 "input_scale_numerator", "input_scale_shift", "input_zero_point",
-                "output_scale_numerator", "output_scale_shift", "output_zero_point")
+                "output_scale_numerator", "output_scale_shift", "output_zero_point",
+                "memory_regions")
     if any(name not in manifest for name in required):
         raise BundleError("malformed NPU runtime manifest")
     if manifest["canonical_model_sha256"] != canonical_hash.hex() or \
@@ -476,12 +620,12 @@ def _npu_runtime(binary_path: Path, manifest_path: Path,
         raise BundleError("NPU runtime hash mismatch")
     if manifest["input_shape"] != [24] or manifest["output_shape"] != [24] or \
             manifest["input_dtype"] != "int8" or manifest["output_dtype"] != "int8" or \
-            int(manifest["input_scale_numerator"]) != 1 or \
-            int(manifest["input_scale_shift"]) != 4 or \
-            int(manifest["input_zero_point"]) != 0 or \
-            int(manifest["output_scale_numerator"]) != 1 or \
-            int(manifest["output_scale_shift"]) != 4 or \
-            int(manifest["output_zero_point"]) != 0:
+            not 0 < int(manifest["input_scale_numerator"]) <= 0xffffffff or \
+            not 0 <= int(manifest["input_scale_shift"]) <= 31 or \
+            not -128 <= int(manifest["input_zero_point"]) <= 127 or \
+            not 0 < int(manifest["output_scale_numerator"]) <= 0xffffffff or \
+            not 0 <= int(manifest["output_scale_shift"]) <= 31 or \
+            not -128 <= int(manifest["output_zero_point"]) <= 127:
         raise BundleError("NPU tensor descriptor mismatch")
     manifest_copy = dict(manifest)
     declared_conversion = manifest_copy.pop("conversion_manifest_sha256")
@@ -489,15 +633,8 @@ def _npu_runtime(binary_path: Path, manifest_path: Path,
     if declared_conversion != conversion_hash.hex():
         raise BundleError("NPU conversion manifest hash mismatch")
     provider = _u32(int(manifest["provider_id"]), "provider_id")
-    descriptor = _runtime_descriptor(2, provider,
-        _u32(int(manifest["accelerator_id"]), "accelerator_id"),
-        _u32(int(manifest["model_format"]), "model_format"),
-        _u32(int(manifest["model_version"]), "model_version"),
-        _u32(int(manifest["required_alignment"]), "required_alignment"),
-        int(manifest["persistent_memory"]), int(manifest["scratch_memory"]),
-        binary, canonical_hash, conversion_hash)
-    if int(manifest["runtime_abi"]) != 1:
-        raise BundleError("NPU runtime ABI mismatch")
+    descriptor = _npu_runtime_descriptor_v2(manifest, binary, canonical_hash,
+                                            conversion_hash)
     return provider, descriptor + binary, manifest
 
 
@@ -572,6 +709,75 @@ def _memory_plan(bundle_size: int, runtime_sections: Iterable[Section]) -> dict:
             "persistent_offsets": persistent_offsets,
             "scratch_offset": scratch_offset, "scratch_size": scratch_size,
             "required_ram": cursor}
+
+
+def _parse_npu_regions(payload: bytes, binary_offset: int,
+                       binary_len: int) -> list[dict]:
+    table_offset, count, entry_size, header_size, reserved = struct.unpack_from(
+        "<IHHHH", payload, 164)
+    if table_offset != RUNTIME_DESCRIPTOR_SIZE or not 1 <= count <= 16 or \
+            entry_size != RUNTIME_REGION_ENTRY_SIZE or \
+            header_size != RUNTIME_DESCRIPTOR_SIZE or reserved != 0 or \
+            any(payload[188:192]) or \
+            count > (binary_offset - table_offset) // entry_size:
+        raise BundleError("malformed NPU runtime region table")
+    regions = []
+    seen = set()
+    caller_end = 0
+    caller_alignment = 1
+    for index in range(count):
+        offset = table_offset + index * entry_size
+        version, kind, placement, flags, logical_size, alignment, pool_id, address, \
+            lifetime, install_access, inference_access, requirements, storage_size = \
+            struct.unpack_from("<HHHHQIIQIIIIQ", payload, offset)
+        identity = (kind, placement)
+        if version != RUNTIME_REGION_ENTRY_VERSION or identity in seen or \
+                kind not in _REGION_KINDS or placement not in _REGION_PLACEMENTS or \
+                flags != RUNTIME_REGION_FLAG_REQUIRED or logical_size == 0 or \
+                storage_size < logical_size or alignment <= 0 or \
+                alignment & (alignment - 1) or \
+                alignment > 4096 or lifetime not in _REGION_LIFETIMES or \
+                install_access & ~_REGION_ACCESS_MASK or \
+                inference_access & ~_REGION_ACCESS_MASK or \
+                requirements & ~_REGION_REQUIREMENT_MASK or any(payload[offset + 56:offset + 64]):
+            raise BundleError("malformed NPU runtime memory region")
+        if placement == PLACEMENT_CALLER_RELATIVE:
+            if address & (alignment - 1) or address + storage_size > 0xffffffff:
+                raise BundleError("malformed caller-relative NPU region")
+            caller_end = max(caller_end, address + storage_size)
+            caller_alignment = max(caller_alignment, alignment)
+        elif placement == PLACEMENT_FIXED_ABSOLUTE:
+            if address == 0 or address & (alignment - 1) or \
+                    address + storage_size > 0xffffffffffffffff:
+                raise BundleError("malformed fixed NPU region")
+        elif placement == PLACEMENT_BINARY_CONTAINED:
+            if address > binary_len or storage_size > binary_len - address:
+                raise BundleError("malformed binary-contained NPU region")
+        elif address != 0:
+            raise BundleError("malformed provider-assigned NPU region")
+        for prior in regions:
+            if prior["placement"] == placement and \
+                    placement != PLACEMENT_PROVIDER_ASSIGNED:
+                prior_start = prior["address_or_offset"]
+                prior_end = prior_start + prior["storage_size"]
+                if address < prior_end and prior_start < address + storage_size:
+                    raise BundleError("overlapping NPU runtime memory regions")
+        seen.add(identity)
+        regions.append({"kind": kind, "placement": placement, "flags": flags,
+            "logical_size": logical_size, "storage_size": storage_size,
+            "alignment": alignment, "provider_pool_id": pool_id,
+            "address_or_offset": address, "lifetime": lifetime,
+            "install_access": install_access, "inference_access": inference_access,
+            "requirements": requirements})
+    table_end = table_offset + count * entry_size
+    if any(payload[table_end:binary_offset]):
+        raise BundleError("nonzero NPU runtime descriptor padding")
+    persistent = struct.unpack_from("<I", payload, 52)[0]
+    scratch = struct.unpack_from("<I", payload, 56)[0]
+    required_alignment = struct.unpack_from("<I", payload, 48)[0]
+    if (persistent, scratch, required_alignment) != (caller_end, 0, caller_alignment):
+        raise BundleError("NPU memory summary does not match region table")
+    return regions
 
 
 def build_bundle(artifact: Path, include_cpu: bool = True,
@@ -881,18 +1087,17 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
             input_count, output_count, input_dtype, output_dtype, input_zero, output_zero, \
             input_num, input_shift, output_num, output_shift, alignment, persistent, scratch, binary_len = descriptor
         binary_offset = struct.unpack_from("<I", section.payload, 160)[0]
-        if rv != 1 or provider != section.provider or not provider or not runtime_accel or \
-                not runtime_format or not model_version or runtime_abi != 1 or \
-                (input_count, output_count, input_dtype, output_dtype, input_zero, output_zero) != \
-                (24, 24, 1, 1, 0, 0) or input_num != 1 or input_shift > 31 or \
-                output_num != 1 or output_shift > 31 or not alignment or \
+        if provider != section.provider or not provider or not runtime_accel or \
+                not runtime_format or not model_version or not runtime_abi or \
+                (input_count, output_count, input_dtype, output_dtype) != (24, 24, 1, 1) or \
+                not input_num or input_shift > 31 or not output_num or output_shift > 31 or \
+                not alignment or \
                 alignment & (alignment - 1) or alignment > 4096 or \
                 section.alignment != alignment or \
                 binary_offset < RUNTIME_DESCRIPTOR_SIZE or \
                 binary_offset & (alignment - 1) or binary_offset > len(section.payload) or \
                 binary_len != len(section.payload) - binary_offset or \
-                not binary_len or any(section.payload[164:192]) or \
-                any(section.payload[RUNTIME_DESCRIPTOR_SIZE:binary_offset]):
+                not binary_len:
             raise BundleError("malformed runtime manifest")
         binary = section.payload[binary_offset:]
         runtime_sections.append(section)
@@ -901,15 +1106,21 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
             raise BundleError("runtime binary hash mismatch")
         if section.type == SECTION_CPU:
             cpu_runtime_count += 1
-            if runtime_type != 1 or runtime_accel != ACCELERATOR_CPU_REFERENCE or \
+            if rv != 1 or runtime_type != 1 or runtime_abi != 1 or \
+                    input_zero != 0 or output_zero != 0 or input_num != 1 or \
+                    input_shift != 4 or output_num != 1 or output_shift != 4 or \
+                    any(section.payload[164:192]) or \
+                    any(section.payload[RUNTIME_DESCRIPTOR_SIZE:binary_offset]) or \
+                    runtime_accel != ACCELERATOR_CPU_REFERENCE or \
                     runtime_format != MODEL_FORMAT_CPU_INT8_V1 or alignment != 4 or \
                     persistent != CPU_PERSISTENT_SIZE_32 or scratch != CPU_WORK_SIZE:
                 raise BundleError("CPU runtime descriptor mismatch")
             _parse_cpu_binary(binary)
         else:
             npu_runtime_count += 1
-            if runtime_type != 2:
+            if rv != 2 or runtime_type != 2:
                 raise BundleError("NPU runtime type mismatch")
+            _parse_npu_regions(section.payload, binary_offset, binary_len)
             npu_accelerator = runtime_accel
     if cpu_runtime_count > 1 or npu_runtime_count > 1 or \
             cpu_runtime_count + npu_runtime_count > MAX_RUNTIMES:
@@ -1065,8 +1276,9 @@ def inspect_bundle(parsed: ParsedBundle) -> dict:
             section.alignment, section.provider, section.payload, section.name))
         values = struct.unpack_from("<HHIIIIIHHBBbbIIIIIIII", section.payload)
         binary_offset = struct.unpack_from("<I", section.payload, 160)[0]
-        runtimes.append({
+        inspected = {
             "runtime_type": "cpu-int8" if section.type == SECTION_CPU else "target-npu",
+            "descriptor_version": values[0],
             "provider_id": values[2], "accelerator_id": values[3],
             "model_format": values[4], "model_version": values[5],
             "runtime_abi": values[6], "input_shape": [values[7]],
@@ -1080,7 +1292,18 @@ def inspect_bundle(parsed: ParsedBundle) -> dict:
             "canonical_model_sha256": section.payload[64:96].hex(),
             "runtime_binary_sha256": section.payload[96:128].hex(),
             "conversion_manifest_sha256": section.payload[128:160].hex(),
-        })
+        }
+        if section.type == SECTION_NPU:
+            inspected["regions"] = _parse_npu_regions(
+                section.payload, binary_offset, values[20])
+            inspected["runtime_version"] = [
+                struct.unpack_from("<H", section.payload, 176)[0],
+                struct.unpack_from("<H", section.payload, 178)[0]]
+            inspected["runtime_variant"] = struct.unpack_from(
+                "<I", section.payload, 180)[0]
+            inspected["runtime_extra"] = struct.unpack_from(
+                "<I", section.payload, 184)[0]
+        runtimes.append(inspected)
     memory_plan = _memory_plan(len(parsed.raw), runtime_sections)
     return {
         "bundle_version": 1, "schema_id": SCHEMA_ID, "schema_version": 1,

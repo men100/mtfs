@@ -23,6 +23,9 @@
 /* USER CODE BEGIN Includes */
 
 #include "mtfs_stm32n6570_dk_platform.h"
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+#include "mtfs_stm32n6570_sentinel_npu.h"
+#endif
 
 /*
  * MX_SDMMC2_SD_Init() populates hsd2 before T-Kernel starts, but the actual
@@ -107,6 +110,12 @@ int main(void)
   MX_GPIO_Init();
   MX_SDMMC2_SD_Init();
   /* USER CODE BEGIN 2 */
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+  if (mtfs_stm32n6570_sentinel_npu_hardware_init() != MTFS_OK)
+  {
+    Error_Handler();
+  }
+#endif
   (void)mtfs_stm32n6570_dk_pre_kernel_init();
 
   void knl_start_mtkernel(void);

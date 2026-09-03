@@ -52,6 +52,9 @@ typedef struct mtfs_sentinel_lab_runtime
     mtfs_sentinel_observer_t observer;
     mtfs_sentinel_context_t sentinel;
     mtfs_sentinel_feature_v1_t frame;
+    /* Last strong-delay frame, retained after a finite evaluation run. */
+    mtfs_sentinel_feature_v1_t evaluation_frame;
+    uint8_t evaluation_frame_valid;
     FATFS filesystem;
     uint8_t workload_buffer[4096];
     char csv_line[6144];

@@ -14,6 +14,9 @@
 #include "mtfs_sentinel_recorder.h"
 #include "mtfs_stm32_sdmmc.h"
 #include "mtfs_stm32n6570_dk_platform.h"
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+#include "mtfs_stm32n6570_sentinel_inference.h"
+#endif
 
 #define LAB_TARGET_ID (UINT32_C(0x53544e36))
 #if MTFS_STM32_SD_USE_IDMA
@@ -193,6 +196,38 @@ static int run_collection(mtfs_sentinel_lab_mode_t mode, uint32_t samples,
     return mtfs_sentinel_lab_run(&lab_runtime, &config, mode, samples, seed);
 }
 
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+static int run_inference(const mtfs_sentinel_feature_v1_t *feature,
+    uint32_t iterations, int hotplug)
+{
+    mtfs_block_device_t *device = NULL;
+    FATFS filesystem;
+    int prepared = 0, registered = 0, mounted = 0, failed = 1;
+    if (feature == NULL || feature->version != MTFS_SENTINEL_SCHEMA_VERSION ||
+        feature->struct_size != sizeof(*feature)) {
+        lab_console_write(NULL,
+            "# no sampled feature; run record 1 or pseudo-collect-delay-ramp first\r\n");
+        return 1;
+    }
+    if (platform_prepare(NULL, &device) != MTFS_OK) goto cleanup;
+    prepared = 1;
+    if (mtfs_block_initialize(device) != MTFS_OK ||
+        mtfs_block_registry_register(0U, device) != MTFS_OK) goto cleanup;
+    registered = 1;
+    if (f_mount(&filesystem, "0:", 1U) != FR_OK) goto cleanup;
+    mounted = 1;
+    failed = hotplug ? mtfs_stm32n6570_sentinel_inference_hotplug_run(
+        &media_context, feature, iterations) :
+        mtfs_stm32n6570_sentinel_inference_run(&media_context, feature,
+            iterations);
+cleanup:
+    if (mounted) (void)f_mount(NULL, "0:", 0U);
+    if (registered) (void)mtfs_block_registry_unregister(0U);
+    if (prepared) platform_finish(NULL);
+    return failed;
+}
+#endif
+
 static int parse_command(const char *line, const char *expected,
     uint32_t default_first, uint32_t default_second, uint32_t *first,
     uint32_t *second)
@@ -222,7 +257,13 @@ static int lab_command(void *context, const char *line)
             "help\r\n"
             "record [samples]\r\n"
             "pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
-            "pseudo-collect-hard-fault [samples] [seed]\r\n");
+            "pseudo-collect-hard-fault [samples] [seed]\r\n"
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+            "sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
+            "sentinel-infer-pseudo-slow [iterations]  compare retained strong-delay frame\r\n"
+            "sentinel-infer-hotplug [iterations]  remove/reinsert SD during resident inference\r\n"
+#endif
+            );
 #else
         lab_console_write(NULL,
             "help    show this help\r\n"
@@ -257,6 +298,30 @@ static int lab_command(void *context, const char *line)
                 seed));
         return 1;
     }
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+    if (parse_command(line, "sentinel-infer", 10U, 0U, &samples, &seed) &&
+        samples != 0U && seed == 0U) {
+        tm_printf((UB *)"# sentinel-infer iterations=%u exit=%d\n", samples,
+            run_inference(&lab_runtime.frame, samples, 0));
+        return 1;
+    }
+    if (parse_command(line, "sentinel-infer-pseudo-slow", 10U, 0U,
+            &samples, &seed) && samples != 0U && seed == 0U) {
+        if (lab_runtime.evaluation_frame_valid == 0U)
+            lab_console_write(NULL,
+                "# no strong-delay frame; run pseudo-collect-delay-ramp first\r\n");
+        else
+            tm_printf((UB *)"# sentinel-infer-pseudo-slow iterations=%u exit=%d\n",
+                samples, run_inference(&lab_runtime.evaluation_frame, samples, 0));
+        return 1;
+    }
+    if (parse_command(line, "sentinel-infer-hotplug", 10U, 0U,
+            &samples, &seed) && samples != 0U && seed == 0U) {
+        tm_printf((UB *)"# sentinel-infer-hotplug iterations=%u exit=%d\n",
+            samples, run_inference(&lab_runtime.frame, samples, 1));
+        return 1;
+    }
+#endif
 #endif
     return 0;
 }

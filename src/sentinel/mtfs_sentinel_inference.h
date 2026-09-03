@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define MTFS_SENTINEL_INFERENCE_API_VERSION (UINT16_C(1))
+#define MTFS_SENTINEL_INFERENCE_API_VERSION (UINT16_C(2))
 #define MTFS_SENTINEL_BUNDLE_VERSION (UINT16_C(1))
 #define MTFS_SENTINEL_BUNDLE_HEADER_SIZE (32U)
 #define MTFS_SENTINEL_BUNDLE_DIRECTORY_ENTRY_SIZE (32U)
@@ -23,6 +23,8 @@ extern "C" {
 #define MTFS_SENTINEL_BUNDLE_MAX_SECTIONS (16U)
 #define MTFS_SENTINEL_BUNDLE_MAX_RUNTIMES (2U)
 #define MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE (192U)
+#define MTFS_SENTINEL_RUNTIME_REGION_ENTRY_SIZE (64U)
+#define MTFS_SENTINEL_RUNTIME_REGION_MAX_COUNT (16U)
 #define MTFS_SENTINEL_MAX_REQUIRED_RAM (UINT32_MAX)
 #define MTFS_SENTINEL_FEATURE_DIMENSION (24U)
 #define MTFS_SENTINEL_CPU_LAYER_COUNT (4U)
@@ -44,9 +46,40 @@ extern "C" {
 
 #define MTFS_SENTINEL_RUNTIME_CPU_INT8 (UINT16_C(1))
 #define MTFS_SENTINEL_RUNTIME_NPU (UINT16_C(2))
+#define MTFS_SENTINEL_RUNTIME_DESCRIPTOR_CPU_VERSION (UINT16_C(1))
+#define MTFS_SENTINEL_RUNTIME_DESCRIPTOR_NPU_VERSION (UINT16_C(2))
+#define MTFS_SENTINEL_RUNTIME_REGION_FLAG_REQUIRED (UINT16_C(1))
+#define MTFS_SENTINEL_REGION_EXECUTABLE_COPY (UINT16_C(1))
+#define MTFS_SENTINEL_REGION_ACTIVATION (UINT16_C(2))
+#define MTFS_SENTINEL_REGION_PARAMETERS (UINT16_C(3))
+#define MTFS_SENTINEL_REGION_EXTERNAL_RW (UINT16_C(4))
+#define MTFS_SENTINEL_REGION_PROVIDER_CONTEXT (UINT16_C(5))
+#define MTFS_SENTINEL_PLACEMENT_CALLER_RELATIVE (UINT16_C(1))
+#define MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE (UINT16_C(2))
+#define MTFS_SENTINEL_PLACEMENT_BINARY_CONTAINED (UINT16_C(3))
+#define MTFS_SENTINEL_PLACEMENT_PROVIDER_ASSIGNED (UINT16_C(4))
+#define MTFS_SENTINEL_REGION_ACCESS_READ (UINT32_C(1))
+#define MTFS_SENTINEL_REGION_ACCESS_WRITE (UINT32_C(2))
+#define MTFS_SENTINEL_REGION_ACCESS_EXECUTE (UINT32_C(4))
+#define MTFS_SENTINEL_REGION_LIFETIME_INSTALL (UINT32_C(1))
+#define MTFS_SENTINEL_REGION_LIFETIME_INSTANCE (UINT32_C(2))
+#define MTFS_SENTINEL_REGION_LIFETIME_INFERENCE (UINT32_C(3))
+#define MTFS_SENTINEL_REGION_REQUIRE_ZEROIZE (UINT32_C(1))
+#define MTFS_SENTINEL_REGION_REQUIRE_CACHE_COHERENCY (UINT32_C(2))
+#define MTFS_SENTINEL_REGION_REQUIRE_EXCLUSIVE (UINT32_C(4))
+#define MTFS_SENTINEL_REGION_REQUIRE_SHAREABLE (UINT32_C(8))
+#define MTFS_SENTINEL_REGION_REQUIRE_INPUT_OUTPUT_SHARED (UINT32_C(16))
+#define MTFS_SENTINEL_REGION_POLICY_OWNED (UINT32_C(1))
+#define MTFS_SENTINEL_REGION_POLICY_EXCLUSIVE (UINT32_C(2))
+#define MTFS_SENTINEL_REGION_POLICY_CACHE_MAINTENANCE (UINT32_C(4))
+#define MTFS_SENTINEL_REGION_POLICY_ALLOW_ZEROIZE (UINT32_C(8))
+#define MTFS_SENTINEL_REGION_POLICY_GLOBAL_SERIALIZATION (UINT32_C(16))
 #define MTFS_SENTINEL_DATA_TYPE_INT8 (UINT8_C(1))
 #define MTFS_SENTINEL_PROVIDER_CPU_REFERENCE (UINT32_C(0x43505552))
 #define MTFS_SENTINEL_MODEL_FORMAT_CPU_INT8_V1 (UINT32_C(0x51414531))
+#define MTFS_SENTINEL_PROVIDER_ST_NEURAL_ART_RELOC (UINT32_C(0x53544e52))
+#define MTFS_SENTINEL_ACCELERATOR_NEURAL_ART (UINT32_C(0x4e415254))
+#define MTFS_SENTINEL_MODEL_FORMAT_ST_RELOC (UINT32_C(0x5354524c))
 #define MTFS_SENTINEL_TOPOLOGY_24_12_4_12_24 (UINT32_C(0x180c040c))
 #define MTFS_SENTINEL_OUTER_MODEL_FORMAT_V1 (UINT32_C(0x534e5431))
 #define MTFS_SENTINEL_OUTER_ACCELERATOR_CPU (UINT32_C(0x43505520))
@@ -146,7 +179,62 @@ typedef struct mtfs_sentinel_runtime_info
     uint8_t canonical_model_hash[32];
     uint8_t runtime_binary_hash[32];
     uint8_t conversion_manifest_hash[32];
+    uint16_t descriptor_version;
+    uint16_t region_count;
+    uint16_t runtime_version_major;
+    uint16_t runtime_version_minor;
+    uint32_t runtime_variant;
+    uint32_t runtime_extra;
 } mtfs_sentinel_runtime_info_t;
+
+typedef struct mtfs_sentinel_runtime_region_info
+{
+    uint16_t api_version;
+    uint16_t struct_size;
+    uint16_t kind;
+    uint16_t placement;
+    uint16_t flags;
+    uint16_t reserved;
+    uint32_t region_index;
+    uint64_t logical_size;
+    uint64_t storage_size;
+    uint32_t alignment;
+    uint32_t provider_pool_id;
+    uint64_t address_or_offset;
+    uint32_t lifetime;
+    uint32_t install_access;
+    uint32_t inference_access;
+    uint32_t requirements;
+} mtfs_sentinel_runtime_region_info_t;
+
+typedef struct mtfs_sentinel_runtime_region_policy
+{
+    uint32_t provider_id;
+    uint32_t accelerator_id;
+    uint16_t kind;
+    uint16_t placement;
+    uint32_t minimum_alignment;
+    uint64_t address_minimum;
+    uint64_t address_limit;
+    uint64_t maximum_storage_size;
+    uint32_t allowed_install_access;
+    uint32_t allowed_inference_access;
+    uint32_t allowed_requirements;
+    uint32_t policy_flags;
+} mtfs_sentinel_runtime_region_policy_t;
+
+typedef struct mtfs_sentinel_runtime_policy_result
+{
+    uint16_t api_version;
+    uint16_t struct_size;
+    uint32_t region_count;
+    uint32_t accepted_mask;
+    uint32_t owned_mask;
+    uint32_t cache_maintenance_mask;
+    uint32_t zeroize_mask;
+    uint8_t global_serialization_required;
+    uint8_t reserved[7];
+} mtfs_sentinel_runtime_policy_result_t;
 
 /*
  * Outer required_ram covers this plan only. The parsed bundle/API structs,
@@ -199,6 +287,13 @@ mtfs_error_t mtfs_sentinel_bundle_runtime_get(
 mtfs_error_t mtfs_sentinel_bundle_runtime_find(
     const mtfs_sentinel_bundle_t *bundle, uint32_t provider_id,
     uint32_t accelerator_id, mtfs_sentinel_runtime_info_t *runtime);
+mtfs_error_t mtfs_sentinel_bundle_runtime_region_get(
+    const mtfs_sentinel_bundle_t *bundle, uint32_t runtime_index,
+    uint32_t region_index, mtfs_sentinel_runtime_region_info_t *region);
+mtfs_error_t mtfs_sentinel_bundle_runtime_regions_validate_policy(
+    const mtfs_sentinel_bundle_t *bundle, uint32_t runtime_index,
+    const mtfs_sentinel_runtime_region_policy_t *policies,
+    uint32_t policy_count, mtfs_sentinel_runtime_policy_result_t *result);
 mtfs_error_t mtfs_sentinel_bundle_memory_plan(
     const mtfs_sentinel_bundle_t *bundle,
     mtfs_sentinel_memory_plan_t *plan);
@@ -209,6 +304,10 @@ mtfs_error_t mtfs_sentinel_normalize_int8(
     const mtfs_sentinel_normalization_t *normalization,
     const uint32_t raw[MTFS_SENTINEL_FEATURE_DIMENSION],
     int8_t output[MTFS_SENTINEL_FEATURE_DIMENSION]);
+mtfs_error_t mtfs_sentinel_score_q8(
+    const int8_t input_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    const int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    uint64_t threshold_q8, mtfs_sentinel_inference_result_t *result);
 mtfs_error_t mtfs_sentinel_cpu_init(mtfs_sentinel_cpu_context_t *context,
     const mtfs_sentinel_bundle_t *bundle);
 /* input, output, work, and result must be pairwise non-overlapping. */

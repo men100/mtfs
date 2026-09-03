@@ -4,12 +4,14 @@
 #include <string.h>
 
 #include "mtfs_sentinel_inference.h"
+#include "mtfs_sentinel_npu_provider.h"
+#include "mtfs_sentinel_sha256.h"
 #if MTFS_ENABLE_SEALED_MODEL
 #include "mtfs_sentinel_sealed_adapter.h"
 #endif
 
 #define TEST_BUNDLE_SIZE (1762U)
-#define TEST_DUAL_BUNDLE_SIZE (2002U)
+#define TEST_DUAL_BUNDLE_SIZE (2194U)
 
 static void put16(uint8_t *p, uint16_t value)
 {
@@ -20,6 +22,11 @@ static void put32(uint8_t *p, uint32_t value)
 {
     p[0] = (uint8_t)value; p[1] = (uint8_t)(value >> 8U);
     p[2] = (uint8_t)(value >> 16U); p[3] = (uint8_t)(value >> 24U);
+}
+
+static void put64(uint8_t *p, uint64_t value)
+{
+    put32(p, (uint32_t)value); put32(p + 4U, (uint32_t)(value >> 32U));
 }
 
 static void directory(uint8_t *bundle, uint32_t index, uint16_t type,
@@ -94,24 +101,51 @@ static void make_bundle(uint8_t bundle[TEST_BUNDLE_SIZE])
 
 static void make_npu_runtime(uint8_t *runtime)
 {
-    put16(runtime, 1U); put16(runtime + 2U, 2U);
+    uint8_t *entry;
+    put16(runtime, 2U); put16(runtime + 2U, 2U);
     put32(runtime + 4U, 0x4e505250U); put32(runtime + 8U, 0x4e505531U);
     put32(runtime + 12U, 0x564e4431U); put32(runtime + 16U, 1U);
-    put32(runtime + 20U, 1U); put16(runtime + 24U, 24U);
+    put32(runtime + 20U, 0x00080000U); put16(runtime + 24U, 24U);
     put16(runtime + 26U, 24U); runtime[28] = runtime[29] = 1U;
     put32(runtime + 32U, 1U); put32(runtime + 36U, 4U);
     put32(runtime + 40U, 1U); put32(runtime + 44U, 4U);
     put32(runtime + 48U, 16U); put32(runtime + 52U, 64U);
-    put32(runtime + 56U, 128U); put32(runtime + 60U, 16U);
-    put32(runtime + 160U, 192U);
-    (void)memset(runtime + 192U, 0xa5, 16U);
+    put32(runtime + 56U, 0U); put32(runtime + 60U, 16U);
+    put32(runtime + 160U, 384U); put32(runtime + 164U, 192U);
+    put16(runtime + 168U, 3U); put16(runtime + 170U, 64U);
+    put16(runtime + 172U, 192U); put16(runtime + 176U, 8U);
+    entry = runtime + 192U;
+    put16(entry, 1U); put16(entry + 2U, MTFS_SENTINEL_REGION_EXECUTABLE_COPY);
+    put16(entry + 4U, MTFS_SENTINEL_PLACEMENT_CALLER_RELATIVE);
+    put16(entry + 6U, 1U); put64(entry + 8U, 64U); put32(entry + 16U, 16U);
+    put64(entry + 24U, 0U); put32(entry + 32U, MTFS_SENTINEL_REGION_LIFETIME_INSTANCE);
+    put32(entry + 36U, 3U); put32(entry + 40U, 5U);
+    put32(entry + 44U, MTFS_SENTINEL_REGION_REQUIRE_ZEROIZE |
+        MTFS_SENTINEL_REGION_REQUIRE_EXCLUSIVE); put64(entry + 48U, 64U);
+    entry += 64U;
+    put16(entry, 1U); put16(entry + 2U, MTFS_SENTINEL_REGION_ACTIVATION);
+    put16(entry + 4U, MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE);
+    put16(entry + 6U, 1U); put64(entry + 8U, 56U); put32(entry + 16U, 8U);
+    put64(entry + 24U, UINT64_C(0x342e0000));
+    put32(entry + 32U, MTFS_SENTINEL_REGION_LIFETIME_INSTANCE);
+    put32(entry + 36U, 2U); put32(entry + 40U, 3U);
+    put32(entry + 44U, MTFS_SENTINEL_REGION_REQUIRE_ZEROIZE |
+        MTFS_SENTINEL_REGION_REQUIRE_EXCLUSIVE |
+        MTFS_SENTINEL_REGION_REQUIRE_INPUT_OUTPUT_SHARED); put64(entry + 48U, 56U);
+    entry += 64U;
+    put16(entry, 1U); put16(entry + 2U, MTFS_SENTINEL_REGION_PARAMETERS);
+    put16(entry + 4U, MTFS_SENTINEL_PLACEMENT_BINARY_CONTAINED);
+    put16(entry + 6U, 1U); put64(entry + 8U, 8U); put32(entry + 16U, 8U);
+    put64(entry + 24U, 8U); put32(entry + 32U, MTFS_SENTINEL_REGION_LIFETIME_INSTANCE);
+    put32(entry + 36U, 1U); put32(entry + 40U, 1U); put64(entry + 48U, 8U);
+    (void)memset(runtime + 384U, 0xa5, 16U);
 }
 
 static void make_dual_bundle_ordered(
     uint8_t bundle[TEST_DUAL_BUNDLE_SIZE], int npu_first)
 {
     uint8_t cpu_bundle[TEST_BUNDLE_SIZE];
-    uint32_t cpu_offset = npu_first ? 896U : 688U;
+    uint32_t cpu_offset = npu_first ? 1088U : 688U;
     uint32_t npu_offset = npu_first ? 688U : 1792U;
     make_bundle(cpu_bundle);
     (void)memset(bundle, 0, TEST_DUAL_BUNDLE_SIZE);
@@ -123,19 +157,19 @@ static void make_dual_bundle_ordered(
     directory(bundle, 1U, 2U, 352U, 304U, 8U, 0U);
     directory(bundle, 2U, 3U, 656U, 32U, 8U, 0U);
     directory(bundle, 3U, npu_first ? 0x0101U : 0x0100U,
-        npu_first ? npu_offset : cpu_offset, npu_first ? 208U : 1104U,
+        npu_first ? npu_offset : cpu_offset, npu_first ? 400U : 1104U,
         npu_first ? 16U : 4U,
         npu_first ? 0x4e505250U : 0x43505552U);
     directory(bundle, 4U, npu_first ? 0x0100U : 0x0101U,
-        npu_first ? cpu_offset : npu_offset, npu_first ? 1104U : 208U,
+        npu_first ? cpu_offset : npu_offset, npu_first ? 1104U : 400U,
         npu_first ? 4U : 16U,
         npu_first ? 0x43505552U : 0x4e505250U);
-    directory(bundle, 5U, 4U, 2000U, 2U, 4U, 0U);
+    directory(bundle, 5U, 4U, 2192U, 2U, 4U, 0U);
     (void)memcpy(bundle + 224U, cpu_bundle + 192U, 128U);
     (void)memcpy(bundle + 352U, cpu_bundle + 320U, 304U);
     (void)memcpy(bundle + 656U, cpu_bundle + 624U, 32U);
     (void)memcpy(bundle + cpu_offset, cpu_bundle + 656U, 1104U);
-    (void)memcpy(bundle + 2000U, cpu_bundle + 1760U, 2U);
+    (void)memcpy(bundle + 2192U, cpu_bundle + 1760U, 2U);
     put32(bundle + 224U + 60U, 0x4e505531U);
     make_npu_runtime(bundle + npu_offset);
 }
@@ -156,6 +190,87 @@ static void make_feature(mtfs_sentinel_feature_v1_t *feature)
         feature->operation[op].timing_samples = 10U;
         feature->operation[op].latency_histogram[0] = 10U;
     }
+}
+
+typedef struct fake_npu
+{
+    uint8_t locked;
+    uint8_t installed;
+    uint8_t closed;
+    uint8_t zeroized;
+    uint8_t inspect_mismatch;
+    uint8_t fail_install;
+    uint8_t fail_infer;
+    uint8_t fail_close;
+    uint32_t lock_calls;
+    uint32_t install_calls;
+} fake_npu_t;
+
+static mtfs_error_t fake_inspect(void *opaque, const uint8_t *binary,
+    uint32_t binary_size, mtfs_sentinel_npu_actual_info_t *actual)
+{
+    (void)opaque;
+    if (binary == NULL || binary_size != 16U || actual == NULL)
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    (void)memset(actual, 0, sizeof(*actual));
+    actual->runtime_abi = 0x00080000U;
+    actual->copy_size = 64U; actual->copy_alignment = 16U;
+    actual->parameters_offset = 8U; actual->parameters_logical_size = 8U;
+    actual->parameters_storage_size = 8U;
+    actual->activation_address = 0x342e0000U; actual->activation_size = 56U;
+    if (((fake_npu_t *)opaque)->inspect_mismatch != 0U)
+        ++actual->copy_size;
+    return MTFS_OK;
+}
+
+static mtfs_error_t fake_install(void *opaque, const uint8_t *binary,
+    uint32_t binary_size, void *copy, uint32_t copy_size,
+    const mtfs_sentinel_runtime_info_t *runtime)
+{
+    fake_npu_t *fake = opaque;
+    if (!fake->locked || binary == NULL || binary_size != 16U ||
+        copy == NULL || copy_size != 64U || runtime == NULL ||
+        runtime->input_data_type != MTFS_SENTINEL_DATA_TYPE_INT8 ||
+        runtime->input_zero_point != 0) return MTFS_ERROR_INVALID_STATE;
+    ++fake->install_calls;
+    (void)memset(copy, 0xa5, copy_size);
+    if (fake->fail_install != 0U) return MTFS_ERROR_NOT_READY;
+    fake->installed = 1U;
+    return MTFS_OK;
+}
+
+static mtfs_error_t fake_infer(void *opaque, const int8_t input[24],
+    int8_t output[24], uint32_t timeout_ms)
+{
+    fake_npu_t *fake = opaque;
+    if (!fake->installed || timeout_ms == 0U) return MTFS_ERROR_INVALID_STATE;
+    if (fake->fail_infer != 0U) return MTFS_ERROR_NOT_READY;
+    (void)memcpy(output, input, 24U); return MTFS_OK;
+}
+
+static mtfs_error_t fake_close(void *opaque)
+{
+    fake_npu_t *fake = opaque;
+    if (!fake->installed) return MTFS_ERROR_INVALID_STATE;
+    if (fake->fail_close != 0U) return MTFS_ERROR_NOT_READY;
+    fake->installed = 0U; fake->closed = 1U; return MTFS_OK;
+}
+
+static mtfs_error_t fake_lock(void *opaque, uint32_t timeout_ms)
+{
+    fake_npu_t *fake = opaque;
+    if (fake->locked || timeout_ms == 0U) return MTFS_ERROR_INVALID_STATE;
+    ++fake->lock_calls; fake->locked = 1U; return MTFS_OK;
+}
+
+static void fake_unlock(void *opaque) { ((fake_npu_t *)opaque)->locked = 0U; }
+
+static void fake_zeroize(void *opaque, void *address, uint32_t size)
+{
+    fake_npu_t *fake = opaque;
+    if ((uintptr_t)address != UINT32_C(0x342e0000))
+        (void)memset(address, 0, size);
+    fake->zeroized = 1U;
 }
 
 static int test_alias_pair(mtfs_test_t *test,
@@ -187,6 +302,13 @@ static int test_alias_pair(mtfs_test_t *test,
 
 int test_sentinel_inference(mtfs_test_t *test)
 {
+    static const uint8_t abc_sha256[32] = {
+        0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,
+        0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
+        0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,
+        0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad
+    };
+    uint8_t sha256[32];
     uint8_t bytes[TEST_BUNDLE_SIZE], damaged[TEST_BUNDLE_SIZE], work[48];
     uint8_t dual_storage[TEST_DUAL_BUNDLE_SIZE + 31U];
     uint8_t dual_damaged_storage[TEST_DUAL_BUNDLE_SIZE + 31U];
@@ -197,18 +319,33 @@ int test_sentinel_inference(mtfs_test_t *test)
         (((uintptr_t)dual_damaged_storage + 31U) & ~(uintptr_t)31U);
     uint8_t *reversed = (uint8_t *)
         (((uintptr_t)reversed_storage + 31U) & ~(uintptr_t)31U);
-    mtfs_sentinel_bundle_policy_t policy = {1U, (uint16_t)sizeof(policy),
+    mtfs_sentinel_bundle_policy_t policy = {MTFS_SENTINEL_INFERENCE_API_VERSION,
+        (uint16_t)sizeof(policy),
         0x52413850U, 0x53504920U, 0x43505520U, 0x534e5431U, 123U, 4096U};
     mtfs_sentinel_bundle_t bundle;
     mtfs_sentinel_cpu_context_t cpu;
     mtfs_sentinel_inference_result_t result;
     mtfs_sentinel_runtime_info_t runtime_info;
+    mtfs_sentinel_runtime_region_info_t region_info;
+    mtfs_sentinel_runtime_region_policy_t region_policy[3];
+    mtfs_sentinel_runtime_policy_result_t policy_result;
+    mtfs_sentinel_npu_context_t npu_context;
+    mtfs_sentinel_npu_provider_config_t npu_config;
+    fake_npu_t fake_npu;
+    uint8_t npu_copy_storage[79];
+    uint8_t *npu_copy = (uint8_t *)(((uintptr_t)npu_copy_storage + 15U) &
+        ~(uintptr_t)15U);
     mtfs_sentinel_memory_plan_t memory_plan;
     mtfs_sentinel_normalization_t normalization;
     mtfs_sentinel_feature_v1_t feature;
     uint32_t raw[24];
     int8_t input[24], output[24];
     uint32_t i, runtime_count;
+    mtfs_error_t open_status;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_sha256("abc", 3U, sha256) == MTFS_OK &&
+            memcmp(sha256, abc_sha256, sizeof(sha256)) == 0,
+            "portable SHA-256 validates runtime binary identity")) return 1;
     make_bundle(bytes);
     if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_parse(bytes, sizeof(bytes), &policy, &bundle) == MTFS_OK,
@@ -296,7 +433,7 @@ int test_sentinel_inference(mtfs_test_t *test)
             runtime_info.provider_id == 0x4e505250U &&
             runtime_info.accelerator_id == 0x4e505531U &&
             runtime_info.model_format == 0x564e4431U &&
-            runtime_info.model_version == 1U && runtime_info.runtime_abi == 1U &&
+            runtime_info.model_version == 1U && runtime_info.runtime_abi == 0x00080000U &&
             runtime_info.input_dimension == 24U &&
             runtime_info.output_dimension == 24U &&
             runtime_info.input_data_type == MTFS_SENTINEL_DATA_TYPE_INT8 &&
@@ -309,8 +446,10 @@ int test_sentinel_inference(mtfs_test_t *test)
             runtime_info.output_scale_shift == 4U &&
             runtime_info.required_alignment == 16U &&
             runtime_info.persistent_memory == 64U &&
-            runtime_info.scratch_memory == 128U &&
-            runtime_info.binary == dual + 1984U && runtime_info.binary_size == 16U &&
+            runtime_info.scratch_memory == 0U &&
+            runtime_info.descriptor_version == 2U && runtime_info.region_count == 3U &&
+            runtime_info.runtime_version_major == 8U &&
+            runtime_info.binary == dual + 2176U && runtime_info.binary_size == 16U &&
             runtime_info.binary[0] == 0xa5U &&
             runtime_info.canonical_model_hash[0] == 0U &&
             runtime_info.runtime_binary_hash[0] == 0U &&
@@ -320,13 +459,181 @@ int test_sentinel_inference(mtfs_test_t *test)
             runtime_info.runtime_index == 1U,
             "expose a target NPU runtime without target-side directory parsing")) return 1;
     if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_bundle_runtime_region_get(&bundle, 1U, 0U,
+                &region_info) == MTFS_OK &&
+            region_info.kind == MTFS_SENTINEL_REGION_EXECUTABLE_COPY &&
+            region_info.placement == MTFS_SENTINEL_PLACEMENT_CALLER_RELATIVE &&
+            region_info.storage_size == 64U && region_info.address_or_offset == 0U &&
+            mtfs_sentinel_bundle_runtime_region_get(&bundle, 1U, 1U,
+                &region_info) == MTFS_OK &&
+            region_info.kind == MTFS_SENTINEL_REGION_ACTIVATION &&
+            region_info.placement == MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE &&
+            region_info.address_or_offset == UINT64_C(0x342e0000) &&
+            mtfs_sentinel_bundle_runtime_region_get(&bundle, 1U, 2U,
+                &region_info) == MTFS_OK &&
+            region_info.placement == MTFS_SENTINEL_PLACEMENT_BINARY_CONTAINED &&
+            mtfs_sentinel_bundle_runtime_region_get(&bundle, 1U, 3U,
+                &region_info) == MTFS_ERROR_NOT_FOUND,
+            "expose authenticated NPU v2 regions without expanding board policy")) return 1;
+    (void)memset(region_policy, 0, sizeof(region_policy));
+    for (i = 0U; i < 3U; ++i) {
+        region_policy[i].provider_id = 0x4e505250U;
+        region_policy[i].accelerator_id = 0x4e505531U;
+    }
+    region_policy[0].kind = MTFS_SENTINEL_REGION_EXECUTABLE_COPY;
+    region_policy[0].placement = MTFS_SENTINEL_PLACEMENT_CALLER_RELATIVE;
+    region_policy[0].minimum_alignment = 16U;
+    region_policy[0].address_limit = 64U;
+    region_policy[0].maximum_storage_size = 64U;
+    region_policy[0].allowed_install_access = 3U;
+    region_policy[0].allowed_inference_access = 5U;
+    region_policy[0].allowed_requirements = 5U;
+    region_policy[0].policy_flags = MTFS_SENTINEL_REGION_POLICY_OWNED |
+        MTFS_SENTINEL_REGION_POLICY_EXCLUSIVE |
+        MTFS_SENTINEL_REGION_POLICY_ALLOW_ZEROIZE |
+        MTFS_SENTINEL_REGION_POLICY_GLOBAL_SERIALIZATION;
+    region_policy[1].kind = MTFS_SENTINEL_REGION_ACTIVATION;
+    region_policy[1].placement = MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE;
+    region_policy[1].minimum_alignment = 8U;
+    region_policy[1].address_minimum = UINT64_C(0x342e0000);
+    region_policy[1].address_limit = UINT64_C(0x342e0038);
+    region_policy[1].maximum_storage_size = 56U;
+    region_policy[1].allowed_install_access = 2U;
+    region_policy[1].allowed_inference_access = 3U;
+    region_policy[1].allowed_requirements = 21U;
+    region_policy[1].policy_flags = MTFS_SENTINEL_REGION_POLICY_OWNED |
+        MTFS_SENTINEL_REGION_POLICY_EXCLUSIVE |
+        MTFS_SENTINEL_REGION_POLICY_ALLOW_ZEROIZE;
+    region_policy[2].kind = MTFS_SENTINEL_REGION_PARAMETERS;
+    region_policy[2].placement = MTFS_SENTINEL_PLACEMENT_BINARY_CONTAINED;
+    region_policy[2].minimum_alignment = 8U;
+    region_policy[2].address_minimum = 8U;
+    region_policy[2].address_limit = 16U;
+    region_policy[2].maximum_storage_size = 8U;
+    region_policy[2].allowed_install_access = 1U;
+    region_policy[2].allowed_inference_access = 1U;
+    {
+        static const mtfs_sentinel_npu_provider_ops_t fake_ops = {
+            fake_inspect, fake_install, fake_infer, fake_close, fake_lock,
+            fake_unlock, fake_zeroize
+        };
+        (void)memset(&fake_npu, 0, sizeof(fake_npu));
+        (void)memset(&npu_config, 0, sizeof(npu_config));
+        npu_config.api_version = MTFS_SENTINEL_NPU_PROVIDER_API_VERSION;
+        npu_config.struct_size = (uint16_t)sizeof(npu_config);
+        npu_config.provider_id = 0x4e505250U;
+        npu_config.accelerator_id = 0x4e505531U;
+        npu_config.ops = &fake_ops; npu_config.target = &fake_npu;
+        (void)memset(input, 0, sizeof(input)); input[0] = 8;
+        open_status = mtfs_sentinel_npu_open(&npu_context, &npu_config, &bundle, 1U,
+            npu_copy, 64U, region_policy, 3U, 100U);
+        if (!MTFS_TEST_CHECK(test, open_status != MTFS_ERROR_NOT_SUPPORTED,
+                "common provider format/policy validation")) return 1;
+        if (!MTFS_TEST_CHECK(test, open_status != MTFS_ERROR_UNSUPPORTED_FORMAT,
+                "common provider runtime-info validation")) return 1;
+        if (!MTFS_TEST_CHECK(test, open_status == MTFS_OK,
+                "common provider opens after three-way validation")) return 1;
+        if (!MTFS_TEST_CHECK(test,
+                fake_npu.locked && fake_npu.installed &&
+                mtfs_sentinel_npu_infer(&npu_context, input, output, 100U,
+                    &result) == MTFS_OK && output[0] == 8 &&
+                result.score_q8 == 0U && result.anomaly == 0U &&
+                mtfs_sentinel_npu_close(&npu_context, 100U) == MTFS_OK &&
+                !fake_npu.locked && fake_npu.closed && fake_npu.zeroized &&
+                npu_copy[0] == 0U,
+                "common provider validates, requantizes, infers, and zeroizes"))
+            return 1;
+
+        (void)memset(&fake_npu, 0, sizeof(fake_npu));
+        (void)memset(npu_copy, 0x3c, 64U);
+        fake_npu.inspect_mismatch = 1U;
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_npu_open(&npu_context, &npu_config, &bundle, 1U,
+                    npu_copy, 64U, region_policy, 3U, 100U) ==
+                    MTFS_ERROR_UNSUPPORTED_FORMAT &&
+                fake_npu.lock_calls == 0U && fake_npu.install_calls == 0U &&
+                npu_copy[0] == 0x3cU && npu_copy[63] == 0x3cU,
+                "runtime mismatch is rejected before lock, install, or memory mutation"))
+            return 1;
+
+        (void)memset(&fake_npu, 0, sizeof(fake_npu));
+        (void)memset(npu_copy, 0x3c, 64U);
+        fake_npu.fail_install = 1U;
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_npu_open(&npu_context, &npu_config, &bundle, 1U,
+                    npu_copy, 64U, region_policy, 3U, 100U) ==
+                    MTFS_ERROR_NOT_READY &&
+                fake_npu.lock_calls == 1U && fake_npu.install_calls == 1U &&
+                !fake_npu.locked && fake_npu.zeroized &&
+                npu_copy[0] == 0U && npu_copy[63] == 0U,
+                "install failure zeroizes only owned COPY memory and releases the lock"))
+            return 1;
+
+        (void)memset(&fake_npu, 0, sizeof(fake_npu));
+        (void)memset(output, 0x55, sizeof(output));
+        (void)memset(&result, 0x66, sizeof(result));
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_npu_open(&npu_context, &npu_config, &bundle, 1U,
+                    npu_copy, 64U, region_policy, 3U, 100U) == MTFS_OK,
+                "provider opens for inference failure recovery")) return 1;
+        fake_npu.fail_infer = 1U;
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_npu_infer(&npu_context, input, output, 100U,
+                    &result) == MTFS_ERROR_NOT_READY &&
+                (uint8_t)output[0] == 0x55U && (uint8_t)output[23] == 0x55U &&
+                ((const uint8_t *)(const void *)&result)[0] == 0x66U &&
+                npu_context.open && fake_npu.locked,
+                "inference failure preserves outputs and keeps explicit close ownership"))
+            return 1;
+        fake_npu.fail_infer = 0U;
+        fake_npu.fail_close = 1U;
+        fake_npu.zeroized = 0U;
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_npu_close(&npu_context, 100U) ==
+                    MTFS_ERROR_NOT_READY && npu_context.open && fake_npu.locked &&
+                !fake_npu.zeroized && npu_copy[0] == (uint8_t)0xa5U,
+                "close failure retains ownership and does not zeroize active memory"))
+            return 1;
+        fake_npu.fail_close = 0U;
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_npu_close(&npu_context, 100U) == MTFS_OK &&
+                !fake_npu.locked && fake_npu.zeroized && npu_copy[0] == 0U &&
+                mtfs_sentinel_npu_open(&npu_context, &npu_config, &bundle, 1U,
+                    npu_copy, 64U, region_policy, 3U, 100U) == MTFS_OK &&
+                mtfs_sentinel_npu_close(&npu_context, 100U) == MTFS_OK,
+                "successful retry closes, zeroizes, unlocks, and permits reopen"))
+            return 1;
+        fake_npu.zeroized = 0U;
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_requantize_q4_to_int8(1, 1U, 3U, 0,
+                    &output[0]) == MTFS_OK && output[0] == 1 &&
+                mtfs_sentinel_requantize_q4_to_int8(-1, 1U, 3U, 0,
+                    &output[0]) == MTFS_OK && output[0] == -1 &&
+                mtfs_sentinel_requantize_int8_to_q4(127, UINT32_MAX, 31U,
+                    -128, &output[0]) == MTFS_OK && output[0] == 127,
+                "requantization fixes ties away from zero and saturates")) return 1;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_bundle_runtime_regions_validate_policy(&bundle, 1U,
+                region_policy, 3U, &policy_result) == MTFS_OK &&
+            policy_result.accepted_mask == 7U && policy_result.owned_mask == 3U &&
+            policy_result.zeroize_mask == 3U &&
+            policy_result.global_serialization_required == 1U,
+            "board policy independently authorizes every NPU region")) return 1;
+    region_policy[0].allowed_inference_access = 1U;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_bundle_runtime_regions_validate_policy(&bundle, 1U,
+                region_policy, 3U, &policy_result) == MTFS_ERROR_NOT_SUPPORTED,
+            "package execute request cannot expand board policy")) return 1;
+    region_policy[0].allowed_inference_access = 5U;
+    if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK &&
             memory_plan.required_alignment == 16U &&
-            memory_plan.persistent_offset[0] == 2004U &&
-            memory_plan.persistent_offset[1] == 2048U &&
-            memory_plan.scratch_offset == 2112U &&
-            memory_plan.scratch_size == 128U && memory_plan.required_ram == 2240U,
-            "sum persistent memory and share maximum scratch for sequential comparison"))
+            memory_plan.persistent_offset[0] == 2196U &&
+            memory_plan.persistent_offset[1] == 2240U &&
+            memory_plan.scratch_offset == 2304U &&
+            memory_plan.scratch_size == 48U && memory_plan.required_ram == 2352U,
+            "count caller-relative executable but not fixed or contained regions"))
         return 1;
     make_dual_bundle_ordered(reversed, 1);
     if (!MTFS_TEST_CHECK(test,
@@ -336,7 +643,7 @@ int test_sentinel_inference(mtfs_test_t *test)
             mtfs_sentinel_bundle_runtime_get(&bundle, 0U, &runtime_info) == MTFS_OK &&
             runtime_info.runtime_type == MTFS_SENTINEL_RUNTIME_NPU &&
             runtime_info.runtime_index == 0U &&
-            runtime_info.binary == reversed + 880U &&
+            runtime_info.binary == reversed + 1072U &&
             mtfs_sentinel_bundle_runtime_find(&bundle, 0x4e505250U,
                 0x4e505531U, &runtime_info) == MTFS_OK &&
             runtime_info.runtime_index == 0U &&
@@ -348,12 +655,12 @@ int test_sentinel_inference(mtfs_test_t *test)
                 MTFS_SENTINEL_OUTER_ACCELERATOR_CPU, &runtime_info) == MTFS_OK &&
             runtime_info.runtime_index == 1U &&
             mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK &&
-            memory_plan.persistent_offset[0] == 2016U &&
+            memory_plan.persistent_offset[0] == 2208U &&
             memory_plan.persistent_size[0] == 64U &&
-            memory_plan.persistent_offset[1] == 2080U &&
+            memory_plan.persistent_offset[1] == 2272U &&
             memory_plan.persistent_size[1] == 32U &&
-            memory_plan.scratch_offset == 2112U &&
-            memory_plan.scratch_size == 128U && memory_plan.required_ram == 2240U,
+            memory_plan.scratch_offset == 2304U &&
+            memory_plan.scratch_size == 48U && memory_plan.required_ram == 2352U,
             "bind reversed NPU/CPU identity to the corresponding memory slots"))
         return 1;
     (void)memcpy(dual_damaged, dual, TEST_DUAL_BUNDLE_SIZE);
@@ -369,11 +676,11 @@ int test_sentinel_inference(mtfs_test_t *test)
                 0x4e505531U, &runtime_info) == MTFS_OK &&
             runtime_info.runtime_index == 0U &&
             mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK &&
-            memory_plan.persistent_offset[0] == 2016U &&
+            memory_plan.persistent_offset[0] == 2208U &&
             memory_plan.persistent_size[0] == 64U &&
-            memory_plan.scratch_offset == 2080U &&
-            memory_plan.scratch_size == 128U && memory_plan.required_ram == 2208U,
-            "V1 parser and API support an NPU-only runtime")) return 1;
+            memory_plan.scratch_offset == 0U &&
+            memory_plan.scratch_size == 0U && memory_plan.required_ram == 2272U,
+            "bundle v1 parser and API support an NPU descriptor v2 runtime")) return 1;
     if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_parse(dual, TEST_DUAL_BUNDLE_SIZE,
                 &policy, &bundle) == MTFS_OK &&
@@ -404,19 +711,11 @@ int test_sentinel_inference(mtfs_test_t *test)
     }
 #endif
     (void)memcpy(dual_damaged, dual, TEST_DUAL_BUNDLE_SIZE);
-    put32(dual_damaged + 32U + 4U * 32U + 12U, 32U);
-    put32(dual_damaged + 1792U + 48U, 32U);
     put32(dual_damaged + 1792U + 52U, 100U);
-    put32(dual_damaged + 1792U + 56U, 200U);
     if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_parse(dual_damaged, TEST_DUAL_BUNDLE_SIZE,
-                &policy, &bundle) == MTFS_OK &&
-            mtfs_sentinel_bundle_memory_plan(&bundle, &memory_plan) == MTFS_OK &&
-            memory_plan.required_alignment == 32U &&
-            memory_plan.persistent_offset[1] == 2048U &&
-            memory_plan.scratch_offset == 2176U &&
-            memory_plan.required_ram == 2376U,
-            "RAM plan follows changed NPU alignment, persistent, and scratch values"))
+                &policy, &bundle) == MTFS_ERROR_MALFORMED_FORMAT,
+            "reject an NPU summary that diverges from its region table"))
         return 1;
     make_bundle(bytes);
     policy.expected_accelerator_id = MTFS_SENTINEL_OUTER_ACCELERATOR_CPU;
@@ -566,10 +865,11 @@ int test_sentinel_inference(mtfs_test_t *test)
             "embedded parser rejects a misaligned runtime binary offset")) return 1;
     make_dual_bundle(dual_damaged);
     put32(dual_damaged + 1792U + 52U, UINT32_MAX);
+    put64(dual_damaged + 1792U + 192U + 48U, UINT32_MAX);
     if (!MTFS_TEST_CHECK(test,
             mtfs_sentinel_bundle_parse(dual_damaged, TEST_DUAL_BUNDLE_SIZE,
                 &policy, &bundle) == MTFS_ERROR_OVERFLOW,
-            "embedded parser rejects a V1 RAM plan overflow")) return 1;
+            "embedded parser rejects a caller-relative RAM plan overflow")) return 1;
     /* Deterministic in-process mutation fuzz smoke test: every byte decoder
      * call must terminate safely and publish only a fully valid result. */
     for (i = 0U; i < 256U; ++i) {

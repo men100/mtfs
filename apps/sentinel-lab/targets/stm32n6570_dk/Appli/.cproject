@@ -54,6 +54,14 @@
 									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_DIAGNOSTICS=1"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_STORAGE_SENTINEL=1"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
+									<listOptionValue builtIn="false" value="MTFS_STM32N6570_DK_LINKER_POLICY=1"/>
+									<listOptionValue builtIn="false" value="LL_ATON_PLATFORM=LL_ATON_PLAT_STM32N6"/>
+									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_BARE_METAL"/>
+									<listOptionValue builtIn="false" value="LL_ATON_RT_MODE=LL_ATON_RT_ASYNC"/>
+									<listOptionValue builtIn="false" value="LL_ATON_RT_RELOC"/>
+									<listOptionValue builtIn="false" value="LL_ATON_DBG_BUFFER_INFO_EXCLUDED=1"/>
 									<listOptionValue builtIn="false" value="MTFS_SENTINEL_LAB_BUILD_RELEASE=0"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths.74213989" name="Include paths (-I)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths" useByScannerDiscovery="false" valueType="includePath">
@@ -63,11 +71,14 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/CMSIS/Device/ST/STM32N6xx/Include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/STM32N6xx_HAL_Driver/Inc/Legacy}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/CMSIS/Include}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/BSP/STM32N6570-DK}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/BSP/Components/mx66uw1g45g}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/config}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/mtkernel/kernel/knlinc}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32n6570_dk}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_block}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_core}&quot;"/>
@@ -77,6 +88,12 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_common}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_sdmmc}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/sentinel_lab_application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_npu}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/STEdgeAINpu/ll_aton}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/STEdgeAINpu/Devices/STM32N6xx}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_crypto}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_sealed_blob}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_model_store}&quot;"/>
 								</option>
 								<inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c.1265952573" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c"/>
 							</tool>
@@ -108,6 +125,11 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32n6570_dk"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_npu"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="STEdgeAINpu"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_crypto"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_sealed_blob"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_model_store"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Core"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_block"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_core"/>
@@ -175,6 +197,14 @@
 									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_DIAGNOSTICS=1"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_STORAGE_SENTINEL=1"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1"/>
+									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
+									<listOptionValue builtIn="false" value="MTFS_STM32N6570_DK_LINKER_POLICY=1"/>
+									<listOptionValue builtIn="false" value="LL_ATON_PLATFORM=LL_ATON_PLAT_STM32N6"/>
+									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_BARE_METAL"/>
+									<listOptionValue builtIn="false" value="LL_ATON_RT_MODE=LL_ATON_RT_ASYNC"/>
+									<listOptionValue builtIn="false" value="LL_ATON_RT_RELOC"/>
+									<listOptionValue builtIn="false" value="LL_ATON_DBG_BUFFER_INFO_EXCLUDED=1"/>
 									<listOptionValue builtIn="false" value="MTFS_SENTINEL_LAB_BUILD_RELEASE=1"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths.16207007" name="Include paths (-I)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths" useByScannerDiscovery="false" valueType="includePath">
@@ -184,11 +214,14 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/CMSIS/Device/ST/STM32N6xx/Include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/STM32N6xx_HAL_Driver/Inc/Legacy}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/CMSIS/Include}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/BSP/STM32N6570-DK}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/CubeDrivers/BSP/Components/mx66uw1g45g}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/config}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/mtkernel/kernel/knlinc}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32n6570_dk}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_block}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_core}&quot;"/>
@@ -198,6 +231,12 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_common}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_sdmmc}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/sentinel_lab_application}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_npu}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/STEdgeAINpu/ll_aton}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/STEdgeAINpu/Devices/STM32N6xx}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_crypto}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_sealed_blob}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_model_store}&quot;"/>
 								</option>
 								<inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c.1006446782" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c"/>
 							</tool>
@@ -229,6 +268,11 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Application"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32n6570_dk"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_npu"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="STEdgeAINpu"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_stm32_crypto"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_sealed_blob"/>
+						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_model_store"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Core"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_block"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="mtfs_core"/>

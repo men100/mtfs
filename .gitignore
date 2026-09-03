@@ -82,6 +82,9 @@ apps/sentinel-lab/targets/stm32n6570_dk/Appli/Release/
 apps/sentinel-lab/targets/stm32n6570_dk/FSBL/Debug/
 apps/sentinel-lab/targets/stm32n6570_dk/FSBL/Release/
 
+# Provisioned locally from ST Edge AI Core; do not vendor the installed SDK.
+external/stm32_cube/stm32n6570_dk/Middlewares/ST/AI/Npu/
+
 # STM32N6570-DK consumer-specific debug launch configurations are shared
 !tests/targets/stm32n6570_dk/basic/FSBL/*.launch
 !apps/key-provision/targets/stm32n6570_dk/FSBL/*.launch

@@ -223,6 +223,10 @@ int mtfs_sentinel_lab_run(mtfs_sentinel_lab_runtime_t *runtime,
                 &sample_metadata);
             if (mtfs_sentinel_sample(&runtime->sentinel, &sample_metadata,
                     &runtime->frame) == MTFS_OK) {
+                if (mode == MTFS_SENTINEL_LAB_MODE_DELAY_RAMP && stage == 3U) {
+                    runtime->evaluation_frame = runtime->frame;
+                    runtime->evaluation_frame_valid = 1U;
+                }
                 dataset_metadata.actual_injection_count =
                     mtfs_sentinel_lab_injector_injection_count(
                         &runtime->injector);
