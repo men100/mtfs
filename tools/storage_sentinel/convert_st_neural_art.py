@@ -14,9 +14,9 @@ from pathlib import Path
 import numpy as np
 
 from bundle import (PLACEMENT_CALLER_RELATIVE, PLACEMENT_FIXED_ABSOLUTE,
-                    REGION_ACTIVATION,
-                    REGION_EXECUTABLE_COPY, REGION_LIFETIME_INSTANCE,
-                    REGION_PARAMETERS, canonical_float32)
+                    REGION_ACTIVATION, REGION_EXECUTABLE_COPY,
+                    REGION_LIFETIME_INSTANCE, REGION_PARAMETERS)
+from canonical_int8 import extract_tflite, rational_scale
 from dataset import load_dataset, usable_vectors
 from model import load_artifact
 from schema import canonical_json_bytes, normalize
@@ -28,16 +28,6 @@ MODEL_FORMAT_ST_RELOC = 0x5354524C  # STRL
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def rational_scale(value: float) -> tuple[int, int]:
-    if not np.isfinite(value) or value <= 0:
-        raise RuntimeError("invalid tensor scale")
-    shift = 31
-    numerator = int(np.floor(value * (1 << shift) + 0.5))
-    if not 0 < numerator <= 0xffffffff:
-        raise RuntimeError("tensor scale is outside descriptor range")
-    return numerator, shift
 
 
 def export_tflite(artifact: Path, training_dataset: Path, destination: Path) -> dict:
@@ -187,8 +177,17 @@ def main() -> None:
     output_format = quant["original_outputs"][0]["data_format"]
     input_num, input_shift = rational_scale(float(input_format["scale"][0]))
     output_num, output_shift = rational_scale(float(output_format["scale"][0]))
-    reference, _, _, _ = load_artifact(args.artifact.resolve())
-    _, _, canonical = canonical_float32(reference)
+    canonical = extract_tflite(model_path)
+    boundary_tensors = []
+    for index, layer in enumerate(canonical.layers):
+        boundary_tensors.append({"tensor": index, "shape": [int(layer.weights.shape[1])],
+            "dtype": "int8", "scale_float32_hex": struct.pack("<f", layer.input_scale).hex(),
+            "zero_point": layer.input_zero_point})
+    boundary_tensors.append({"tensor": len(canonical.layers), "shape": [24],
+        "dtype": "int8", "scale_float32_hex":
+        struct.pack("<f", canonical.output_scale).hex(),
+        "zero_point": canonical.output_zero_point})
+    source_float_hash = sha256(args.artifact.resolve() / "model.json")
     manifest = {
         "format": "mtfs-sentinel-st-neural-art-reloc-v2",
         "provider_id": PROVIDER_ST_NEURAL_ART_RELOC,
@@ -200,7 +199,7 @@ def main() -> None:
         "runtime_variant": struct.unpack_from("<I", binary_bytes, 4)[0],
         "runtime_extra": int(generated_info["compiler"]["version"]["build"]),
         "required_alignment": 8, "persistent_memory": copy_size,
-        "scratch_memory": 0, "canonical_model_sha256": hashlib.sha256(canonical).hexdigest(),
+        "scratch_memory": 0, "canonical_model_sha256": canonical.canonical_sha256.hex(),
         "runtime_binary_sha256": sha256(binary),
         "input_shape": [24], "output_shape": [24],
         "input_dtype": "int8", "output_dtype": "int8",
@@ -224,8 +223,21 @@ def main() -> None:
         "tool_versions": {"stedgeai": version,
             "atonn": generated_info["compiler"]["description"]},
         "source_tflite_sha256": sha256(model_path),
+        "source_float_model_sha256": source_float_hash,
         "training_dataset_sha256": training_hash,
         "calibration_rows": tensor["calibration_rows"],
+        "calibration_dataset_identity": {"sha256": training_hash,
+            "split": "training", "session": next((item.get("session_id") for item in
+            training_manifest.get("train_sessions", []) if
+            item.get("dataset_sha256") == training_hash), None)},
+        "input_output_shape": {"input": [24], "output": [24]},
+        "tensor_dtype": "int8", "boundary_tensors": boundary_tensors,
+        "quantization_contract_version": 2,
+        "rounding_saturation_contract":
+            "TFLite-int8-gemmlowp-rounding-fused-activation-signed-int8-saturation",
+        "score_contract": "common-Q4-reconstruction-mean-squared-error-Q8",
+        "threshold_provenance": {"source": training_manifest.get("threshold_source"),
+            "selection": "normal-validation-p95-higher; value supplied by bundle"},
         "generation_command": ["stedgeai", "generate", "-m", "sentinel_st_int8.tflite",
             "--target", "stm32n6", "--st-neural-art",
             f"{args.reloc_profile_name}@<reloc-profile>",

@@ -239,6 +239,21 @@ target_compile_options(mtfs_sentinel_inference_test PRIVATE
     -Wall -Wextra -Wpedantic)
 add_test(NAME mtfs_sentinel_inference COMMAND mtfs_sentinel_inference_test)
 
+# Artifact-driven exhaustive validation. It is run explicitly with a generated
+# canonical bundle and corpus, so ordinary source-only CTest remains hermetic.
+add_executable(mtfs_sentinel_canonical_corpus_test
+    test_sentinel_canonical_corpus.c
+    ../../src/sentinel/mtfs_sentinel_inference.c)
+target_include_directories(mtfs_sentinel_canonical_corpus_test PRIVATE
+    ../../src ../../src/sentinel)
+target_compile_definitions(mtfs_sentinel_canonical_corpus_test PRIVATE
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1)
+set_target_properties(mtfs_sentinel_canonical_corpus_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES)
+target_compile_options(mtfs_sentinel_canonical_corpus_test PRIVATE
+    -Wall -Wextra -Wpedantic)
+
 add_executable(mtfs_fattime_enabled_test
     test_fattime_symbol.c
     ../../src/core/mtfs_time.c

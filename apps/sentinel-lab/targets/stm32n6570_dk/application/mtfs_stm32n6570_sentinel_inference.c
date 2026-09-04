@@ -25,12 +25,13 @@
 #include "mtfs_stm32n6_neural_art.h"
 
 #define SENTINEL_MODEL_PATH "0:/SENTINEL.MTF"
-#define SENTINEL_PROFILE_ID (UINT32_C(0x2c9ec916))
+#define SENTINEL_PROFILE_ID (UINT32_C(0x9830ca59))
 #define SENTINEL_ARENA_SIZE (UINT32_C(32768))
 #define SENTINEL_TIMEOUT_MS (UINT32_C(2000))
 #define SENTINEL_HOTPLUG_WAIT_TICKS (UINT32_C(12000))
 #define SENTINEL_MAX_OUTPUT_ERROR_Q4 (1)
-#define SENTINEL_MAX_SCORE_ERROR_Q8 (UINT64_C(2))
+#define SENTINEL_MAX_RAW_OUTPUT_ERROR_INT8 (1)
+#define SENTINEL_MAX_SCORE_ERROR_Q8 (UINT64_C(0))
 
 #if defined(__GNUC__)
 #define SENTINEL_ALIGN32 __attribute__((aligned(32)))
@@ -278,6 +279,16 @@ static int wait_media(const mtfs_media_context_t *media, int present)
     return 1;
 }
 
+static uint32_t average_cycles_to_us(uint64_t total, uint32_t count,
+    uint32_t clock_hz)
+{
+    uint64_t average, scaled;
+    if (count == 0U || clock_hz == 0U) return 0U;
+    average = total / count;
+    scaled = average * UINT64_C(1000000);
+    return (uint32_t)((scaled + clock_hz - 1U) / clock_hz);
+}
+
 static int inference_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations,
@@ -288,11 +299,17 @@ static int inference_run(
     int8_t input[MTFS_SENTINEL_FEATURE_DIMENSION];
     int8_t cpu_output[MTFS_SENTINEL_FEATURE_DIMENSION];
     int8_t npu_output[MTFS_SENTINEL_FEATURE_DIMENSION];
+    int8_t cpu_raw_output[MTFS_SENTINEL_FEATURE_DIMENSION];
+    int8_t npu_raw_output[MTFS_SENTINEL_FEATURE_DIMENSION];
     mtfs_sentinel_inference_result_t cpu_result, npu_result;
-    uint64_t cpu_total = 0U, npu_total = 0U, start, elapsed;
-    uint64_t score_error;
-    uint32_t i, j, max_error = 0U;
-    int stage, cleanup_failed;
+    uint64_t cpu_total_cycles = 0U, npu_total_cycles = 0U;
+    uint64_t score_error = 0U;
+    uint32_t i, j, start_cycles, elapsed_cycles, max_error = 0U;
+    uint32_t max_raw_error = 0U, attempted = 0U, completed = 0U;
+    uint32_t failed = 0U, accepted = 0U, cpu_completed = 0U, npu_completed = 0U;
+    uint32_t cycle_clock_hz = mtfs_stm32n6570_dk_cycle_clock_hz();
+    uint32_t required_ram = 0U;
+    int stage, cleanup_failed, reopen_attempted = 0, reopen_passed = 0;
 
     if (media == NULL || feature == NULL || iterations == 0U) return 1;
     if (session.npu_open != 0U && session_cleanup(&session) != 0) {
@@ -310,6 +327,7 @@ static int inference_run(
             stage, cleanup_failed ? (UB *)"FAIL" : (UB *)"PASS");
         return 1;
     }
+    required_ram = session.plan.required_ram;
     if (hotplug) {
         tm_printf((UB *)"[sentinel-infer-hotplug] ACTION REQUIRED: REMOVE card; resident CPU/NPU inference will continue\n");
         if (wait_media(media, 0) != 0) stage = 19;
@@ -317,44 +335,78 @@ static int inference_run(
     if (mtfs_sentinel_feature_encode_raw(feature, raw) != MTFS_OK ||
         mtfs_sentinel_normalize_int8(&session.bundle.normalization, raw,
             input) != MTFS_OK) stage = 15;
+    if (stage == 0 && cycle_clock_hz == 0U) stage = 21;
     for (i = 0U; stage == 0 && i < iterations; ++i) {
-        start = mtfs_stm32n6570_dk_benchmark_clock_us(NULL);
-        if (mtfs_sentinel_cpu_infer(&session.cpu, input,
+        ++attempted;
+        start_cycles = mtfs_stm32n6570_dk_cycle_count();
+        if (mtfs_sentinel_cpu_infer_detailed(&session.cpu, input,
                 arena + session.plan.scratch_offset, session.plan.scratch_size,
-                cpu_output, &cpu_result) != MTFS_OK) { stage = 16; break; }
-        elapsed = mtfs_stm32n6570_dk_benchmark_clock_us(NULL) - start;
-        cpu_total += elapsed;
-        start = mtfs_stm32n6570_dk_benchmark_clock_us(NULL);
-        if (mtfs_sentinel_npu_infer(&session.npu, input, npu_output,
-                SENTINEL_TIMEOUT_MS, &npu_result) != MTFS_OK) {
-            stage = 17; break;
+                cpu_raw_output, cpu_output, &cpu_result) != MTFS_OK) {
+            stage = 16; ++failed; break;
         }
-        elapsed = mtfs_stm32n6570_dk_benchmark_clock_us(NULL) - start;
-        npu_total += elapsed;
+        elapsed_cycles = mtfs_stm32n6570_dk_cycle_count() - start_cycles;
+        cpu_total_cycles += elapsed_cycles; ++cpu_completed;
+        start_cycles = mtfs_stm32n6570_dk_cycle_count();
+        if (mtfs_sentinel_npu_infer_detailed(&session.npu, input,
+                npu_raw_output, npu_output, SENTINEL_TIMEOUT_MS,
+                &npu_result) != MTFS_OK) { stage = 17; ++failed; break; }
+        elapsed_cycles = mtfs_stm32n6570_dk_cycle_count() - start_cycles;
+        npu_total_cycles += elapsed_cycles; ++npu_completed; ++completed;
         for (j = 0U; j < MTFS_SENTINEL_FEATURE_DIMENSION; ++j) {
             int delta = (int)cpu_output[j] - (int)npu_output[j];
             uint32_t absolute = (uint32_t)(delta < 0 ? -delta : delta);
+            int raw_delta = (int)cpu_raw_output[j] - (int)npu_raw_output[j];
+            uint32_t raw_absolute = (uint32_t)(raw_delta < 0 ? -raw_delta : raw_delta);
             if (absolute > max_error) max_error = absolute;
+            if (raw_absolute > max_raw_error) max_raw_error = raw_absolute;
         }
         score_error = cpu_result.score_q8 > npu_result.score_q8 ?
             cpu_result.score_q8 - npu_result.score_q8 :
             npu_result.score_q8 - cpu_result.score_q8;
-        if (max_error > SENTINEL_MAX_OUTPUT_ERROR_Q4 ||
+        if (max_raw_error > SENTINEL_MAX_RAW_OUTPUT_ERROR_INT8 ||
+            max_error > SENTINEL_MAX_OUTPUT_ERROR_Q4 ||
             score_error > SENTINEL_MAX_SCORE_ERROR_Q8 ||
-            cpu_result.anomaly != npu_result.anomaly) { stage = 18; break; }
+            cpu_result.anomaly != npu_result.anomaly) {
+            stage = 18; ++failed; break;
+        }
+        ++accepted;
     }
     cleanup_failed = session_cleanup(&session);
-    tm_printf((UB *)"[sentinel-infer] %s iterations=%u cpu-score-q8=%u npu-score-q8=%u decision=%u/%u max-output-error-q4=%u cpu-us=%u npu-us=%u required-ram=%u cleanup=%s\n",
+    if (hotplug && cleanup_failed == 0) {
+        tm_printf((UB *)"[sentinel-infer-hotplug] ACTION REQUIRED: REINSERT card\n");
+        if (wait_media(media, 1) != 0) {
+            if (stage == 0) stage = 20;
+        } else {
+            reopen_attempted = 1;
+            (void)memset(&session, 0, sizeof(session));
+            session.media = media;
+            if (session_open(&session) != 0) {
+                if (stage == 0) stage = 22;
+            } else {
+                reopen_passed = 1;
+            }
+            if (session_cleanup(&session) != 0) cleanup_failed = 1;
+        }
+    }
+    if (stage != 0 && failed == 0U) failed = 1U;
+    if (cleanup_failed) ++failed;
+    tm_printf((UB *)"[sentinel-infer] %s attempted=%u completed=%u accepted=%u failed=%u cpu-score-q8=%u npu-score-q8=%u decision=%u/%u max-raw-error-int8=%u max-output-error-q4=%u score-error-q8=%u cpu-cycles=%u npu-cycles=%u cpu-us=%u npu-us=%u clock-hz=%u required-ram=%u cleanup=%s\n",
         stage == 0 && !cleanup_failed ? (UB *)"PASS" : (UB *)"FAIL",
-        i, (UW)cpu_result.score_q8, (UW)npu_result.score_q8,
-        cpu_result.anomaly, npu_result.anomaly, max_error,
-        i == 0U ? 0U : (UW)(cpu_total / i),
-        i == 0U ? 0U : (UW)(npu_total / i),
-        (UW)session.plan.required_ram,
+        attempted, completed, accepted, failed,
+        (UW)cpu_result.score_q8, (UW)npu_result.score_q8,
+        cpu_result.anomaly, npu_result.anomaly, max_raw_error, max_error,
+        (UW)score_error,
+        cpu_completed == 0U ? 0U : (UW)(cpu_total_cycles / cpu_completed),
+        npu_completed == 0U ? 0U : (UW)(npu_total_cycles / npu_completed),
+        average_cycles_to_us(cpu_total_cycles, cpu_completed, cycle_clock_hz),
+        average_cycles_to_us(npu_total_cycles, npu_completed, cycle_clock_hz),
+        cycle_clock_hz,
+        (UW)required_ram,
         cleanup_failed ? (UB *)"FAIL" : (UB *)"PASS");
     if (hotplug) {
-        tm_printf((UB *)"[sentinel-infer-hotplug] ACTION REQUIRED: REINSERT card\n");
-        if (wait_media(media, 1) != 0) stage = 20;
+        tm_printf((UB *)"[sentinel-infer-hotplug] reopen=%s\n",
+            reopen_attempted && reopen_passed && !cleanup_failed ?
+                (UB *)"PASS" : (UB *)"FAIL");
     }
     return stage == 0 && !cleanup_failed ? 0 : 1;
 }

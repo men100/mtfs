@@ -32,6 +32,9 @@ extern "C" {
 #define MTFS_SENTINEL_CPU_WEIGHT_COUNT (672U)
 #define MTFS_SENTINEL_CPU_BIAS_COUNT (52U)
 #define MTFS_SENTINEL_CPU_MODEL_BINARY_SIZE (912U)
+#define MTFS_SENTINEL_CPU_TFLITE_INT8_HEADER_SIZE (96U)
+#define MTFS_SENTINEL_CPU_TFLITE_LAYER_DESCRIPTOR_SIZE (48U)
+#define MTFS_SENTINEL_CPU_TFLITE_INT8_MAX_BINARY_SIZE (4096U)
 #define MTFS_SENTINEL_CPU_WORK_SIZE (48U)
 #define MTFS_SENTINEL_CPU_WORK_ALIGNMENT (1U)
 #define MTFS_SENTINEL_CPU_PERSISTENT_SIZE_32 (32U)
@@ -77,6 +80,7 @@ extern "C" {
 #define MTFS_SENTINEL_DATA_TYPE_INT8 (UINT8_C(1))
 #define MTFS_SENTINEL_PROVIDER_CPU_REFERENCE (UINT32_C(0x43505552))
 #define MTFS_SENTINEL_MODEL_FORMAT_CPU_INT8_V1 (UINT32_C(0x51414531))
+#define MTFS_SENTINEL_MODEL_FORMAT_CPU_TFLITE_INT8_V2 (UINT32_C(0x54493832))
 #define MTFS_SENTINEL_PROVIDER_ST_NEURAL_ART_RELOC (UINT32_C(0x53544e52))
 #define MTFS_SENTINEL_ACCELERATOR_NEURAL_ART (UINT32_C(0x4e415254))
 #define MTFS_SENTINEL_MODEL_FORMAT_ST_RELOC (UINT32_C(0x5354524c))
@@ -132,10 +136,9 @@ typedef struct mtfs_sentinel_cpu_context
 {
     uint16_t api_version;
     uint16_t struct_size;
-    const uint8_t *weights;
-    const uint8_t *biases;
-    uint32_t weights_size;
-    uint32_t biases_size;
+    const uint8_t *runtime;
+    uint32_t runtime_size;
+    uint32_t model_format;
     uint64_t threshold_q8;
 } mtfs_sentinel_cpu_context_t;
 
@@ -310,12 +313,25 @@ mtfs_error_t mtfs_sentinel_score_q8(
     uint64_t threshold_q8, mtfs_sentinel_inference_result_t *result);
 mtfs_error_t mtfs_sentinel_cpu_init(mtfs_sentinel_cpu_context_t *context,
     const mtfs_sentinel_bundle_t *bundle);
+/* Executes the canonical TFLite int8 domain without common-Q4 conversion. */
+mtfs_error_t mtfs_sentinel_cpu_infer_canonical_int8(
+    const mtfs_sentinel_cpu_context_t *context,
+    const int8_t input[MTFS_SENTINEL_FEATURE_DIMENSION],
+    void *work, size_t work_size,
+    int8_t output[MTFS_SENTINEL_FEATURE_DIMENSION]);
 /* input, output, work, and result must be pairwise non-overlapping. */
 mtfs_error_t mtfs_sentinel_cpu_infer(
     const mtfs_sentinel_cpu_context_t *context,
     const int8_t input[MTFS_SENTINEL_FEATURE_DIMENSION],
     void *work, size_t work_size,
     int8_t output[MTFS_SENTINEL_FEATURE_DIMENSION],
+    mtfs_sentinel_inference_result_t *result);
+mtfs_error_t mtfs_sentinel_cpu_infer_detailed(
+    const mtfs_sentinel_cpu_context_t *context,
+    const int8_t input[MTFS_SENTINEL_FEATURE_DIMENSION],
+    void *work, size_t work_size,
+    int8_t raw_output_int8[MTFS_SENTINEL_FEATURE_DIMENSION],
+    int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
     mtfs_sentinel_inference_result_t *result);
 
 #ifdef __cplusplus

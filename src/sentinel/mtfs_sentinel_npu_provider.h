@@ -107,6 +107,12 @@ mtfs_error_t mtfs_sentinel_npu_infer(mtfs_sentinel_npu_context_t *context,
     const int8_t input_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
     int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
     uint32_t timeout_ms, mtfs_sentinel_inference_result_t *result);
+mtfs_error_t mtfs_sentinel_npu_infer_detailed(
+    mtfs_sentinel_npu_context_t *context,
+    const int8_t input_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    int8_t raw_output_int8[MTFS_SENTINEL_FEATURE_DIMENSION],
+    int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    uint32_t timeout_ms, mtfs_sentinel_inference_result_t *result);
 mtfs_error_t mtfs_sentinel_npu_close(mtfs_sentinel_npu_context_t *context,
     uint32_t timeout_ms);
 mtfs_error_t mtfs_sentinel_requantize_q4_to_int8(int8_t input_q4,

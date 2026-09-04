@@ -56,6 +56,9 @@ HAL_StatusTypeDef mtfs_stm32n6570_dk_pre_kernel_init(void)
         RIFSC_RIMC_ATTRx_MSEC | RIFSC_RIMC_ATTRx_MPRIV;
 
     __HAL_RCC_RIFSC_CLK_ENABLE();
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     MODIFY_REG(
         RIFSC->RIMC_ATTRx[MTFS_STM32N6_SDMMC2_RIMC_MASTER_INDEX],
         master_mask, master_value);
@@ -66,6 +69,16 @@ HAL_StatusTypeDef mtfs_stm32n6570_dk_pre_kernel_init(void)
     __DSB();
     mtfs_stm32n6570_dk_read_rif();
     return rif_diagnostics.ready ? HAL_OK : HAL_ERROR;
+}
+
+uint32_t mtfs_stm32n6570_dk_cycle_count(void)
+{
+    return DWT->CYCCNT;
+}
+
+uint32_t mtfs_stm32n6570_dk_cycle_clock_hz(void)
+{
+    return SystemCoreClock;
 }
 
 static int mtfs_stm32n6570_dk_card_present(void *opaque)

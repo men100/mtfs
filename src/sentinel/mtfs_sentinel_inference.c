@@ -172,40 +172,116 @@ static mtfs_error_t validate_cpu_model(const uint8_t *runtime, uint32_t size)
     static const uint16_t dimensions[5] = {24U,12U,4U,12U,24U};
     if (size < MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE)
         return MTFS_ERROR_MALFORMED_FORMAT;
-    if (le16(runtime) != 1U || le16(runtime + 2U) != MTFS_SENTINEL_RUNTIME_CPU_INT8 ||
+    if (le16(runtime + 2U) != MTFS_SENTINEL_RUNTIME_CPU_INT8 ||
         le32(runtime + 4U) != MTFS_SENTINEL_PROVIDER_CPU_REFERENCE ||
         le32(runtime + 8U) != BUNDLE_ACCELERATOR_CPU ||
-        le32(runtime + 12U) != MTFS_SENTINEL_MODEL_FORMAT_CPU_INT8_V1 ||
-        le32(runtime + 16U) != 1U || le32(runtime + 20U) != 1U ||
+        le32(runtime + 20U) != 1U ||
         le16(runtime + 24U) != 24U || le16(runtime + 26U) != 24U ||
         runtime[28] != 1U || runtime[29] != 1U ||
-        runtime[30] != 0U || runtime[31] != 0U ||
-        le32(runtime + 32U) != 1U || le32(runtime + 36U) != 4U ||
-        le32(runtime + 40U) != 1U || le32(runtime + 44U) != 4U ||
         le32(runtime + 48U) != 4U ||
         le32(runtime + 52U) != MTFS_SENTINEL_CPU_PERSISTENT_SIZE_32 ||
         le32(runtime + 56U) != MTFS_SENTINEL_CPU_WORK_SIZE)
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
     binary_size = le32(runtime + 60U);
     binary_offset = le32(runtime + 160U);
-    if (binary_size != MTFS_SENTINEL_CPU_MODEL_BINARY_SIZE ||
-        binary_offset != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE ||
+    if (binary_offset != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE ||
         binary_size != size - binary_offset ||
         !all_zero(runtime + 164U, 28U))
         return MTFS_ERROR_MALFORMED_FORMAT;
     model = runtime + binary_offset;
-    if (memcmp(model, cpu_magic, sizeof(cpu_magic)) != 0 ||
-        le16(model + 8U) != 1U || le16(model + 10U) != 4U ||
-        model[22] != 7U || model[23] != 4U || model[24] != 11U ||
-        model[25] != 1U || !all_zero(model + 26U, 6U))
+    if (binary_size < 8U) return MTFS_ERROR_MALFORMED_FORMAT;
+    if (le16(runtime) == 1U &&
+        le32(runtime + 12U) == MTFS_SENTINEL_MODEL_FORMAT_CPU_INT8_V1 &&
+        le32(runtime + 16U) == 1U) {
+        if (runtime[30] != 0U || runtime[31] != 0U ||
+            le32(runtime + 32U) != 1U || le32(runtime + 36U) != 4U ||
+            le32(runtime + 40U) != 1U || le32(runtime + 44U) != 4U ||
+            binary_size != MTFS_SENTINEL_CPU_MODEL_BINARY_SIZE)
+            return MTFS_ERROR_UNSUPPORTED_FORMAT;
+        if (memcmp(model, cpu_magic, sizeof(cpu_magic)) != 0 ||
+            le16(model + 8U) != 1U || le16(model + 10U) != 4U ||
+            model[22] != 7U || model[23] != 4U || model[24] != 11U ||
+            model[25] != 1U || !all_zero(model + 26U, 6U))
+            return MTFS_ERROR_UNSUPPORTED_FORMAT;
+        for (i = 0U; i < 5U; ++i)
+            if (le16(model + 12U + i * 2U) != dimensions[i])
+                return MTFS_ERROR_UNSUPPORTED_FORMAT;
+        for (i = 0U; i < MTFS_SENTINEL_CPU_BIAS_COUNT; ++i) {
+            int32_t bias = le_i32(model + 32U + MTFS_SENTINEL_CPU_WEIGHT_COUNT + i * 4U);
+            if (bias > INT32_MAX - INT32_C(400000) ||
+                bias < INT32_MIN + INT32_C(400000)) return MTFS_ERROR_OVERFLOW;
+        }
+        return MTFS_OK;
+    }
+    if (le16(runtime) != 2U ||
+        le32(runtime + 12U) != MTFS_SENTINEL_MODEL_FORMAT_CPU_TFLITE_INT8_V2 ||
+        le32(runtime + 16U) != 2U ||
+        binary_size < MTFS_SENTINEL_CPU_TFLITE_INT8_HEADER_SIZE ||
+        binary_size > MTFS_SENTINEL_CPU_TFLITE_INT8_MAX_BINARY_SIZE ||
+        runtime[30] != model[41U] ||
+        runtime[31] != model[43U] || le32(runtime + 32U) != le32(model + 36U) ||
+        le32(runtime + 36U) != model[40U] || le32(runtime + 40U) != le32(model + 44U) ||
+        le32(runtime + 44U) != model[42U] ||
+        memcmp(model, "MTFSTI82", 8U) != 0 || le16(model + 8U) != 2U ||
+        le16(model + 10U) != 4U || model[22U] != 4U || model[23U] != 4U ||
+        le32(model + 24U) != 2U || le32(model + 28U) != binary_size ||
+        le32(model + 32U) != MTFS_SENTINEL_CPU_TFLITE_INT8_HEADER_SIZE ||
+        le32(model + 36U) == 0U || model[40U] > 31U || model[42U] > 31U ||
+        le32(model + 44U) == 0U ||
+        memcmp(model + 48U, runtime + 64U, 32U) != 0 ||
+        !all_zero(model + 80U, 16U))
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
     for (i = 0U; i < 5U; ++i)
         if (le16(model + 12U + i * 2U) != dimensions[i])
             return MTFS_ERROR_UNSUPPORTED_FORMAT;
-    for (i = 0U; i < MTFS_SENTINEL_CPU_BIAS_COUNT; ++i) {
-        int32_t bias = le_i32(model + 32U + MTFS_SENTINEL_CPU_WEIGHT_COUNT + i * 4U);
-        if (bias > INT32_MAX - INT32_C(400000) ||
-            bias < INT32_MIN + INT32_C(400000)) return MTFS_ERROR_OVERFLOW;
+    for (i = 0U; i < 4U; ++i) {
+        const uint8_t *layer = model + MTFS_SENTINEL_CPU_TFLITE_INT8_HEADER_SIZE +
+            i * MTFS_SENTINEL_CPU_TFLITE_LAYER_DESCRIPTOR_SIZE;
+        uint32_t out_count = dimensions[i + 1U], in_count = dimensions[i];
+        uint32_t offsets[6], sizes[6], j, o, n;
+        if (le16(layer) != in_count || le16(layer + 2U) != out_count ||
+            layer[4U] != (i == 3U ? 0U : 1U) || layer[5U] != 0U ||
+            !all_zero(layer + 40U, 8U)) return MTFS_ERROR_UNSUPPORTED_FORMAT;
+        if ((le32(layer + 8U) & UINT32_C(0x80000000)) != 0U ||
+            (le32(layer + 8U) & UINT32_C(0x7f800000)) == 0U ||
+            (le32(layer + 8U) & UINT32_C(0x7f800000)) == UINT32_C(0x7f800000) ||
+            (le32(layer + 12U) & UINT32_C(0x80000000)) != 0U ||
+            (le32(layer + 12U) & UINT32_C(0x7f800000)) == 0U ||
+            (le32(layer + 12U) & UINT32_C(0x7f800000)) == UINT32_C(0x7f800000))
+            return MTFS_ERROR_UNSUPPORTED_FORMAT;
+        if (i != 0U) {
+            const uint8_t *prior = layer - MTFS_SENTINEL_CPU_TFLITE_LAYER_DESCRIPTOR_SIZE;
+            if (le32(prior + 12U) != le32(layer + 8U) || prior[7U] != layer[6U])
+                return MTFS_ERROR_UNSUPPORTED_FORMAT;
+        }
+        sizes[0] = in_count * out_count; sizes[1] = out_count * 4U;
+        sizes[2] = out_count * 4U; sizes[3] = out_count;
+        sizes[4] = out_count * 4U; sizes[5] = out_count;
+        for (j = 0U; j < 6U; ++j) {
+            offsets[j] = le32(layer + 16U + j * 4U);
+            if (offsets[j] < MTFS_SENTINEL_CPU_TFLITE_INT8_HEADER_SIZE +
+                    4U * MTFS_SENTINEL_CPU_TFLITE_LAYER_DESCRIPTOR_SIZE ||
+                offsets[j] > binary_size || sizes[j] > binary_size - offsets[j])
+                return MTFS_ERROR_MALFORMED_FORMAT;
+        }
+        for (o = 0U; o < out_count; ++o) {
+            int64_t bound = le_i32(model + offsets[1] + o * 4U);
+            int32_t input_zero = (int8_t)layer[6U];
+            int32_t weight_zero = (int8_t)model[offsets[3] + o];
+            int32_t input_bound = 127 - input_zero;
+            if (input_bound < input_zero + 128) input_bound = input_zero + 128;
+            if (le_i32(model + offsets[4] + o * 4U) < 0 ||
+                (int8_t)model[offsets[5] + o] < -31 ||
+                (int8_t)model[offsets[5] + o] > 30)
+                return MTFS_ERROR_UNSUPPORTED_FORMAT;
+            bound = bound < 0 ? -bound : bound;
+            for (n = 0U; n < in_count; ++n) {
+                int32_t weight = (int8_t)model[offsets[0] + o * in_count + n] - weight_zero;
+                if (weight < 0) weight = -weight;
+                bound += (int64_t)input_bound * weight;
+            }
+            if (bound > INT32_MAX) return MTFS_ERROR_OVERFLOW;
+        }
     }
     return MTFS_OK;
 }
@@ -237,7 +313,8 @@ static mtfs_error_t validate_runtime(const uint8_t *section, uint32_t size,
         binary_offset > size || binary_size == 0U ||
         binary_size != size - binary_offset) return MTFS_ERROR_MALFORMED_FORMAT;
     if (expected_type == MTFS_SENTINEL_SECTION_CPU_INT8_RUNTIME) {
-        if (le16(section) != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_CPU_VERSION ||
+        if ((le16(section) != MTFS_SENTINEL_RUNTIME_DESCRIPTOR_CPU_VERSION &&
+             le16(section) != 2U) ||
             runtime_type != MTFS_SENTINEL_RUNTIME_CPU_INT8 ||
             !all_zero(section + MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE,
                 binary_offset - MTFS_SENTINEL_RUNTIME_DESCRIPTOR_SIZE) ||
@@ -991,20 +1068,17 @@ mtfs_error_t mtfs_sentinel_cpu_init(mtfs_sentinel_cpu_context_t *context,
     const mtfs_sentinel_bundle_t *bundle)
 {
     mtfs_sentinel_cpu_context_t initialized;
-    const uint8_t *model;
     if (context == NULL || bundle == NULL) return MTFS_ERROR_INVALID_ARGUMENT;
     if (bundle->api_version != MTFS_SENTINEL_INFERENCE_API_VERSION ||
         bundle->struct_size != sizeof(*bundle) || bundle->cpu_runtime == NULL ||
         validate_cpu_model(bundle->cpu_runtime, bundle->cpu_runtime_size) != MTFS_OK)
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
-    model = bundle->cpu_runtime + le32(bundle->cpu_runtime + 160U);
     (void)memset(&initialized, 0, sizeof(initialized));
     initialized.api_version = MTFS_SENTINEL_INFERENCE_API_VERSION;
     initialized.struct_size = (uint16_t)sizeof(initialized);
-    initialized.weights = model + MTFS_SENTINEL_CPU_MODEL_BINARY_HEADER_SIZE;
-    initialized.biases = initialized.weights + MTFS_SENTINEL_CPU_WEIGHT_COUNT;
-    initialized.weights_size = MTFS_SENTINEL_CPU_WEIGHT_COUNT;
-    initialized.biases_size = MTFS_SENTINEL_CPU_BIAS_COUNT * 4U;
+    initialized.runtime = bundle->cpu_runtime;
+    initialized.runtime_size = bundle->cpu_runtime_size;
+    initialized.model_format = le32(bundle->cpu_runtime + 12U);
     initialized.threshold_q8 = bundle->threshold_q8;
     *context = initialized;
     return MTFS_OK;
@@ -1024,30 +1098,176 @@ static int32_t round_shift7(int64_t value)
     return -(int32_t)(((uint64_t)(-(value + 1)) + 1U + 64U) / 128U);
 }
 
-mtfs_error_t mtfs_sentinel_cpu_infer(
+static int32_t tflite_high_mul(int32_t a, int32_t b)
+{
+    int64_t product, nudge;
+    if (a == INT32_MIN && b == INT32_MIN) return INT32_MAX;
+    product = (int64_t)a * b;
+    nudge = product >= 0 ? INT64_C(1073741824) : -INT64_C(1073741823);
+    product += nudge;
+    if (product >= 0) return (int32_t)(product / INT64_C(2147483648));
+    return -(int32_t)((-product) / INT64_C(2147483648));
+}
+
+static int32_t tflite_divide_pot(int32_t value, uint32_t exponent)
+{
+    int64_t denominator, base, remainder, threshold;
+    if (exponent == 0U) return value;
+    denominator = INT64_C(1) << exponent;
+    if (value >= 0) base = value / denominator;
+    else base = -(((int64_t)(-(value + 1)) + 1 + denominator - 1) / denominator);
+    remainder = (int64_t)value - base * denominator;
+    threshold = (denominator - 1) / 2 + (value < 0 ? 1 : 0);
+    return (int32_t)(base + (remainder > threshold ? 1 : 0));
+}
+
+static mtfs_error_t tflite_multiply(int32_t value, int32_t multiplier,
+    int8_t shift, int32_t *output)
+{
+    uint32_t left = shift > 0 ? (uint32_t)shift : 0U;
+    uint32_t right = shift < 0 ? (uint32_t)(-shift) : 0U;
+    int64_t shifted = (int64_t)value * (INT64_C(1) << left);
+    if (multiplier < 0 || shift < -31 || shift > 30 ||
+        shifted < INT32_MIN || shifted > INT32_MAX)
+        return MTFS_ERROR_OVERFLOW;
+    *output = tflite_divide_pot(tflite_high_mul((int32_t)shifted, multiplier), right);
+    return MTFS_OK;
+}
+
+static int8_t q4_to_canonical(int8_t value, uint32_t numerator,
+    uint32_t shift, int8_t zero_point)
+{
+    uint64_t magnitude = (uint64_t)(value < 0 ? -(int32_t)value : value) << shift;
+    uint64_t denominator = (uint64_t)numerator * 16U;
+    int64_t quantized = (int64_t)((magnitude + denominator / 2U) / denominator);
+    if (value < 0) quantized = -quantized;
+    quantized += zero_point;
+    if (quantized < -128) quantized = -128;
+    if (quantized > 127) quantized = 127;
+    return (int8_t)quantized;
+}
+
+static int8_t canonical_to_q4(int8_t value, uint32_t numerator,
+    uint32_t shift, int8_t zero_point)
+{
+    int64_t product = ((int64_t)value - zero_point) * numerator * 16U;
+    uint64_t magnitude = product < 0 ? (uint64_t)(-product) : (uint64_t)product;
+    int64_t quantized = shift == 0U ? (int64_t)magnitude :
+        (int64_t)((magnitude + (UINT64_C(1) << (shift - 1U))) >> shift);
+    if (product < 0) quantized = -quantized;
+    if (quantized < -128) quantized = -128;
+    if (quantized > 127) quantized = 127;
+    return (int8_t)quantized;
+}
+
+mtfs_error_t mtfs_sentinel_cpu_infer_canonical_int8(
     const mtfs_sentinel_cpu_context_t *context, const int8_t input[24],
-    void *work, size_t work_size, int8_t output[24],
+    void *work, size_t work_size, int8_t output[24])
+{
+    static const uint8_t dimensions[5] = {24U,12U,4U,12U,24U};
+    const uint8_t *model;
+    uint8_t *storage = (uint8_t *)work;
+    int8_t *current, *next;
+    uint32_t layer_index;
+    if (context == NULL || input == NULL || work == NULL || output == NULL)
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    if (context->api_version != MTFS_SENTINEL_INFERENCE_API_VERSION ||
+        context->struct_size != sizeof(*context) || context->runtime == NULL ||
+        context->model_format != MTFS_SENTINEL_MODEL_FORMAT_CPU_TFLITE_INT8_V2 ||
+        validate_cpu_model(context->runtime, context->runtime_size) != MTFS_OK ||
+        work_size < MTFS_SENTINEL_CPU_WORK_SIZE)
+        return MTFS_ERROR_INVALID_STATE;
+    if (ranges_overlap(input, 24U, output, 24U) ||
+        ranges_overlap(input, 24U, work, MTFS_SENTINEL_CPU_WORK_SIZE) ||
+        ranges_overlap(output, 24U, work, MTFS_SENTINEL_CPU_WORK_SIZE))
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    model = context->runtime + le32(context->runtime + 160U);
+    current = (int8_t *)storage; next = (int8_t *)(storage + 24U);
+    (void)memcpy(current, input, 24U);
+    for (layer_index = 0U; layer_index < 4U; ++layer_index) {
+        const uint8_t *layer = model + MTFS_SENTINEL_CPU_TFLITE_INT8_HEADER_SIZE +
+            layer_index * MTFS_SENTINEL_CPU_TFLITE_LAYER_DESCRIPTOR_SIZE;
+        uint32_t input_count = dimensions[layer_index];
+        uint32_t output_count = dimensions[layer_index + 1U];
+        const uint8_t *weights = model + le32(layer + 16U);
+        const uint8_t *biases = model + le32(layer + 20U);
+        const uint8_t *weight_zeros = model + le32(layer + 28U);
+        const uint8_t *multipliers = model + le32(layer + 32U);
+        const uint8_t *shifts = model + le32(layer + 36U);
+        int32_t input_zero = (int8_t)layer[6U];
+        int32_t output_zero = (int8_t)layer[7U];
+        uint32_t o, n;
+        for (o = 0U; o < output_count; ++o) {
+            int64_t accumulator = le_i32(biases + o * 4U);
+            int32_t quantized;
+            int32_t weight_zero = (int8_t)weight_zeros[o];
+            for (n = 0U; n < input_count; ++n)
+                accumulator += ((int32_t)current[n] - input_zero) *
+                    ((int32_t)(int8_t)weights[o * input_count + n] - weight_zero);
+            if (accumulator < INT32_MIN || accumulator > INT32_MAX)
+                return MTFS_ERROR_OVERFLOW;
+            if (tflite_multiply((int32_t)accumulator,
+                    le_i32(multipliers + o * 4U), (int8_t)shifts[o],
+                    &quantized) != MTFS_OK) return MTFS_ERROR_OVERFLOW;
+            {
+                int64_t adjusted = (int64_t)quantized + output_zero;
+                if (layer[4U] == 1U && adjusted < output_zero) adjusted = output_zero;
+                if (adjusted < -128) adjusted = -128;
+                if (adjusted > 127) adjusted = 127;
+                next[o] = (int8_t)adjusted;
+            }
+        }
+        { int8_t *swap = current; current = next; next = swap; }
+    }
+    (void)memcpy(output, current, 24U);
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_sentinel_cpu_infer_detailed(
+    const mtfs_sentinel_cpu_context_t *context, const int8_t input[24],
+    void *work, size_t work_size, int8_t raw_output_int8[24], int8_t output[24],
     mtfs_sentinel_inference_result_t *result)
 {
     static const uint8_t dimensions[5] = {24U,12U,4U,12U,24U};
     uint8_t *storage = (uint8_t *)work;
     int8_t *current, *next;
+    int8_t canonical_input[24], canonical_output[24];
     uint32_t layer, weight_offset = 0U, bias_offset = 0U;
     mtfs_error_t status;
-    if (context == NULL || input == NULL || work == NULL || output == NULL ||
-        result == NULL) return MTFS_ERROR_INVALID_ARGUMENT;
+    if (context == NULL || input == NULL || work == NULL || raw_output_int8 == NULL ||
+        output == NULL || result == NULL) return MTFS_ERROR_INVALID_ARGUMENT;
     if (context->api_version != MTFS_SENTINEL_INFERENCE_API_VERSION ||
-        context->struct_size != sizeof(*context) || context->weights == NULL ||
-        context->biases == NULL || context->weights_size != 672U ||
-        context->biases_size != 208U || work_size < MTFS_SENTINEL_CPU_WORK_SIZE)
+        context->struct_size != sizeof(*context) || context->runtime == NULL ||
+        work_size < MTFS_SENTINEL_CPU_WORK_SIZE)
         return MTFS_ERROR_INVALID_STATE;
     if (ranges_overlap(input, 24U, output, 24U) ||
+        ranges_overlap(input, 24U, raw_output_int8, 24U) ||
+        ranges_overlap(raw_output_int8, 24U, output, 24U) ||
+        ranges_overlap(raw_output_int8, 24U, work, MTFS_SENTINEL_CPU_WORK_SIZE) ||
+        ranges_overlap(raw_output_int8, 24U, result, sizeof(*result)) ||
         ranges_overlap(input, 24U, work, MTFS_SENTINEL_CPU_WORK_SIZE) ||
         ranges_overlap(input, 24U, result, sizeof(*result)) ||
         ranges_overlap(output, 24U, work, MTFS_SENTINEL_CPU_WORK_SIZE) ||
         ranges_overlap(result, sizeof(*result), output, 24U) ||
         ranges_overlap(result, sizeof(*result), work, MTFS_SENTINEL_CPU_WORK_SIZE))
         return MTFS_ERROR_INVALID_ARGUMENT;
+    if (context->model_format == MTFS_SENTINEL_MODEL_FORMAT_CPU_TFLITE_INT8_V2) {
+        for (layer = 0U; layer < 24U; ++layer)
+            canonical_input[layer] = q4_to_canonical(input[layer],
+                le32(context->runtime + 32U), le32(context->runtime + 36U),
+                (int8_t)context->runtime[30U]);
+        status = mtfs_sentinel_cpu_infer_canonical_int8(context, canonical_input,
+            work, work_size, canonical_output);
+        if (status != MTFS_OK) return status;
+        (void)memcpy(raw_output_int8, canonical_output, 24U);
+        for (layer = 0U; layer < 24U; ++layer)
+            output[layer] = canonical_to_q4(canonical_output[layer],
+                le32(context->runtime + 40U), le32(context->runtime + 44U),
+                (int8_t)context->runtime[31U]);
+        return mtfs_sentinel_score_q8(input, output, context->threshold_q8, result);
+    }
+    if (context->model_format != MTFS_SENTINEL_MODEL_FORMAT_CPU_INT8_V1)
+        return MTFS_ERROR_INVALID_STATE;
     current = (int8_t *)storage;
     next = (int8_t *)(storage + 24U);
     (void)memcpy(current, input, 24U);
@@ -1055,10 +1275,13 @@ mtfs_error_t mtfs_sentinel_cpu_infer(
         uint32_t in_count = dimensions[layer], out_count = dimensions[layer + 1U];
         uint32_t o, n;
         for (o = 0U; o < out_count; ++o) {
-            int64_t accumulator = le_i32(context->biases + bias_offset + o * 4U);
+            const uint8_t *model = context->runtime + le32(context->runtime + 160U);
+            const uint8_t *weights = model + MTFS_SENTINEL_CPU_MODEL_BINARY_HEADER_SIZE;
+            const uint8_t *biases = weights + MTFS_SENTINEL_CPU_WEIGHT_COUNT;
+            int64_t accumulator = le_i32(biases + bias_offset + o * 4U);
             int32_t quantized;
             for (n = 0U; n < in_count; ++n) {
-                int8_t weight = (int8_t)context->weights[
+                int8_t weight = (int8_t)weights[
                     weight_offset + n * out_count + o];
                 accumulator += (int32_t)current[n] * (int32_t)weight;
             }
@@ -1078,8 +1301,21 @@ mtfs_error_t mtfs_sentinel_cpu_infer(
         return MTFS_ERROR_INVALID_STATE;
     status = mtfs_sentinel_score_q8(input, current, context->threshold_q8, result);
     if (status != MTFS_OK) return status;
+    (void)memcpy(raw_output_int8, current, 24U);
     (void)memcpy(output, current, 24U);
     return MTFS_OK;
+}
+
+mtfs_error_t mtfs_sentinel_cpu_infer(
+    const mtfs_sentinel_cpu_context_t *context, const int8_t input[24],
+    void *work, size_t work_size, int8_t output[24],
+    mtfs_sentinel_inference_result_t *result)
+{
+    int8_t discarded_raw[24];
+    mtfs_error_t status = mtfs_sentinel_cpu_infer_detailed(context, input,
+        work, work_size, discarded_raw, output, result);
+    (void)memset(discarded_raw, 0, sizeof(discarded_raw));
+    return status;
 }
 
 mtfs_error_t mtfs_sentinel_score_q8(const int8_t input_q4[24],

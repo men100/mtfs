@@ -12,6 +12,11 @@ from typing import Iterable
 
 import numpy as np
 
+from canonical_int8 import (CPU_FORMAT_VERSION, CPU_HEADER_SIZE,
+    CPU_LAYER_DESCRIPTOR_SIZE, QUANTIZATION_CONTRACT_VERSION,
+    CanonicalInt8Error, CanonicalInt8Model, deserialize_cpu_model,
+    extract_tflite, infer_q4, rational_scale, requantize_q4_to_int8,
+    serialize_cpu_model)
 from dataset import load_dataset, sha256_file, usable_vectors
 from model import DenseAutoencoder
 from schema import (DatasetError, canonical_json_bytes, canonical_json_sha256,
@@ -35,6 +40,7 @@ MODEL_FORMAT_SENTINEL_BUNDLE_V1 = 0x534E5431
 ACCELERATOR_CPU_REFERENCE = 0x43505520
 PROVIDER_CPU_REFERENCE = 0x43505552
 MODEL_FORMAT_CPU_INT8_V1 = 0x51414531
+MODEL_FORMAT_CPU_TFLITE_INT8_V2 = 0x54493832
 TOPOLOGY_ID = 0x180C040C
 TARGET_RA = 0x52413850
 TARGET_ST = 0x53544E36
@@ -390,6 +396,92 @@ def deployment_evaluation(files: dict[str, dict], artifact: Path,
     return report, integer_threshold, clear_vectors
 
 
+def canonical_deployment_evaluation(files: dict[str, dict], artifact: Path,
+                                    model: CanonicalInt8Model,
+                                    normalization: dict) -> tuple[dict, int, dict]:
+    validation_path, heldout_path, normal_paths, eval_paths = _find_datasets(artifact, files)
+    _, validation_raw = _dataset_vectors(validation_path)
+    validation_q4 = [fixed_normalize(row, normalization) for row in validation_raw]
+    validation_scores = []
+    for qinput in validation_q4:
+        _, qoutput = infer_q4(model, qinput)
+        difference = qoutput.astype(np.int16) - qinput.astype(np.int16)
+        validation_scores.append((sum(int(value) * int(value) for value in difference) + 12) // 24)
+    threshold = int(_higher(validation_scores))
+    rows = []
+    sources = [("held-out-normal" if path == heldout_path else "normal-reference", path)
+               for path in normal_paths]
+    sources.extend(("evaluation", path) for path in eval_paths)
+    for role, path in sources:
+        dataset = load_dataset(path)
+        for row in dataset.rows:
+            from schema import deterministic_rule, encode_row
+            reasons = deterministic_rule(row)
+            if reasons:
+                rows.append({"role": role, "stage": str(row.get("stage", "")),
+                             "hard_fault": True})
+                continue
+            raw = np.asarray(encode_row(row), dtype=np.int64)
+            qinput = fixed_normalize(raw, normalization)
+            raw_output, qoutput = infer_q4(model, qinput)
+            difference = qoutput.astype(np.int16) - qinput.astype(np.int16)
+            score = (sum(int(value) * int(value) for value in difference) + 12) // 24
+            rows.append({"role": role, "stage": str(row.get("stage", "")),
+                         "hard_fault": False, "score": score,
+                         "label": score > threshold,
+                         "raw_output": raw_output.astype(int).tolist()})
+    scored = [row for row in rows if not row["hard_fault"]]
+
+    def count(selector) -> tuple[int, int]:
+        selected = [row for row in scored if selector(row)]
+        return sum(bool(row["label"]) for row in selected), len(selected)
+
+    normal = count(lambda row: row["role"] == "held-out-normal")
+    delay = count(lambda row: row["role"] == "evaluation" and
+                  row["stage"] in {"light", "medium", "strong"})
+    strong = count(lambda row: row["stage"] == "strong")
+    recovery = count(lambda row: row["stage"] == "recovery")
+    report = {
+        "format": "mtfs-sentinel-canonical-int8-evaluation-v1",
+        "validation_source": load_dataset(validation_path).session_id,
+        "threshold_selection": "normal-validation-p95-higher",
+        "integer_threshold_q8": threshold,
+        "held_out_normal_false_warning": {"count": normal[0], "total": normal[1]},
+        "delay_detection": {"count": delay[0], "total": delay[1]},
+        "strong_delay_detection": {"count": strong[0], "total": strong[1]},
+        "recovery_normal": {"count": recovery[1] - recovery[0], "total": recovery[1]},
+        "hard_fault_rule": {"count": sum(row["hard_fault"] for row in rows),
+                            "total": sum(row["hard_fault"] for row in rows)},
+        "notes": [
+            "Threshold is selected once from the normal validation session.",
+            "Calibration, held-out test, and injected evaluation rows do not tune the threshold.",
+        ],
+    }
+    clear_vectors = {}
+    for name, source in files["test_vectors.json"].items():
+        if not isinstance(source, dict) or "raw_vector" not in source:
+            continue
+        raw = np.asarray(source["raw_vector"], dtype=np.int64)
+        normalized = _float32_normalize(raw[np.newaxis, :], normalization)[0]
+        qinput = fixed_normalize(raw, normalization)
+        raw_output, qoutput = infer_q4(model, qinput)
+        canonical_input = [requantize_q4_to_int8(int(value), model.input_scale,
+                                                 model.input_zero_point)
+                           for value in qinput]
+        difference = qoutput.astype(np.int16) - qinput.astype(np.int16)
+        score = (sum(int(value) * int(value) for value in difference) + 12) // 24
+        clear_vectors[name] = {
+            "origin": "measured-dataset", "raw": source["raw_vector"],
+            "normalized_feature": normalized.astype(float).tolist(),
+            "input_q4": qinput.astype(int).tolist(),
+            "tflite_input_int8": canonical_input,
+            "tflite_raw_output_int8": raw_output.astype(int).tolist(),
+            "output_q4": qoutput.astype(int).tolist(), "score_q8": score,
+            "anomaly": score > threshold,
+        }
+    return report, threshold, clear_vectors
+
+
 def _compatibility(target: int, transport: int, profile: int, accelerator: int) -> bytes:
     data = bytearray(128)
     struct.pack_into("<HHHH", data, 0, 1, 1, len(SCHEMA_ID), 0)
@@ -468,7 +560,7 @@ def _runtime_descriptor(runtime_type: int, provider: int, accelerator: int,
                         model_format: int, model_version: int,
                         alignment: int, persistent: int, scratch: int,
                         binary: bytes, canonical_hash: bytes,
-                        conversion_hash: bytes) -> bytes:
+                        conversion_hash: bytes, descriptor_version: int = 1) -> bytes:
     if len(canonical_hash) != 32 or len(conversion_hash) != 32:
         raise BundleError("runtime hash length mismatch")
     alignment = _u32(int(alignment), "required_alignment")
@@ -480,7 +572,7 @@ def _runtime_descriptor(runtime_type: int, provider: int, accelerator: int,
     binary_offset = (RUNTIME_DESCRIPTOR_SIZE + alignment - 1) & ~(alignment - 1)
     descriptor = bytearray(binary_offset)
     struct.pack_into("<HHIIIIIHHBBbbIIIIIIII", descriptor, 0,
-        1, runtime_type, provider, accelerator, model_format, model_version, 1,
+        descriptor_version, runtime_type, provider, accelerator, model_format, model_version, 1,
         24, 24, 1, 1, 0, 0, 1, 4, 1, 4, alignment, persistent, scratch, len(binary))
     descriptor[64:96] = canonical_hash
     descriptor[96:128] = hashlib.sha256(binary).digest()
@@ -784,7 +876,9 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
                  npu_binary: Path | None = None,
                  npu_manifest: Path | None = None,
                  profile_id: int | None = None,
-                 expected_accelerator: int | None = None) -> tuple[bytes, dict]:
+                 expected_accelerator: int | None = None,
+                 canonical_tflite: Path | None = None,
+                 npu_acceptance: Path | None = None) -> tuple[bytes, dict]:
     artifact = artifact.resolve()
     files = _artifact_files(artifact)
     manifest = files["training_manifest.json"]
@@ -798,38 +892,72 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         raise BundleError("normalization target/transport mismatch")
     if files["artifact_index.json"].get("feature_schema_canonical_sha256") != SCHEMA_HASH.hex():
         raise BundleError("artifact schema identity mismatch")
-    model64 = DenseAutoencoder.from_dict(files["model.json"])
-    weights32, biases32, canonical_bytes = canonical_float32(model64)
-    canonical_hash = hashlib.sha256(canonical_bytes).digest()
-    quantized = quantize_model(weights32, biases32)
-    evaluation, threshold, clear_vectors = deployment_evaluation(
-        files, artifact, model64, weights32, biases32, quantized, normalization)
+    if canonical_tflite is None:
+        raise BundleError("canonical full-int8 TFLite is required")
+    canonical_tflite = canonical_tflite.resolve()
+    if not canonical_tflite.is_file():
+        raise BundleError("canonical full-int8 TFLite does not exist")
+    try:
+        canonical_model = extract_tflite(canonical_tflite)
+    except CanonicalInt8Error as error:
+        raise BundleError(str(error)) from error
+    canonical_hash = canonical_model.canonical_sha256
+    evaluation, threshold, clear_vectors = canonical_deployment_evaluation(
+        files, artifact, canonical_model, normalization)
     if profile_id is None:
         profile_id = int.from_bytes(canonical_hash[:4], "little") or 1
     profile_id = _u32(profile_id, "profile_id")
-    cpu_binary = _cpu_binary(quantized)
+    cpu_binary = serialize_cpu_model(canonical_model)
+    input_num, input_shift = rational_scale(canonical_model.input_scale)
+    output_num, output_shift = rational_scale(canonical_model.output_scale)
+    boundary_tensors = []
+    for index, layer in enumerate(canonical_model.layers):
+        boundary_tensors.append({
+            "tensor": index, "shape": [DIMENSIONS[index]], "dtype": "int8",
+            "scale_float32_hex": struct.pack("<f", layer.input_scale).hex(),
+            "zero_point": layer.input_zero_point,
+        })
+    boundary_tensors.append({
+        "tensor": len(canonical_model.layers), "shape": [DIMENSIONS[-1]],
+        "dtype": "int8",
+        "scale_float32_hex": struct.pack("<f", canonical_model.output_scale).hex(),
+        "zero_point": canonical_model.output_zero_point,
+    })
+    training_entries = manifest.get("train_sessions", [])
     conversion = {
-        "format": "mtfs-sentinel-cpu-int8-conversion-v1",
-        "source_model_sha256": sha256_file(artifact / "model.json"),
-        "canonical_float32_sha256": canonical_hash.hex(),
-        "activation": "signed-int8-q4-symmetric-zero-point-0",
-        "weight": "signed-int8-q7-per-tensor-symmetric-zero-point-0",
-        "bias_accumulator": "signed-int32-q11",
-        "requantization": "round-nearest-ties-away-from-zero-shift-7",
-        "hidden": "relu-then-int8-saturate",
-        "output": "linear-int8-saturate",
-        "calibration": "normal-training-and-validation-only",
+        "format": "mtfs-sentinel-cpu-tflite-int8-conversion-v2",
+        "generator_version": TOOL_VERSION,
+        "source_float_model_sha256": sha256_file(artifact / "model.json"),
+        "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+        "calibration_dataset_identity": training_entries,
+        "input_shape": [24], "output_shape": [24],
+        "tensor_dtype": "int8", "boundary_tensors": boundary_tensors,
+        "quantization_contract_version": QUANTIZATION_CONTRACT_VERSION,
+        "rounding": "TFLite-gemmlowp-SaturatingRoundingDoublingHighMul-and-RoundingDivideByPOT",
+        "saturation": "signed-int8-clamp-after-output-zero-point-and-fused-activation",
+        "score_contract": "mean-squared-error-common-Q4-round-nearest",
+        "threshold_provenance": {
+            "source": manifest.get("threshold_source"),
+            "selection": "normal-validation-p95-higher", "threshold_q8": threshold,
+        },
     }
     conversion_hash = hashlib.sha256(canonical_json_bytes(conversion)).digest()
     runtime_sections: list[Section] = []
     if include_cpu:
         descriptor = _runtime_descriptor(1, PROVIDER_CPU_REFERENCE,
-            ACCELERATOR_CPU_REFERENCE, MODEL_FORMAT_CPU_INT8_V1, 1, 4,
+            ACCELERATOR_CPU_REFERENCE, MODEL_FORMAT_CPU_TFLITE_INT8_V2,
+            CPU_FORMAT_VERSION, 4,
             CPU_PERSISTENT_SIZE_32,
-            CPU_WORK_SIZE, cpu_binary, canonical_hash, conversion_hash)
+            CPU_WORK_SIZE, cpu_binary, canonical_hash, conversion_hash,
+            descriptor_version=2)
+        descriptor = bytearray(descriptor)
+        descriptor[30] = canonical_model.input_zero_point & 0xff
+        descriptor[31] = canonical_model.output_zero_point & 0xff
+        struct.pack_into("<IiIi", descriptor, 32, input_num, input_shift,
+                         output_num, output_shift)
         runtime_sections.append(Section(SECTION_CPU, SECTION_REQUIRED, 4,
                                         PROVIDER_CPU_REFERENCE,
-                                        descriptor + cpu_binary, "cpu_runtime"))
+                                        bytes(descriptor) + cpu_binary, "cpu_runtime"))
     npu_info = None
     if (npu_binary is None) != (npu_manifest is None):
         raise BundleError("NPU binary and manifest must be supplied together")
@@ -839,6 +967,23 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         runtime_sections.append(Section(SECTION_NPU, SECTION_REQUIRED,
                                         int(npu_info["required_alignment"]),
                                         provider, runtime, f"npu_runtime_{provider:08x}"))
+    acceptance = None
+    if npu_info is not None:
+        if npu_acceptance is None:
+            raise BundleError("pre-fixed NPU acceptance contract is required")
+        acceptance_path = npu_acceptance.resolve()
+        acceptance = _json(acceptance_path)
+        limits = acceptance.get("fixed_limits")
+        if acceptance.get("format") != "mtfs-sentinel-neural-art-acceptance-v1" or \
+                acceptance.get("status") != "PASS" or \
+                acceptance.get("canonical_full_int8_tflite_sha256") != canonical_hash.hex() or \
+                acceptance.get("npu_runtime_binary_sha256") != npu_info["runtime_binary_sha256"] or \
+                acceptance.get("conversion_manifest_sha256") != \
+                    npu_info["conversion_manifest_sha256"] or \
+                not isinstance(limits, dict) or \
+                limits.get("decision_must_match") is not True or \
+                acceptance.get("held_out_test", {}).get("violations") != 0:
+            raise BundleError("NPU acceptance contract mismatch")
     if not runtime_sections:
         raise BundleError("at least one CPU or NPU runtime is required")
     if npu_info is not None:
@@ -864,10 +1009,13 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         "schema_canonical_sha256": SCHEMA_HASH.hex(),
         "source_artifact": {name: sha256_file(artifact / name)
                             for name in sorted(files) if (artifact / name).is_file()},
-        "canonical_float32_sha256": canonical_hash.hex(),
-        "canonical_float32_bytes": len(canonical_bytes),
+        "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+        "canonical_full_int8_tflite_bytes": canonical_tflite.stat().st_size,
         "cpu_runtime_binary_sha256": hashlib.sha256(cpu_binary).hexdigest(),
         "cpu_conversion_manifest": conversion,
+        "npu_acceptance_contract": acceptance,
+        "npu_acceptance_contract_sha256": (sha256_file(npu_acceptance.resolve())
+            if npu_acceptance is not None else None),
         "section_sha256": fixed_hashes,
         "evaluation": evaluation,
         "test_vectors": clear_vectors,
@@ -890,8 +1038,7 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
             "plain_bundle": "integrity is not established without the outer sealed-package AEAD",
         },
         "limitations": [
-            "NPU binary semantic equivalence is not established by hashes.",
-            "NPU golden-vector execution is deferred to Phase 4.3C-ST/RA.",
+            "NPU binary semantic equivalence requires the separately fixed offline acceptance report.",
             "A 672-MAC model is not assumed to run faster on an NPU than a CPU.",
             "Secure deletion of the plaintext bundle is not guaranteed or automatic.",
         ],
@@ -907,13 +1054,14 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         "transport_id": transport, "accelerator_id": accelerator,
         "model_format": MODEL_FORMAT_SENTINEL_BUNDLE_V1,
         "profile_id": profile_id, "runtime_count": len(runtime_sections),
-        "canonical_float32_sha256": canonical_hash.hex(),
+        "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
         "cpu_runtime_binary_sha256": hashlib.sha256(cpu_binary).hexdigest(),
         "integer_threshold_q8": threshold, "section_sha256": hashes,
         "minimum_required_ram_32bit": memory_plan["required_ram"],
         "required_alignment": memory_plan["required_alignment"],
         "memory_plan": memory_plan,
         "evaluation": evaluation,
+        "npu_acceptance": acceptance,
     }
     return bundle, summary
 
@@ -1106,16 +1254,23 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
             raise BundleError("runtime binary hash mismatch")
         if section.type == SECTION_CPU:
             cpu_runtime_count += 1
-            if rv != 1 or runtime_type != 1 or runtime_abi != 1 or \
-                    input_zero != 0 or output_zero != 0 or input_num != 1 or \
-                    input_shift != 4 or output_num != 1 or output_shift != 4 or \
+            legacy = (rv == 1 and runtime_format == MODEL_FORMAT_CPU_INT8_V1 and
+                      model_version == 1 and input_zero == 0 and output_zero == 0 and
+                      input_num == 1 and input_shift == 4 and output_num == 1 and
+                      output_shift == 4)
+            canonical = (rv == 2 and runtime_format == MODEL_FORMAT_CPU_TFLITE_INT8_V2 and
+                          model_version == CPU_FORMAT_VERSION)
+            if runtime_type != 1 or runtime_abi != 1 or not (legacy or canonical) or \
                     any(section.payload[164:192]) or \
                     any(section.payload[RUNTIME_DESCRIPTOR_SIZE:binary_offset]) or \
                     runtime_accel != ACCELERATOR_CPU_REFERENCE or \
-                    runtime_format != MODEL_FORMAT_CPU_INT8_V1 or alignment != 4 or \
+                    alignment != 4 or \
                     persistent != CPU_PERSISTENT_SIZE_32 or scratch != CPU_WORK_SIZE:
                 raise BundleError("CPU runtime descriptor mismatch")
-            _parse_cpu_binary(binary)
+            parsed_cpu = _parse_cpu_binary(binary)
+            if canonical and (not isinstance(parsed_cpu, CanonicalRuntimeModel) or
+                              parsed_cpu.model.canonical_sha256 != section.payload[64:96]):
+                raise BundleError("CPU canonical model hash mismatch")
         else:
             npu_runtime_count += 1
             if rv != 2 or runtime_type != 2:
@@ -1140,7 +1295,8 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
             provenance.get("format") != "mtfs-sentinel-provenance-v1" or \
             provenance.get("schema_canonical_sha256") != SCHEMA_HASH.hex():
         raise BundleError("provenance identity mismatch")
-    canonical_digest = provenance.get("canonical_float32_sha256")
+    canonical_digest = provenance.get("canonical_full_int8_tflite_sha256",
+                                      provenance.get("canonical_float32_sha256"))
     if canonical_digest is not None and (
             not isinstance(canonical_digest, str) or len(canonical_digest) != 64 or
             any(value.hex() != canonical_digest for value in runtime_canonical_hashes)):
@@ -1161,7 +1317,25 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
                         "inverse_std_q20": inverses}, dvalues[8], sections, provenance)
 
 
-def _parse_cpu_binary(binary: bytes) -> QuantizedModel:
+@dataclass(frozen=True)
+class CanonicalRuntimeModel:
+    model: CanonicalInt8Model
+
+    def infer(self, values: np.ndarray) -> np.ndarray:
+        return infer_q4(self.model, values)[1]
+
+    def score(self, values: np.ndarray) -> int:
+        output = self.infer(values).astype(np.int16)
+        difference = output - np.asarray(values, dtype=np.int16)
+        return (sum(int(value) * int(value) for value in difference) + 12) // 24
+
+
+def _parse_cpu_binary(binary: bytes) -> QuantizedModel | CanonicalRuntimeModel:
+    if binary[:8] == b"MTFSTI82":
+        try:
+            return CanonicalRuntimeModel(deserialize_cpu_model(binary))
+        except CanonicalInt8Error as error:
+            raise BundleError(str(error)) from error
     if len(binary) != CPU_MODEL_BINARY_SIZE or binary[:8] != b"MTFSQAE1" or \
             struct.unpack_from("<HH5H", binary, 8) != (1, 4, *DIMENSIONS) or \
             binary[22:26] != bytes((7, 4, 11, 1)) or any(binary[26:32]):
@@ -1250,6 +1424,27 @@ def verify_bundle(parsed: ParsedBundle) -> dict:
     runtime_sections = [Section(section.type, section.flags, section.alignment,
         section.provider, section.payload, section.name) for section in parsed.sections
         if section.type in {SECTION_CPU, SECTION_NPU}]
+    npu_sections = [section for section in parsed.sections
+                    if section.type == SECTION_NPU]
+    npu_semantic_equivalence = "not-applicable"
+    if npu_sections:
+        acceptance = parsed.provenance.get("npu_acceptance_contract")
+        acceptance_hash = parsed.provenance.get("npu_acceptance_contract_sha256")
+        npu = npu_sections[0].payload
+        limits = acceptance.get("fixed_limits") if isinstance(acceptance, dict) else None
+        held_out = acceptance.get("held_out_test") if isinstance(acceptance, dict) else None
+        if not isinstance(acceptance, dict) or \
+                acceptance.get("format") != "mtfs-sentinel-neural-art-acceptance-v1" or \
+                acceptance.get("status") != "PASS" or \
+                acceptance.get("canonical_full_int8_tflite_sha256") != npu[64:96].hex() or \
+                acceptance.get("npu_runtime_binary_sha256") != npu[96:128].hex() or \
+                acceptance.get("conversion_manifest_sha256") != npu[128:160].hex() or \
+                not isinstance(limits, dict) or limits.get("decision_must_match") is not True or \
+                not isinstance(held_out, dict) or held_out.get("violations") != 0 or \
+                not isinstance(acceptance_hash, str) or \
+                hashlib.sha256(canonical_json_bytes(acceptance)).hexdigest() != acceptance_hash:
+            raise BundleError("NPU offline acceptance provenance mismatch")
+        npu_semantic_equivalence = "offline-acceptance-verified; hardware-pending"
     memory_plan = _memory_plan(len(parsed.raw), runtime_sections)
     return {
         "status": "verified", "bundle_sha256": hashlib.sha256(parsed.raw).hexdigest(),
@@ -1262,7 +1457,7 @@ def verify_bundle(parsed: ParsedBundle) -> dict:
         "required_alignment": memory_plan["required_alignment"],
         "cpu_test_vectors_verified": vectors_verified,
         "arithmetic_vectors_verified": arithmetic_vectors_verified,
-        "npu_semantic_equivalence": "deferred-to-Phase-4.3C-ST/RA-hardware-golden-vectors",
+        "npu_semantic_equivalence": npu_semantic_equivalence,
     }
 
 
