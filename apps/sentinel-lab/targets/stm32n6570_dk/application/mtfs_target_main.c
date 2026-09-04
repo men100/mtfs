@@ -226,6 +226,104 @@ cleanup:
     if (prepared) platform_finish(NULL);
     return failed;
 }
+
+static int run_inference_vector(const int8_t input_q4[24], uint32_t iterations)
+{
+    mtfs_block_device_t *device = NULL;
+    FATFS filesystem;
+    int prepared = 0, registered = 0, mounted = 0, failed = 1;
+    if (input_q4 == NULL || iterations == 0U) return 1;
+    if (platform_prepare(NULL, &device) != MTFS_OK) goto cleanup;
+    prepared = 1;
+    if (mtfs_block_initialize(device) != MTFS_OK ||
+        mtfs_block_registry_register(0U, device) != MTFS_OK) goto cleanup;
+    registered = 1;
+    if (f_mount(&filesystem, "0:", 1U) != FR_OK) goto cleanup;
+    mounted = 1;
+    failed = mtfs_stm32n6570_sentinel_inference_vector_run(
+        &media_context, input_q4, iterations);
+cleanup:
+    if (mounted) (void)f_mount(NULL, "0:", 0U);
+    if (registered) (void)mtfs_block_registry_unregister(0U);
+    if (prepared) platform_finish(NULL);
+    return failed;
+}
+
+static int hex_nibble(char character)
+{
+    if (character >= '0' && character <= '9') return character - '0';
+    if (character >= 'a' && character <= 'f') return character - 'a' + 10;
+    if (character >= 'A' && character <= 'F') return character - 'A' + 10;
+    return -1;
+}
+
+static int base64url_value(char character)
+{
+    if (character >= 'A' && character <= 'Z') return character - 'A';
+    if (character >= 'a' && character <= 'z') return character - 'a' + 26;
+    if (character >= '0' && character <= '9') return character - '0' + 52;
+    if (character == '-') return 62;
+    if (character == '_') return 63;
+    return -1;
+}
+
+static int8_t signed_byte(unsigned int value)
+{
+    return (int8_t)(value < 128U ? (int)value : (int)value - 256);
+}
+
+static int parse_inference_vector(const char *line, int8_t input_q4[24],
+    uint32_t *iterations)
+{
+    char command[40], hexadecimal[49], extra;
+    unsigned int parsed_iterations = 10U;
+    size_t index;
+    int fields = sscanf(line, "%39s %48s %u %c", command, hexadecimal,
+        &parsed_iterations, &extra);
+    if ((fields != 2 && fields != 3) ||
+        (strcmp(command, "sentinel-infer-vector") != 0 &&
+         strcmp(command, "siv") != 0) ||
+        strlen(hexadecimal) != 48U || parsed_iterations == 0U)
+        return 0;
+    for (index = 0U; index < 24U; ++index) {
+        int high = hex_nibble(hexadecimal[index * 2U]);
+        int low = hex_nibble(hexadecimal[index * 2U + 1U]);
+        unsigned int byte;
+        if (high < 0 || low < 0) return 0;
+        byte = (unsigned int)high << 4U | (unsigned int)low;
+        input_q4[index] = signed_byte(byte);
+    }
+    *iterations = (uint32_t)parsed_iterations;
+    return 1;
+}
+
+static int parse_inference_vector_base64(const char *line,
+    int8_t input_q4[24], uint32_t *iterations)
+{
+    char command[40], encoded[33], extra;
+    unsigned int parsed_iterations = 10U;
+    size_t group;
+    int fields = sscanf(line, "%39s %32s %u %c", command, encoded,
+        &parsed_iterations, &extra);
+    if ((fields != 2 && fields != 3) || strcmp(command, "sivb") != 0 ||
+        strlen(encoded) != 32U || parsed_iterations == 0U)
+        return 0;
+    for (group = 0U; group < 8U; ++group) {
+        int a = base64url_value(encoded[group * 4U]);
+        int b = base64url_value(encoded[group * 4U + 1U]);
+        int c = base64url_value(encoded[group * 4U + 2U]);
+        int d = base64url_value(encoded[group * 4U + 3U]);
+        unsigned int value;
+        if (a < 0 || b < 0 || c < 0 || d < 0) return 0;
+        value = (unsigned int)a << 18U | (unsigned int)b << 12U |
+            (unsigned int)c << 6U | (unsigned int)d;
+        input_q4[group * 3U] = signed_byte((value >> 16U) & 0xffU);
+        input_q4[group * 3U + 1U] = signed_byte((value >> 8U) & 0xffU);
+        input_q4[group * 3U + 2U] = signed_byte(value & 0xffU);
+    }
+    *iterations = (uint32_t)parsed_iterations;
+    return 1;
+}
 #endif
 
 static int parse_command(const char *line, const char *expected,
@@ -249,6 +347,9 @@ static int lab_command(void *context, const char *line)
 {
 #if MTFS_ENABLE_STORAGE_SENTINEL
     uint32_t samples, seed;
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+    int8_t input_q4[24];
+#endif
 #endif
     (void)context;
     if (strcmp(line, "help") == 0) {
@@ -262,6 +363,9 @@ static int lab_command(void *context, const char *line)
             "sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
             "sentinel-infer-pseudo-slow [iterations]  compare retained strong-delay frame\r\n"
             "sentinel-infer-hotplug [iterations]  remove/reinsert SD during resident inference\r\n"
+            "sentinel-infer-vector HEX48 [iterations]  compare an exact common-Q4 vector\r\n"
+            "siv HEX48 [iterations]  short alias for sentinel-infer-vector\r\n"
+            "sivb BASE64URL32 [iterations]  compact exact common-Q4 vector\r\n"
 #endif
             );
 #else
@@ -319,6 +423,18 @@ static int lab_command(void *context, const char *line)
             &samples, &seed) && samples != 0U && seed == 0U) {
         tm_printf((UB *)"# sentinel-infer-hotplug iterations=%u exit=%d\n",
             samples, run_inference(&lab_runtime.frame, samples, 1));
+        return 1;
+    }
+    if (parse_inference_vector(line, input_q4, &samples)) {
+        tm_printf((UB *)"# sentinel-infer-vector iterations=%u exit=%d\n",
+            samples, run_inference_vector(input_q4, samples));
+        (void)memset(input_q4, 0, sizeof(input_q4));
+        return 1;
+    }
+    if (parse_inference_vector_base64(line, input_q4, &samples)) {
+        tm_printf((UB *)"# sivb iterations=%u exit=%d\n", samples,
+            run_inference_vector(input_q4, samples));
+        (void)memset(input_q4, 0, sizeof(input_q4));
         return 1;
     }
 #endif

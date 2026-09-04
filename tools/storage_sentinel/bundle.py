@@ -872,6 +872,63 @@ def _parse_npu_regions(payload: bytes, binary_offset: int,
     return regions
 
 
+def _validate_npu_acceptance(acceptance: dict, canonical_hash: bytes,
+                             npu_info: dict, threshold_q8: int) -> None:
+    """Validate the authenticated NPU numerical contract embedded in provenance."""
+    if not isinstance(acceptance, dict) or acceptance.get("status") != "PASS" or \
+            acceptance.get("canonical_full_int8_tflite_sha256") != canonical_hash.hex() or \
+            acceptance.get("npu_runtime_binary_sha256") != npu_info["runtime_binary_sha256"] or \
+            acceptance.get("conversion_manifest_sha256") != \
+                npu_info["conversion_manifest_sha256"]:
+        raise BundleError("NPU acceptance contract mismatch")
+
+    held_out = acceptance.get("held_out_test")
+    if not isinstance(held_out, dict) or held_out.get("violations") != 0:
+        raise BundleError("NPU acceptance contract mismatch")
+
+    if acceptance.get("format") == "mtfs-sentinel-neural-art-acceptance-v1":
+        limits = acceptance.get("fixed_limits")
+        if not isinstance(limits, dict) or limits.get("decision_must_match") is not True:
+            raise BundleError("NPU acceptance contract mismatch")
+        return
+
+    if acceptance.get("format") != "mtfs-sentinel-neural-art-acceptance-v2":
+        raise BundleError("NPU acceptance contract mismatch")
+    core = acceptance.get("contract_core")
+    core_hash = acceptance.get("contract_core_sha256")
+    if not isinstance(core, dict) or not isinstance(core_hash, str) or \
+            hashlib.sha256(canonical_json_bytes(core)).hexdigest() != core_hash or \
+            held_out.get("contract_core_sha256") != core_hash or \
+            held_out.get("vectors") != 300:
+        raise BundleError("NPU acceptance contract mismatch")
+    if core.get("format") != "mtfs-sentinel-neural-art-acceptance-core-v2" or \
+            core.get("contract_version") != 2 or core.get("status") != "FROZEN" or \
+            core.get("canonical_full_int8_tflite_sha256") != canonical_hash.hex() or \
+            core.get("npu_runtime_binary_sha256") != npu_info["runtime_binary_sha256"] or \
+            core.get("conversion_manifest_sha256") != npu_info["conversion_manifest_sha256"]:
+        raise BundleError("NPU acceptance contract mismatch")
+    limits = core.get("fixed_limits")
+    score = core.get("score_interval")
+    decision = core.get("decision_policy")
+    reference = core.get("canonical_reference")
+    if limits != {"maximum_raw_output_error_int8": 1,
+                  "maximum_common_q4_output_error": 1} or \
+            not isinstance(score, dict) or score.get("version") != 1 or \
+            score.get("candidate_component_interval") != \
+                "[max(-128,y_i-e),min(127,y_i+e)]" or \
+            score.get("rounding") != "(sum + 12) // 24" or \
+            score.get("candidate_score_requirement") != \
+                "score_min_q8 <= score_q8 <= score_max_q8" or \
+            decision != {"threshold_q8": threshold_q8,
+                         "definitely_normal": "score_max_q8 <= threshold_q8",
+                         "definitely_anomaly": "score_min_q8 > threshold_q8",
+                         "ambiguous": "otherwise",
+                         "ambiguous_action": "canonical CPU arbitration"} or \
+            reference != {"runtime": "canonical CPU int8",
+                          "tflite_evaluator": "BUILTIN_REF"}:
+        raise BundleError("NPU acceptance contract mismatch")
+
+
 def build_bundle(artifact: Path, include_cpu: bool = True,
                  npu_binary: Path | None = None,
                  npu_manifest: Path | None = None,
@@ -973,17 +1030,7 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
             raise BundleError("pre-fixed NPU acceptance contract is required")
         acceptance_path = npu_acceptance.resolve()
         acceptance = _json(acceptance_path)
-        limits = acceptance.get("fixed_limits")
-        if acceptance.get("format") != "mtfs-sentinel-neural-art-acceptance-v1" or \
-                acceptance.get("status") != "PASS" or \
-                acceptance.get("canonical_full_int8_tflite_sha256") != canonical_hash.hex() or \
-                acceptance.get("npu_runtime_binary_sha256") != npu_info["runtime_binary_sha256"] or \
-                acceptance.get("conversion_manifest_sha256") != \
-                    npu_info["conversion_manifest_sha256"] or \
-                not isinstance(limits, dict) or \
-                limits.get("decision_must_match") is not True or \
-                acceptance.get("held_out_test", {}).get("violations") != 0:
-            raise BundleError("NPU acceptance contract mismatch")
+        _validate_npu_acceptance(acceptance, canonical_hash, npu_info, threshold)
     if not runtime_sections:
         raise BundleError("at least one CPU or NPU runtime is required")
     if npu_info is not None:
@@ -1014,8 +1061,9 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         "cpu_runtime_binary_sha256": hashlib.sha256(cpu_binary).hexdigest(),
         "cpu_conversion_manifest": conversion,
         "npu_acceptance_contract": acceptance,
-        "npu_acceptance_contract_sha256": (sha256_file(npu_acceptance.resolve())
-            if npu_acceptance is not None else None),
+        "npu_acceptance_contract_sha256": (
+            hashlib.sha256(canonical_json_bytes(acceptance)).hexdigest()
+            if acceptance is not None else None),
         "section_sha256": fixed_hashes,
         "evaluation": evaluation,
         "test_vectors": clear_vectors,
@@ -1431,17 +1479,14 @@ def verify_bundle(parsed: ParsedBundle) -> dict:
         acceptance = parsed.provenance.get("npu_acceptance_contract")
         acceptance_hash = parsed.provenance.get("npu_acceptance_contract_sha256")
         npu = npu_sections[0].payload
-        limits = acceptance.get("fixed_limits") if isinstance(acceptance, dict) else None
-        held_out = acceptance.get("held_out_test") if isinstance(acceptance, dict) else None
-        if not isinstance(acceptance, dict) or \
-                acceptance.get("format") != "mtfs-sentinel-neural-art-acceptance-v1" or \
-                acceptance.get("status") != "PASS" or \
-                acceptance.get("canonical_full_int8_tflite_sha256") != npu[64:96].hex() or \
-                acceptance.get("npu_runtime_binary_sha256") != npu[96:128].hex() or \
-                acceptance.get("conversion_manifest_sha256") != npu[128:160].hex() or \
-                not isinstance(limits, dict) or limits.get("decision_must_match") is not True or \
-                not isinstance(held_out, dict) or held_out.get("violations") != 0 or \
-                not isinstance(acceptance_hash, str) or \
+        npu_info = {"runtime_binary_sha256": npu[96:128].hex(),
+                    "conversion_manifest_sha256": npu[128:160].hex()}
+        try:
+            _validate_npu_acceptance(acceptance, npu[64:96], npu_info,
+                                     parsed.threshold)
+        except BundleError as error:
+            raise BundleError("NPU offline acceptance provenance mismatch") from error
+        if not isinstance(acceptance_hash, str) or \
                 hashlib.sha256(canonical_json_bytes(acceptance)).hexdigest() != acceptance_hash:
             raise BundleError("NPU offline acceptance provenance mismatch")
         npu_semantic_equivalence = "offline-acceptance-verified; hardware-pending"

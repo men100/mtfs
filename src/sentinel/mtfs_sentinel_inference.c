@@ -1341,6 +1341,53 @@ mtfs_error_t mtfs_sentinel_score_q8(const int8_t input_q4[24],
     return MTFS_OK;
 }
 
+mtfs_error_t mtfs_sentinel_score_interval_q8(const int8_t input_q4[24],
+    const int8_t reference_output_q4[24], uint32_t maximum_q4_error,
+    uint64_t threshold_q8, mtfs_sentinel_score_interval_t *interval)
+{
+    mtfs_sentinel_score_interval_t completed;
+    uint64_t minimum_sum = 0U, maximum_sum = 0U;
+    uint32_t i;
+    if (input_q4 == NULL || reference_output_q4 == NULL || interval == NULL ||
+        maximum_q4_error > 255U)
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    for (i = 0U; i < 24U; ++i) {
+        int32_t input = input_q4[i];
+        int32_t reference = reference_output_q4[i];
+        int32_t lower = reference - (int32_t)maximum_q4_error;
+        int32_t upper = reference + (int32_t)maximum_q4_error;
+        int32_t minimum_delta, lower_delta, upper_delta, maximum_delta;
+        if (lower < -128) lower = -128;
+        if (upper > 127) upper = 127;
+        if (input < lower) minimum_delta = lower - input;
+        else if (input > upper) minimum_delta = input - upper;
+        else minimum_delta = 0;
+        lower_delta = input - lower;
+        if (lower_delta < 0) lower_delta = -lower_delta;
+        upper_delta = input - upper;
+        if (upper_delta < 0) upper_delta = -upper_delta;
+        maximum_delta = lower_delta > upper_delta ? lower_delta : upper_delta;
+        minimum_sum += (uint64_t)(minimum_delta * minimum_delta);
+        maximum_sum += (uint64_t)(maximum_delta * maximum_delta);
+    }
+    (void)memset(&completed, 0, sizeof(completed));
+    completed.api_version = MTFS_SENTINEL_INFERENCE_API_VERSION;
+    completed.struct_size = (uint16_t)sizeof(completed);
+    completed.score_min_q8 = (minimum_sum + 12U) / 24U;
+    completed.score_max_q8 = (maximum_sum + 12U) / 24U;
+    completed.threshold_q8 = threshold_q8;
+    if (completed.score_max_q8 <= threshold_q8) {
+        completed.decision_class = MTFS_SENTINEL_DECISION_DEFINITELY_NORMAL;
+    } else if (completed.score_min_q8 > threshold_q8) {
+        completed.decision_class = MTFS_SENTINEL_DECISION_DEFINITELY_ANOMALY;
+    } else {
+        completed.decision_class =
+            MTFS_SENTINEL_DECISION_AMBIGUOUS_CPU_ARBITRATION;
+    }
+    *interval = completed;
+    return MTFS_OK;
+}
+
 #else
 typedef int mtfs_sentinel_inference_disabled_translation_unit_t;
 #endif /* MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE */

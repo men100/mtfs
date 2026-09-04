@@ -17,11 +17,14 @@ from bundle import (ACCELERATOR_CPU_REFERENCE, MODEL_FORMAT_CPU_INT8_V1,
                     _assemble, _compatibility, _cpu_binary, _decision,
                     _memory_plan, _normalization, _runtime_descriptor, atomic_write,
                     fixed_normalize, inspect_bundle, parse_bundle, verify_bundle, _npu_runtime,
-                    _npu_runtime_descriptor_v2, REGION_EXECUTABLE_COPY,
+                    _npu_runtime_descriptor_v2, _validate_npu_acceptance,
+                    REGION_EXECUTABLE_COPY,
                     REGION_ACTIVATION, REGION_PARAMETERS,
                     PLACEMENT_CALLER_RELATIVE, PLACEMENT_FIXED_ABSOLUTE,
                     PLACEMENT_BINARY_CONTAINED, REGION_LIFETIME_INSTANCE)
 from schema import canonical_json_bytes
+from acceptance import (DECISION_AMBIGUOUS, DECISION_DEFINITELY_ANOMALY,
+                        DECISION_DEFINITELY_NORMAL, score_interval_q8)
 
 
 def fixture_bundle() -> bytes:
@@ -143,6 +146,83 @@ def fixture_dual_bundle(alignment: int = 16, persistent: int = 64,
 
 
 class NumericContractTests(unittest.TestCase):
+    def test_v2_score_interval_rounding_decision_and_clamp(self):
+        zero = [0] * 24
+        normal = score_interval_q8(zero, zero, 1, 6)
+        self.assertEqual((normal.score_min_q8, normal.score_max_q8,
+                          normal.decision_class),
+                         (0, 1, DECISION_DEFINITELY_NORMAL))
+
+        boundary = zero.copy()
+        boundary[0] = 12
+        ambiguous = score_interval_q8(boundary, zero, 1, 6)
+        self.assertEqual((ambiguous.score_min_q8, ambiguous.score_max_q8,
+                          ambiguous.decision_class),
+                         (5, 8, DECISION_AMBIGUOUS))
+
+        anomaly = score_interval_q8([10] * 24, zero, 1, 6)
+        self.assertEqual((anomaly.score_min_q8, anomaly.score_max_q8,
+                          anomaly.decision_class),
+                         (81, 121, DECISION_DEFINITELY_ANOMALY))
+
+        clamped = score_interval_q8([-128] * 24, [127] * 24, 1, 6)
+        self.assertEqual((clamped.score_min_q8, clamped.score_max_q8),
+                         (64516, 65025))
+        with self.assertRaises(ValueError):
+            score_interval_q8(zero, zero, 256, 6)
+
+    def test_v2_acceptance_metadata_is_fixed_before_heldout(self):
+        canonical_hash = bytes.fromhex("11" * 32)
+        npu_info = {"runtime_binary_sha256": "22" * 32,
+                    "conversion_manifest_sha256": "33" * 32}
+        core = {
+            "format": "mtfs-sentinel-neural-art-acceptance-core-v2",
+            "contract_version": 2,
+            "status": "FROZEN",
+            "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+            "npu_runtime_binary_sha256": npu_info["runtime_binary_sha256"],
+            "conversion_manifest_sha256": npu_info["conversion_manifest_sha256"],
+            "canonical_reference": {"runtime": "canonical CPU int8",
+                                    "tflite_evaluator": "BUILTIN_REF"},
+            "fixed_limits": {"maximum_raw_output_error_int8": 1,
+                             "maximum_common_q4_output_error": 1},
+            "score_interval": {
+                "version": 1,
+                "candidate_component_interval":
+                    "[max(-128,y_i-e),min(127,y_i+e)]",
+                "rounding": "(sum + 12) // 24",
+                "candidate_score_requirement":
+                    "score_min_q8 <= score_q8 <= score_max_q8"},
+            "decision_policy": {
+                "threshold_q8": 6,
+                "definitely_normal": "score_max_q8 <= threshold_q8",
+                "definitely_anomaly": "score_min_q8 > threshold_q8",
+                "ambiguous": "otherwise",
+                "ambiguous_action": "canonical CPU arbitration"}}
+        core_hash = hashlib.sha256(canonical_json_bytes(core)).hexdigest()
+        acceptance = {
+            "format": "mtfs-sentinel-neural-art-acceptance-v2",
+            "status": "PASS",
+            "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+            "npu_runtime_binary_sha256": npu_info["runtime_binary_sha256"],
+            "conversion_manifest_sha256": npu_info["conversion_manifest_sha256"],
+            "contract_core": core,
+            "contract_core_sha256": core_hash,
+            "held_out_test": {"vectors": 300, "violations": 0,
+                              "contract_core_sha256": core_hash}}
+        _validate_npu_acceptance(acceptance, canonical_hash, npu_info, 6)
+
+        mutated = json.loads(json.dumps(acceptance))
+        mutated["contract_core"]["fixed_limits"][
+            "maximum_common_q4_output_error"] = 2
+        with self.assertRaises(BundleError):
+            _validate_npu_acceptance(mutated, canonical_hash, npu_info, 6)
+
+        mutated = json.loads(json.dumps(acceptance))
+        mutated["held_out_test"]["vectors"] = 299
+        with self.assertRaises(BundleError):
+            _validate_npu_acceptance(mutated, canonical_hash, npu_info, 6)
+
     def test_fixed_normalization_rounding_and_clamps(self):
         normalization = {"mean_q16": [0] * 24,
                          "inverse_std_q20": [1 << 20] * 24}

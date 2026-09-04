@@ -343,6 +343,7 @@ int test_sentinel_inference(mtfs_test_t *test)
     mtfs_sentinel_bundle_t bundle;
     mtfs_sentinel_cpu_context_t cpu;
     mtfs_sentinel_inference_result_t result;
+    mtfs_sentinel_score_interval_t score_interval;
     mtfs_sentinel_runtime_info_t runtime_info;
     mtfs_sentinel_runtime_region_info_t region_info;
     mtfs_sentinel_runtime_region_policy_t region_policy[3];
@@ -758,6 +759,49 @@ int test_sentinel_inference(mtfs_test_t *test)
             mtfs_sentinel_cpu_infer(&cpu, input, work, sizeof(work), output, &result) == MTFS_OK &&
             result.score_q8 > 1U && result.anomaly == 1U,
             "score immediately above threshold is anomalous")) return 1;
+    (void)memset(input, 0, sizeof(input));
+    (void)memset(output, 0, sizeof(output));
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_score_interval_q8(input, output, 1U, 6U,
+                &score_interval) == MTFS_OK &&
+            score_interval.score_min_q8 == 0U &&
+            score_interval.score_max_q8 == 1U &&
+            score_interval.decision_class ==
+                MTFS_SENTINEL_DECISION_DEFINITELY_NORMAL,
+            "bounded Q4 output gives an exact definitely-normal interval"))
+        return 1;
+    input[0] = 12;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_score_interval_q8(input, output, 1U, 6U,
+                &score_interval) == MTFS_OK &&
+            score_interval.score_min_q8 == 5U &&
+            score_interval.score_max_q8 == 8U &&
+            score_interval.decision_class ==
+                MTFS_SENTINEL_DECISION_AMBIGUOUS_CPU_ARBITRATION,
+            "threshold-crossing interval requires CPU arbitration")) return 1;
+    for (i = 0U; i < 24U; ++i) input[i] = 10;
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_score_interval_q8(input, output, 1U, 6U,
+                &score_interval) == MTFS_OK &&
+            score_interval.score_min_q8 == 81U &&
+            score_interval.score_max_q8 == 121U &&
+            score_interval.decision_class ==
+                MTFS_SENTINEL_DECISION_DEFINITELY_ANOMALY,
+            "bounded Q4 output gives an exact definitely-anomaly interval"))
+        return 1;
+    for (i = 0U; i < 24U; ++i) {
+        input[i] = -128;
+        output[i] = 127;
+    }
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_sentinel_score_interval_q8(input, output, 1U, 6U,
+                &score_interval) == MTFS_OK &&
+            score_interval.score_min_q8 == 64516U &&
+            score_interval.score_max_q8 == 65025U &&
+            mtfs_sentinel_score_interval_q8(input, output, 256U, 6U,
+                &score_interval) == MTFS_ERROR_INVALID_ARGUMENT,
+            "score interval clamps int8 candidates and rejects excess limits"))
+        return 1;
     for (i = 0U; i < 6U; ++i)
         if (!test_alias_pair(test, &cpu, i)) return 1;
     make_feature(&feature);

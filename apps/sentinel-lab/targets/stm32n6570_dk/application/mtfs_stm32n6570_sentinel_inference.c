@@ -31,7 +31,6 @@
 #define SENTINEL_HOTPLUG_WAIT_TICKS (UINT32_C(12000))
 #define SENTINEL_MAX_OUTPUT_ERROR_Q4 (1)
 #define SENTINEL_MAX_RAW_OUTPUT_ERROR_INT8 (1)
-#define SENTINEL_MAX_SCORE_ERROR_Q8 (UINT64_C(0))
 
 #if defined(__GNUC__)
 #define SENTINEL_ALIGN32 __attribute__((aligned(32)))
@@ -291,8 +290,8 @@ static uint32_t average_cycles_to_us(uint64_t total, uint32_t count,
 
 static int inference_run(
     const mtfs_media_context_t *media,
-    const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations,
-    int hotplug)
+    const mtfs_sentinel_feature_v1_t *feature, const int8_t supplied_input[24],
+    uint32_t iterations, int hotplug)
 {
     static sentinel_session_t session;
     uint32_t raw[MTFS_SENTINEL_FEATURE_DIMENSION];
@@ -302,16 +301,20 @@ static int inference_run(
     int8_t cpu_raw_output[MTFS_SENTINEL_FEATURE_DIMENSION];
     int8_t npu_raw_output[MTFS_SENTINEL_FEATURE_DIMENSION];
     mtfs_sentinel_inference_result_t cpu_result, npu_result;
+    mtfs_sentinel_score_interval_t score_interval;
     uint64_t cpu_total_cycles = 0U, npu_total_cycles = 0U;
     uint64_t score_error = 0U;
     uint32_t i, j, start_cycles, elapsed_cycles, max_error = 0U;
     uint32_t max_raw_error = 0U, attempted = 0U, completed = 0U;
     uint32_t failed = 0U, accepted = 0U, cpu_completed = 0U, npu_completed = 0U;
+    uint32_t raw_error_index = 0U, q4_error_index = 0U;
+    uint32_t ambiguous = 0U, cpu_arbitrated = 0U;
     uint32_t cycle_clock_hz = mtfs_stm32n6570_dk_cycle_clock_hz();
     uint32_t required_ram = 0U;
     int stage, cleanup_failed, reopen_attempted = 0, reopen_passed = 0;
 
-    if (media == NULL || feature == NULL || iterations == 0U) return 1;
+    if (media == NULL || (feature == NULL && supplied_input == NULL) ||
+        (feature != NULL && supplied_input != NULL) || iterations == 0U) return 1;
     if (session.npu_open != 0U && session_cleanup(&session) != 0) {
         tm_printf((UB *)"[sentinel-infer] FAIL prior NPU cleanup still pending\n");
         return 1;
@@ -319,6 +322,7 @@ static int inference_run(
     (void)memset(&session, 0, sizeof(session));
     (void)memset(&cpu_result, 0, sizeof(cpu_result));
     (void)memset(&npu_result, 0, sizeof(npu_result));
+    (void)memset(&score_interval, 0, sizeof(score_interval));
     session.media = media;
     stage = session_open(&session);
     if (stage != 0) {
@@ -332,9 +336,13 @@ static int inference_run(
         tm_printf((UB *)"[sentinel-infer-hotplug] ACTION REQUIRED: REMOVE card; resident CPU/NPU inference will continue\n");
         if (wait_media(media, 0) != 0) stage = 19;
     }
-    if (mtfs_sentinel_feature_encode_raw(feature, raw) != MTFS_OK ||
-        mtfs_sentinel_normalize_int8(&session.bundle.normalization, raw,
-            input) != MTFS_OK) stage = 15;
+    if (supplied_input != NULL) {
+        (void)memcpy(input, supplied_input, sizeof(input));
+    } else if (mtfs_sentinel_feature_encode_raw(feature, raw) != MTFS_OK ||
+               mtfs_sentinel_normalize_int8(&session.bundle.normalization, raw,
+                   input) != MTFS_OK) {
+        stage = 15;
+    }
     if (stage == 0 && cycle_clock_hz == 0U) stage = 21;
     for (i = 0U; stage == 0 && i < iterations; ++i) {
         ++attempted;
@@ -357,17 +365,39 @@ static int inference_run(
             uint32_t absolute = (uint32_t)(delta < 0 ? -delta : delta);
             int raw_delta = (int)cpu_raw_output[j] - (int)npu_raw_output[j];
             uint32_t raw_absolute = (uint32_t)(raw_delta < 0 ? -raw_delta : raw_delta);
-            if (absolute > max_error) max_error = absolute;
-            if (raw_absolute > max_raw_error) max_raw_error = raw_absolute;
+            if (absolute > max_error) {
+                max_error = absolute; q4_error_index = j;
+            }
+            if (raw_absolute > max_raw_error) {
+                max_raw_error = raw_absolute; raw_error_index = j;
+            }
         }
         score_error = cpu_result.score_q8 > npu_result.score_q8 ?
             cpu_result.score_q8 - npu_result.score_q8 :
             npu_result.score_q8 - cpu_result.score_q8;
+        if (mtfs_sentinel_score_interval_q8(input, cpu_output,
+                SENTINEL_MAX_OUTPUT_ERROR_Q4, cpu_result.threshold_q8,
+                &score_interval) != MTFS_OK) {
+            stage = 23; ++failed; break;
+        }
         if (max_raw_error > SENTINEL_MAX_RAW_OUTPUT_ERROR_INT8 ||
             max_error > SENTINEL_MAX_OUTPUT_ERROR_Q4 ||
-            score_error > SENTINEL_MAX_SCORE_ERROR_Q8 ||
-            cpu_result.anomaly != npu_result.anomaly) {
+            cpu_result.score_q8 < score_interval.score_min_q8 ||
+            cpu_result.score_q8 > score_interval.score_max_q8 ||
+            npu_result.score_q8 < score_interval.score_min_q8 ||
+            npu_result.score_q8 > score_interval.score_max_q8 ||
+            (score_interval.decision_class ==
+                MTFS_SENTINEL_DECISION_DEFINITELY_NORMAL &&
+                npu_result.anomaly != 0U) ||
+            (score_interval.decision_class ==
+                MTFS_SENTINEL_DECISION_DEFINITELY_ANOMALY &&
+                npu_result.anomaly == 0U)) {
             stage = 18; ++failed; break;
+        }
+        if (score_interval.decision_class ==
+                MTFS_SENTINEL_DECISION_AMBIGUOUS_CPU_ARBITRATION) {
+            ++ambiguous;
+            ++cpu_arbitrated;
         }
         ++accepted;
     }
@@ -390,11 +420,21 @@ static int inference_run(
     }
     if (stage != 0 && failed == 0U) failed = 1U;
     if (cleanup_failed) ++failed;
-    tm_printf((UB *)"[sentinel-infer] %s attempted=%u completed=%u accepted=%u failed=%u cpu-score-q8=%u npu-score-q8=%u decision=%u/%u max-raw-error-int8=%u max-output-error-q4=%u score-error-q8=%u cpu-cycles=%u npu-cycles=%u cpu-us=%u npu-us=%u clock-hz=%u required-ram=%u cleanup=%s\n",
-        stage == 0 && !cleanup_failed ? (UB *)"PASS" : (UB *)"FAIL",
+    if (stage == 18) {
+        tm_printf((UB *)"[sentinel-infer] mismatch raw-index=%u cpu-raw=%d npu-raw=%d q4-index=%u cpu-q4=%d npu-q4=%d\n",
+            raw_error_index, (int)cpu_raw_output[raw_error_index],
+            (int)npu_raw_output[raw_error_index], q4_error_index,
+            (int)cpu_output[q4_error_index], (int)npu_output[q4_error_index]);
+    }
+    tm_printf((UB *)"[sentinel-infer] %s attempted=%u completed=%u accepted=%u failed=%u cpu-score-q8=%u npu-score-q8=%u score-interval-q8=%u:%u decision=%u/%u ambiguous=%u cpu-arbitrated=%u max-raw-error-int8=%u max-output-error-q4=%u score-error-q8=%u cpu-cycles=%u npu-cycles=%u cpu-us=%u npu-us=%u clock-hz=%u required-ram=%u cleanup=%s\n",
+        stage == 0 && !cleanup_failed ?
+            (ambiguous != 0U ? (UB *)"PASS-CPU-ARBITRATED" : (UB *)"PASS") :
+            (UB *)"FAIL",
         attempted, completed, accepted, failed,
         (UW)cpu_result.score_q8, (UW)npu_result.score_q8,
-        cpu_result.anomaly, npu_result.anomaly, max_raw_error, max_error,
+        (UW)score_interval.score_min_q8, (UW)score_interval.score_max_q8,
+        cpu_result.anomaly, npu_result.anomaly, ambiguous, cpu_arbitrated,
+        max_raw_error, max_error,
         (UW)score_error,
         cpu_completed == 0U ? 0U : (UW)(cpu_total_cycles / cpu_completed),
         npu_completed == 0U ? 0U : (UW)(npu_total_cycles / npu_completed),
@@ -415,14 +455,21 @@ int mtfs_stm32n6570_sentinel_inference_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
 {
-    return inference_run(media, feature, iterations, 0);
+    return inference_run(media, feature, NULL, iterations, 0);
 }
 
 int mtfs_stm32n6570_sentinel_inference_hotplug_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
 {
-    return inference_run(media, feature, iterations, 1);
+    return inference_run(media, feature, NULL, iterations, 1);
+}
+
+int mtfs_stm32n6570_sentinel_inference_vector_run(
+    const mtfs_media_context_t *media, const int8_t input_q4[24],
+    uint32_t iterations)
+{
+    return inference_run(media, NULL, input_q4, iterations, 0);
 }
 
 #else
@@ -440,6 +487,14 @@ int mtfs_stm32n6570_sentinel_inference_hotplug_run(
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
 {
     (void)media; (void)feature; (void)iterations;
+    return 1;
+}
+
+int mtfs_stm32n6570_sentinel_inference_vector_run(
+    const mtfs_media_context_t *media, const int8_t input_q4[24],
+    uint32_t iterations)
+{
+    (void)media; (void)input_q4; (void)iterations;
     return 1;
 }
 

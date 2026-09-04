@@ -88,6 +88,10 @@ extern "C" {
 #define MTFS_SENTINEL_OUTER_MODEL_FORMAT_V1 (UINT32_C(0x534e5431))
 #define MTFS_SENTINEL_OUTER_ACCELERATOR_CPU (UINT32_C(0x43505520))
 
+#define MTFS_SENTINEL_DECISION_DEFINITELY_NORMAL (UINT8_C(0))
+#define MTFS_SENTINEL_DECISION_DEFINITELY_ANOMALY (UINT8_C(1))
+#define MTFS_SENTINEL_DECISION_AMBIGUOUS_CPU_ARBITRATION (UINT8_C(2))
+
 #define MTFS_SENTINEL_TARGET_EK_RA8P1 (UINT32_C(0x52413850))
 #define MTFS_SENTINEL_TARGET_STM32N6570_DK (UINT32_C(0x53544e36))
 #define MTFS_SENTINEL_TRANSPORT_SPI (UINT32_C(0x53504920))
@@ -151,6 +155,17 @@ typedef struct mtfs_sentinel_inference_result
     uint8_t anomaly;
     uint8_t reserved[7];
 } mtfs_sentinel_inference_result_t;
+
+typedef struct mtfs_sentinel_score_interval
+{
+    uint16_t api_version;
+    uint16_t struct_size;
+    uint64_t score_min_q8;
+    uint64_t score_max_q8;
+    uint64_t threshold_q8;
+    uint8_t decision_class;
+    uint8_t reserved[7];
+} mtfs_sentinel_score_interval_t;
 
 typedef struct mtfs_sentinel_runtime_info
 {
@@ -311,6 +326,16 @@ mtfs_error_t mtfs_sentinel_score_q8(
     const int8_t input_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
     const int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
     uint64_t threshold_q8, mtfs_sentinel_inference_result_t *result);
+/*
+ * Derives the complete score interval for any output whose every common-Q4
+ * element is within maximum_q4_error of reference_output_q4. Candidate values
+ * are clamped to int8 before the exact (sum + 12) / 24 rounding is applied.
+ */
+mtfs_error_t mtfs_sentinel_score_interval_q8(
+    const int8_t input_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    const int8_t reference_output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    uint32_t maximum_q4_error, uint64_t threshold_q8,
+    mtfs_sentinel_score_interval_t *interval);
 mtfs_error_t mtfs_sentinel_cpu_init(mtfs_sentinel_cpu_context_t *context,
     const mtfs_sentinel_bundle_t *bundle);
 /* Executes the canonical TFLite int8 domain without common-Q4 conversion. */
