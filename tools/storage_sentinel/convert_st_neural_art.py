@@ -13,8 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
-from bundle import (PLACEMENT_BINARY_CONTAINED, PLACEMENT_CALLER_RELATIVE,
-                    PLACEMENT_FIXED_ABSOLUTE, REGION_ACTIVATION,
+from bundle import (PLACEMENT_CALLER_RELATIVE, PLACEMENT_FIXED_ABSOLUTE,
+                    REGION_ACTIVATION,
                     REGION_EXECUTABLE_COPY, REGION_LIFETIME_INSTANCE,
                     REGION_PARAMETERS, canonical_float32)
 from dataset import load_dataset, usable_vectors
@@ -107,6 +107,8 @@ def main() -> None:
     parser.add_argument("--stedgeai", type=Path,
         default=Path(os.environ.get("STEDGEAI", "stedgeai")))
     parser.add_argument("--reloc-profile", required=True, type=Path)
+    parser.add_argument("--reloc-profile-name", default="test-int2",
+        help="named ST relocation profile in the profile JSON")
     parser.add_argument("--tool-path", action="append", default=[], type=Path,
         help="directory prepended to PATH (for GNU make/compiler/Git)")
     args = parser.parse_args()
@@ -139,7 +141,7 @@ def main() -> None:
     workspace = output / "workspace"
     command = [str(args.stedgeai), "generate", "-m", str(model_path),
         "--target", "stm32n6", "--st-neural-art",
-        f"test@{args.reloc_profile.resolve()}", "--reloc", "--workspace",
+        f"{args.reloc_profile_name}@{args.reloc_profile.resolve()}", "--reloc", "--workspace",
         str(workspace), "--output", str(generated), "--verbosity", "2"]
     environment = os.environ.copy()
     if args.tool_path:
@@ -169,11 +171,17 @@ def main() -> None:
             binary_bytes.find(raw_bytes, params_offset + 1) >= 0:
         raise RuntimeError("cannot uniquely locate parameters in runtime binary")
     generated_info = json.loads(reloc_json.read_text(encoding="utf-8"))
-    pools = generated_info["mempools"]["pools"]
-    active = [pool for pool in pools if int(pool["used"]) > 0]
-    activation_pool = next(pool for pool in active if int(pool["data_rw"]) > 0)
-    parameter_pool = next(pool for pool in active if int(pool["data_const_ext"]) > 0)
-    activation_address = int(str(activation_pool["addr"]), 16)
+    descriptors = generated_info["reloc_binary_image"]["mempool_c_descriptors"]
+    parameter_pools = [pool for pool in descriptors
+        if pool["flags_desc"].startswith("COPY.PARAM.")]
+    activation_pools = [pool for pool in descriptors
+        if pool["flags_desc"].startswith("RESET.ACTIV.")]
+    if len(parameter_pools) != 1 or not activation_pools or \
+            sum(int(pool["size"]) for pool in activation_pools) != acts_size:
+        raise RuntimeError("unexpected internal relocation memory-pool contract")
+    parameter_pool = parameter_pools[0]
+    if int(parameter_pool["size"]) != params_size or int(parameter_pool["foff"]) != 0:
+        raise RuntimeError("unexpected copied parameter descriptor")
     quant = json.loads(quant_files[0].read_text(encoding="utf-8"))["model_info"]
     input_format = quant["original_inputs"][0]["data_format"]
     output_format = quant["original_outputs"][0]["data_format"]
@@ -206,17 +214,12 @@ def main() -> None:
              "logical_size": copy_size, "storage_size": copy_size, "alignment": 8,
              "address_or_offset": 0, "lifetime": REGION_LIFETIME_INSTANCE,
              "install_access": 3, "inference_access": 5, "requirements": 7},
-            {"kind": REGION_PARAMETERS, "placement": PLACEMENT_BINARY_CONTAINED,
-             "logical_size": params_size, "storage_size": len(raw_bytes), "alignment": 8,
-             "provider_pool_id": int(parameter_pool["id"]),
-             "address_or_offset": params_offset, "lifetime": REGION_LIFETIME_INSTANCE,
-             "install_access": 1, "inference_access": 1, "requirements": 2},
-            {"kind": REGION_ACTIVATION, "placement": PLACEMENT_FIXED_ABSOLUTE,
-             "logical_size": acts_size, "storage_size": acts_size, "alignment": 8,
-             "provider_pool_id": int(activation_pool["id"]),
-             "address_or_offset": activation_address,
-             "lifetime": REGION_LIFETIME_INSTANCE, "install_access": 2,
-             "inference_access": 3, "requirements": 23},
+            {"kind": REGION_PARAMETERS, "placement": PLACEMENT_FIXED_ABSOLUTE,
+             "logical_size": params_size, "storage_size": params_size, "alignment": 8,
+             "provider_pool_id": int(parameter_pool["flags_raw"], 16) & 0xff,
+             "address_or_offset": int(parameter_pool["dst"], 16),
+             "lifetime": REGION_LIFETIME_INSTANCE, "install_access": 3,
+             "inference_access": 1, "requirements": 7},
         ],
         "tool_versions": {"stedgeai": version,
             "atonn": generated_info["compiler"]["description"]},
@@ -224,10 +227,20 @@ def main() -> None:
         "training_dataset_sha256": training_hash,
         "calibration_rows": tensor["calibration_rows"],
         "generation_command": ["stedgeai", "generate", "-m", "sentinel_st_int8.tflite",
-            "--target", "stm32n6", "--st-neural-art", "test@<reloc-profile>",
+            "--target", "stm32n6", "--st-neural-art",
+            f"{args.reloc_profile_name}@<reloc-profile>",
             "--reloc", "--workspace", "<workspace>", "--output", "<output>",
             "--verbosity", "2"],
     }
+    for activation_pool in activation_pools:
+        manifest["memory_regions"].append(
+            {"kind": REGION_ACTIVATION, "placement": PLACEMENT_FIXED_ABSOLUTE,
+             "logical_size": int(activation_pool["size"]),
+             "storage_size": int(activation_pool["size"]), "alignment": 8,
+             "provider_pool_id": int(activation_pool["flags_raw"], 16) & 0xff,
+             "address_or_offset": int(activation_pool["dst"], 16),
+             "lifetime": REGION_LIFETIME_INSTANCE, "install_access": 2,
+             "inference_access": 3, "requirements": 7})
     manifest["conversion_manifest_sha256"] = hashlib.sha256(
         canonical_json_bytes(manifest)).hexdigest()
     manifest_path = output / "sentinel_st_neural_art_manifest.json"

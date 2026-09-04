@@ -119,7 +119,8 @@ static mtfs_error_t validate_npu_regions(const uint8_t *section,
             !all_zero(entry + 56U, 8U)) return MTFS_ERROR_MALFORMED_FORMAT;
         for (j = 0U; j < i; ++j) {
             const uint8_t *prior = section + table_offset + (uint32_t)j * entry_size;
-            if (le16(prior + 2U) == kind && le16(prior + 4U) == placement)
+            if (le16(prior + 2U) == kind && le16(prior + 4U) == placement &&
+                le64(prior + 24U) == address)
                 return MTFS_ERROR_MALFORMED_FORMAT;
             if (le16(prior + 4U) == placement &&
                 placement != MTFS_SENTINEL_PLACEMENT_PROVIDER_ASSIGNED) {
@@ -670,7 +671,13 @@ mtfs_error_t mtfs_sentinel_bundle_runtime_regions_validate_policy(
             if (candidate->provider_id == runtime.provider_id &&
                 candidate->accelerator_id == runtime.accelerator_id &&
                 candidate->kind == region.kind &&
-                candidate->placement == region.placement) {
+                candidate->placement == region.placement &&
+                (region.placement == MTFS_SENTINEL_PLACEMENT_PROVIDER_ASSIGNED ||
+                 (candidate->address_limit > candidate->address_minimum &&
+                  region.address_or_offset >= candidate->address_minimum &&
+                  region.address_or_offset < candidate->address_limit &&
+                  region.storage_size <= candidate->address_limit -
+                      region.address_or_offset))) {
                 match = candidate;
                 ++matches;
             }

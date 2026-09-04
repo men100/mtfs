@@ -11,6 +11,18 @@ extern "C" {
 #endif
 
 #define MTFS_SENTINEL_NPU_PROVIDER_API_VERSION (UINT16_C(1))
+#define MTFS_SENTINEL_NPU_MAX_ACTUAL_REGIONS (UINT32_C(8))
+#define MTFS_SENTINEL_NPU_MAX_FIXED_ZEROIZE_REGIONS (UINT32_C(8))
+
+typedef struct mtfs_sentinel_npu_actual_region
+{
+    uint16_t kind;
+    uint16_t placement;
+    uint32_t alignment;
+    uint64_t logical_size;
+    uint64_t storage_size;
+    uint64_t address_or_offset;
+} mtfs_sentinel_npu_actual_region_t;
 
 typedef struct mtfs_sentinel_npu_actual_info
 {
@@ -25,6 +37,8 @@ typedef struct mtfs_sentinel_npu_actual_info
     uint32_t activation_address;
     uint32_t activation_size;
     uint32_t external_ram_size;
+    uint32_t region_count;
+    mtfs_sentinel_npu_actual_region_t regions[MTFS_SENTINEL_NPU_MAX_ACTUAL_REGIONS];
     uint8_t runtime_binary_hash[32];
 } mtfs_sentinel_npu_actual_info_t;
 
@@ -74,8 +88,9 @@ typedef struct mtfs_sentinel_npu_context
     mtfs_sentinel_runtime_policy_result_t policy;
     void *copy_memory;
     uint32_t copy_size;
-    void *fixed_zeroize_memory;
-    uint32_t fixed_zeroize_size;
+    void *fixed_zeroize_memory[MTFS_SENTINEL_NPU_MAX_FIXED_ZEROIZE_REGIONS];
+    uint32_t fixed_zeroize_size[MTFS_SENTINEL_NPU_MAX_FIXED_ZEROIZE_REGIONS];
+    uint32_t fixed_zeroize_count;
     uint64_t threshold_q8;
     uint8_t open;
     uint8_t locked;

@@ -517,7 +517,7 @@ def _npu_runtime_descriptor_v2(manifest: dict, binary: bytes,
             requirements = int(source.get("requirements", 0))
         except (KeyError, TypeError, ValueError) as error:
             raise BundleError("invalid NPU runtime memory region") from error
-        identity = (kind, placement)
+        identity = (kind, placement, address)
         if identity in seen or kind not in _REGION_KINDS or \
                 placement not in _REGION_PLACEMENTS or flags != 1 or \
                 logical_size <= 0 or logical_size > 0xffffffffffffffff or \
@@ -730,7 +730,7 @@ def _parse_npu_regions(payload: bytes, binary_offset: int,
         version, kind, placement, flags, logical_size, alignment, pool_id, address, \
             lifetime, install_access, inference_access, requirements, storage_size = \
             struct.unpack_from("<HHHHQIIQIIIIQ", payload, offset)
-        identity = (kind, placement)
+        identity = (kind, placement, address)
         if version != RUNTIME_REGION_ENTRY_VERSION or identity in seen or \
                 kind not in _REGION_KINDS or placement not in _REGION_PLACEMENTS or \
                 flags != RUNTIME_REGION_FLAG_REQUIRED or logical_size == 0 or \

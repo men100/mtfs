@@ -218,8 +218,26 @@ static mtfs_error_t fake_inspect(void *opaque, const uint8_t *binary,
     actual->parameters_offset = 8U; actual->parameters_logical_size = 8U;
     actual->parameters_storage_size = 8U;
     actual->activation_address = 0x342e0000U; actual->activation_size = 56U;
+    actual->region_count = 3U;
+    actual->regions[0].kind = MTFS_SENTINEL_REGION_EXECUTABLE_COPY;
+    actual->regions[0].placement = MTFS_SENTINEL_PLACEMENT_CALLER_RELATIVE;
+    actual->regions[0].alignment = 16U;
+    actual->regions[0].logical_size = 64U;
+    actual->regions[0].storage_size = 64U;
+    actual->regions[1].kind = MTFS_SENTINEL_REGION_ACTIVATION;
+    actual->regions[1].placement = MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE;
+    actual->regions[1].alignment = 8U;
+    actual->regions[1].logical_size = 56U;
+    actual->regions[1].storage_size = 56U;
+    actual->regions[1].address_or_offset = UINT64_C(0x342e0000);
+    actual->regions[2].kind = MTFS_SENTINEL_REGION_PARAMETERS;
+    actual->regions[2].placement = MTFS_SENTINEL_PLACEMENT_BINARY_CONTAINED;
+    actual->regions[2].alignment = 8U;
+    actual->regions[2].logical_size = 8U;
+    actual->regions[2].storage_size = 8U;
+    actual->regions[2].address_or_offset = 8U;
     if (((fake_npu_t *)opaque)->inspect_mismatch != 0U)
-        ++actual->copy_size;
+        ++actual->regions[0].storage_size;
     return MTFS_OK;
 }
 

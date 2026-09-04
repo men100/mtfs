@@ -16,7 +16,7 @@ from bundle import (ACCELERATOR_CPU_REFERENCE, MODEL_FORMAT_CPU_INT8_V1,
                     SECTION_REQUIRED, BundleError, QuantizedModel, Section,
                     _assemble, _compatibility, _cpu_binary, _decision,
                     _memory_plan, _normalization, _runtime_descriptor, atomic_write,
-                    fixed_normalize, parse_bundle, verify_bundle, _npu_runtime,
+                    fixed_normalize, inspect_bundle, parse_bundle, verify_bundle, _npu_runtime,
                     _npu_runtime_descriptor_v2, REGION_EXECUTABLE_COPY,
                     REGION_ACTIVATION, REGION_PARAMETERS,
                     PLACEMENT_CALLER_RELATIVE, PLACEMENT_FIXED_ABSOLUTE,
@@ -63,7 +63,8 @@ def fixture_bundle() -> bytes:
 def fixture_dual_bundle(alignment: int = 16, persistent: int = 64,
                         scratch: int = 128, second_npu: bool = False,
                         include_cpu: bool = True,
-                        npu_first: bool = False) -> bytes:
+                        npu_first: bool = False,
+                        multiple_activations: bool = False) -> bytes:
     parsed = parse_bundle(fixture_bundle())
     fixed = []
     for section in parsed.sections:
@@ -105,6 +106,13 @@ def fixture_dual_bundle(alignment: int = 16, persistent: int = 64,
              "install_access": 1, "inference_access": 1},
         ],
     }
+    if multiple_activations:
+        manifest["memory_regions"].append(
+            {"kind": REGION_ACTIVATION, "placement": PLACEMENT_FIXED_ABSOLUTE,
+             "logical_size": 24, "alignment": 8,
+             "address_or_offset": 0x34270000,
+             "lifetime": REGION_LIFETIME_INSTANCE, "install_access": 2,
+             "inference_access": 3, "requirements": 21})
     npu = _npu_runtime_descriptor_v2(manifest, binary, bytes(32), bytes(32)) + binary
     npu_section = Section(SECTION_NPU, SECTION_REQUIRED, alignment,
                           0x4E505250, npu, "npu_runtime_4e505250")
@@ -242,6 +250,16 @@ class BundleParserTests(unittest.TestCase):
         self.assertEqual(larger_plan["required_alignment"], 32)
         self.assertEqual(larger_plan["scratch_size"], 48)
         self.assertGreater(larger_plan["required_ram"], plan["required_ram"])
+
+    def test_distinct_fixed_activation_regions_are_valid(self):
+        inspected = inspect_bundle(parse_bundle(
+            fixture_dual_bundle(multiple_activations=True)))
+        npu = next(runtime for runtime in inspected["runtimes"]
+                   if runtime["runtime_type"] == "target-npu")
+        activations = [region for region in npu["regions"]
+                       if region["kind"] == REGION_ACTIVATION]
+        self.assertEqual([region["address_or_offset"] for region in activations],
+                         [0x342E0000, 0x34270000])
 
     def test_embedded_contract_runtime_negatives(self):
         raw = fixture_dual_bundle()

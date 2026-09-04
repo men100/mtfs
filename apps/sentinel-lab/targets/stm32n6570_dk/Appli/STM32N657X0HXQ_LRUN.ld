@@ -45,27 +45,47 @@ _Min_Stack_Size = 0x800; /* required amount of stack */
 MEMORY
 {
   ROM    (xrw)    : ORIGIN = 0x34000400,   LENGTH = 511K
-  RAM    (xrw)    : ORIGIN = 0x34080000,   LENGTH = 1536K
-  NPU_ACTIVATION (rw) : ORIGIN = 0x342E0000, LENGTH = 56
+  RAM    (xrw)    : ORIGIN = 0x34080000,   LENGTH = 512K
+  NPU_PARAMS (rw) : ORIGIN = 0x34100000, LENGTH = 1041
+  NPU_ACTIVATION3 (rw) : ORIGIN = 0x34200000, LENGTH = 24
+  NPU_ACTIVATION4 (rw) : ORIGIN = 0x34270000, LENGTH = 24
+  NPU_ACTIVATION5 (rw) : ORIGIN = 0x342E0000, LENGTH = 24
 }
 
 /* Sections */
 SECTIONS
 {
-  .mtfs_npu_activation (NOLOAD) :
+  .mtfs_npu_params (NOLOAD) :
   {
     . = ALIGN(8);
-    __mtfs_npu_activation_start__ = .;
-    . = . + 56;
-    __mtfs_npu_activation_end__ = .;
-  } >NPU_ACTIVATION
+    __mtfs_npu_params_start__ = .;
+    . = . + 1041;
+    __mtfs_npu_params_end__ = .;
+  } >NPU_PARAMS
+  .mtfs_npu_activation3 (NOLOAD) :
+  {
+    __mtfs_npu_activation3_start__ = .; . = . + 24;
+    __mtfs_npu_activation3_end__ = .;
+  } >NPU_ACTIVATION3
+  .mtfs_npu_activation4 (NOLOAD) :
+  {
+    __mtfs_npu_activation4_start__ = .; . = . + 24;
+    __mtfs_npu_activation4_end__ = .;
+  } >NPU_ACTIVATION4
+  .mtfs_npu_activation5 (NOLOAD) :
+  {
+    __mtfs_npu_activation5_start__ = .; . = . + 24;
+    __mtfs_npu_activation5_end__ = .;
+  } >NPU_ACTIVATION5
 
-  ASSERT(__mtfs_npu_activation_start__ == 0x342E0000,
-         "Storage Sentinel NPU activation address changed")
-  ASSERT(SIZEOF(.mtfs_npu_activation) == 56,
+  ASSERT(SIZEOF(.mtfs_npu_params) == 1041,
+         "Storage Sentinel NPU parameter size changed")
+  ASSERT(SIZEOF(.mtfs_npu_activation3) == 24 &&
+         SIZEOF(.mtfs_npu_activation4) == 24 &&
+         SIZEOF(.mtfs_npu_activation5) == 24,
          "Storage Sentinel NPU activation size changed")
-  ASSERT(ORIGIN(RAM) + LENGTH(RAM) <= ORIGIN(NPU_ACTIVATION),
-         "Storage Sentinel CPU RAM overlaps NPU activation")
+  ASSERT(ORIGIN(RAM) + LENGTH(RAM) <= ORIGIN(NPU_PARAMS),
+         "Storage Sentinel CPU RAM overlaps NPU parameters")
 
   /* The startup code into "Rom" Rom type memory */
   .isr_vector :

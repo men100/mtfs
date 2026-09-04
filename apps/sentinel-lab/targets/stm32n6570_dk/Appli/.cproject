@@ -61,6 +61,7 @@
 									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_BARE_METAL"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_MODE=LL_ATON_RT_ASYNC"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_RELOC"/>
+									<listOptionValue builtIn="false" value="LL_ATON_EB_DBG_INFO"/>
 									<listOptionValue builtIn="false" value="LL_ATON_DBG_BUFFER_INFO_EXCLUDED=1"/>
 									<listOptionValue builtIn="false" value="MTFS_SENTINEL_LAB_BUILD_RELEASE=0"/>
 								</option>
@@ -204,6 +205,7 @@
 									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_BARE_METAL"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_MODE=LL_ATON_RT_ASYNC"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_RELOC"/>
+									<listOptionValue builtIn="false" value="LL_ATON_EB_DBG_INFO"/>
 									<listOptionValue builtIn="false" value="LL_ATON_DBG_BUFFER_INFO_EXCLUDED=1"/>
 									<listOptionValue builtIn="false" value="MTFS_SENTINEL_LAB_BUILD_RELEASE=1"/>
 								</option>

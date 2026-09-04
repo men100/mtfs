@@ -256,7 +256,14 @@ static int session_open(sentinel_session_t *session)
             session->npu_runtime_index],
         session->plan.persistent_size[session->npu_runtime_index], policies,
         policy_count, SENTINEL_TIMEOUT_MS);
-    if (status != MTFS_OK) return 14;
+    if (status != MTFS_OK) {
+        tm_printf((UB *)"[sentinel-infer] NPU-open status=%d substage=%u detail=%d expected=0x%08x actual=0x%08x\n",
+            status, (UW)session->neural_art.diagnostic_stage,
+            session->neural_art.diagnostic_detail,
+            (UW)session->neural_art.diagnostic_expected,
+            (UW)session->neural_art.diagnostic_actual);
+        return 14;
+    }
     session->npu_open = 1U;
     return 0;
 }

@@ -63,6 +63,35 @@ static mtfs_error_t compare_actual(const mtfs_sentinel_bundle_t *bundle,
         runtime->runtime_extra != actual->runtime_extra ||
         memcmp(runtime->runtime_binary_hash, actual->runtime_binary_hash, 32U) != 0)
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
+    if (actual->region_count != 0U) {
+        uint32_t matched_mask = 0U;
+        if (actual->region_count != runtime->region_count ||
+            actual->region_count > MTFS_SENTINEL_NPU_MAX_ACTUAL_REGIONS)
+            return MTFS_ERROR_UNSUPPORTED_FORMAT;
+        for (i = 0U; i < runtime->region_count; ++i) {
+            uint32_t j, matches = 0U, match_index = 0U;
+            mtfs_error_t status = mtfs_sentinel_bundle_runtime_region_get(bundle,
+                runtime_index, i, &region);
+            if (status != MTFS_OK) return status;
+            for (j = 0U; j < actual->region_count; ++j) {
+                const mtfs_sentinel_npu_actual_region_t *candidate =
+                    &actual->regions[j];
+                if ((matched_mask & (UINT32_C(1) << j)) == 0U &&
+                    region.kind == candidate->kind &&
+                    region.placement == candidate->placement &&
+                    region.alignment == candidate->alignment &&
+                    region.logical_size == candidate->logical_size &&
+                    region.storage_size == candidate->storage_size &&
+                    region.address_or_offset == candidate->address_or_offset) {
+                    ++matches;
+                    match_index = j;
+                }
+            }
+            if (matches != 1U) return MTFS_ERROR_UNSUPPORTED_FORMAT;
+            matched_mask |= UINT32_C(1) << match_index;
+        }
+        return MTFS_OK;
+    }
     for (i = 0U; i < runtime->region_count; ++i) {
         mtfs_error_t status = mtfs_sentinel_bundle_runtime_region_get(bundle,
             runtime_index, i, &region);
@@ -139,8 +168,14 @@ mtfs_error_t mtfs_sentinel_npu_open(mtfs_sentinel_npu_context_t *context,
             (opened.policy.zeroize_mask & (UINT32_C(1) << i)) != 0U) {
             if (region.address_or_offset > UINTPTR_MAX || region.storage_size > UINT32_MAX)
                 return MTFS_ERROR_OVERFLOW;
-            opened.fixed_zeroize_memory = (void *)(uintptr_t)region.address_or_offset;
-            opened.fixed_zeroize_size = (uint32_t)region.storage_size;
+            if (opened.fixed_zeroize_count >=
+                MTFS_SENTINEL_NPU_MAX_FIXED_ZEROIZE_REGIONS)
+                return MTFS_ERROR_NOT_SUPPORTED;
+            opened.fixed_zeroize_memory[opened.fixed_zeroize_count] =
+                (void *)(uintptr_t)region.address_or_offset;
+            opened.fixed_zeroize_size[opened.fixed_zeroize_count] =
+                (uint32_t)region.storage_size;
+            ++opened.fixed_zeroize_count;
         }
     }
     (void)memset(&actual, 0, sizeof(actual));
@@ -156,8 +191,11 @@ mtfs_error_t mtfs_sentinel_npu_open(mtfs_sentinel_npu_context_t *context,
         opened.runtime.binary_size, copy_memory, opened.copy_size,
         &opened.runtime);
     if (status != MTFS_OK) {
-        config->ops->unlock(config->target);
         config->ops->zeroize(config->target, copy_memory, opened.copy_size);
+        for (i = 0U; i < opened.fixed_zeroize_count; ++i)
+            config->ops->zeroize(config->target,
+                opened.fixed_zeroize_memory[i], opened.fixed_zeroize_size[i]);
+        config->ops->unlock(config->target);
         return status;
     }
     opened.copy_memory = copy_memory;
@@ -212,9 +250,12 @@ mtfs_error_t mtfs_sentinel_npu_close(mtfs_sentinel_npu_context_t *context,
     if (status != MTFS_OK) return status;
     context->config.ops->zeroize(context->config.target, context->copy_memory,
         context->copy_size);
-    if (context->fixed_zeroize_memory != NULL)
+    {
+        uint32_t i;
+        for (i = 0U; i < context->fixed_zeroize_count; ++i)
         context->config.ops->zeroize(context->config.target,
-            context->fixed_zeroize_memory, context->fixed_zeroize_size);
+            context->fixed_zeroize_memory[i], context->fixed_zeroize_size[i]);
+    }
     context->config.ops->unlock(context->config.target);
     (void)memset(context, 0, sizeof(*context));
     return MTFS_OK;
