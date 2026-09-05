@@ -11,6 +11,7 @@
 #include "mtfs_media.h"
 #include "mtfs_media_service.h"
 #include "mtfs_ra8p1_platform.h"
+#include "mtfs_ra8p1_tflm_spike.h"
 #include "mtfs_ra_sd_spi.h"
 #include "mtfs_sentinel.h"
 #include "mtfs_sentinel_lab_console.h"
@@ -35,12 +36,41 @@
 static mtfs_ra_sd_spi_context_t sd_context;
 static mtfs_media_context_t media_context;
 static mtfs_media_service_context_t media_service;
+static FATFS tflm_spike_filesystem;
+static volatile uint32_t tflm_heartbeat;
+static volatile uint8_t tflm_heartbeat_stop;
+#define LAB_STACK_SIZE (12U * 1024U)
+#define HEARTBEAT_STACK_SIZE (2048U)
+#define STACK_PATTERN (0xa5U)
+static uint8_t lab_task_stack[LAB_STACK_SIZE] __attribute__((aligned(8)));
+static uint8_t heartbeat_task_stack[HEARTBEAT_STACK_SIZE]
+    __attribute__((aligned(8)));
 #if MTFS_ENABLE_STORAGE_SENTINEL
 static ID observer_mutex_id;
 static mtfs_sentinel_lab_runtime_t lab_runtime;
 #endif
 
 static void lab_console_write(void *context, const char *text);
+
+static uint32_t stack_high_water(const uint8_t *stack, uint32_t size)
+{
+    uint32_t untouched = 0U;
+    while (untouched < size && stack[untouched] == STACK_PATTERN) {
+        ++untouched;
+    }
+    return size - untouched;
+}
+
+static void tflm_heartbeat_task(INT start_code, void *context)
+{
+    (void)start_code;
+    (void)context;
+    while (tflm_heartbeat_stop == 0U) {
+        ++tflm_heartbeat;
+        (void)tk_dly_tsk(1U);
+    }
+    tk_ext_tsk();
+}
 
 #if MTFS_ENABLE_STORAGE_SENTINEL
 static int sentinel_runtime_self_test(void)
@@ -190,6 +220,87 @@ static int run_collection(mtfs_sentinel_lab_mode_t mode, uint32_t samples,
     config.strong_delay_us = LAB_RA_STRONG_DELAY_US;
     return mtfs_sentinel_lab_run(&lab_runtime, &config, mode, samples, seed);
 }
+
+static int run_tflm_spike(uint32_t iterations)
+{
+    mtfs_block_device_t *device = NULL;
+    T_CTSK heartbeat_task;
+    ID heartbeat_id = 0;
+    uint32_t heartbeat_before = 0U;
+    uint32_t lab_used;
+    uint32_t heartbeat_used;
+    int cleanup_ok = 1;
+    int fairness_ok;
+    int stack_ok;
+    int prepared = 0;
+    int registered = 0;
+    int mounted = 0;
+    int result = -1;
+
+    (void)memset(&heartbeat_task, 0, sizeof(heartbeat_task));
+    (void)memset(heartbeat_task_stack, STACK_PATTERN,
+        sizeof(heartbeat_task_stack));
+    tflm_heartbeat = 0U;
+    tflm_heartbeat_stop = 0U;
+    heartbeat_task.tskatr = TA_HLNG | TA_RNG3 | TA_USERBUF;
+    heartbeat_task.task = tflm_heartbeat_task;
+    heartbeat_task.itskpri = 8;
+    heartbeat_task.stksz = sizeof(heartbeat_task_stack);
+    heartbeat_task.bufptr = heartbeat_task_stack;
+    heartbeat_id = tk_cre_tsk(&heartbeat_task);
+    if (heartbeat_id <= 0 || tk_sta_tsk(heartbeat_id, 0) < E_OK) {
+        tm_printf((UB *)"[RA0.1] heartbeat-start=FAIL\n");
+        goto cleanup;
+    }
+    (void)tk_dly_tsk(2U);
+    heartbeat_before = tflm_heartbeat;
+
+    if (platform_prepare(NULL, &device) != MTFS_OK) goto cleanup;
+    prepared = 1;
+    if (!mtfs_block_device_is_valid(device) ||
+        mtfs_block_initialize(device) != MTFS_OK ||
+        mtfs_block_registry_register(0U, device) != MTFS_OK) goto cleanup;
+    registered = 1;
+    if (f_mount(&tflm_spike_filesystem, "0:", 1U) != FR_OK) goto cleanup;
+    mounted = 1;
+    result = mtfs_ra8p1_tflm_spike_run(iterations, heartbeat_before,
+        &tflm_heartbeat);
+
+cleanup:
+    if (mounted && f_mount(NULL, "0:", 0U) != FR_OK) cleanup_ok = 0;
+    if (registered && mtfs_block_registry_unregister(0U) != MTFS_OK) {
+        cleanup_ok = 0;
+    }
+    if (prepared) platform_finish(NULL);
+    tflm_heartbeat_stop = 1U;
+    if (heartbeat_id > 0) {
+        (void)tk_dly_tsk(2U);
+        if (tk_del_tsk(heartbeat_id) < E_OK) {
+            (void)tk_ter_tsk(heartbeat_id);
+            if (tk_del_tsk(heartbeat_id) < E_OK) cleanup_ok = 0;
+        }
+    }
+    lab_used = stack_high_water(lab_task_stack, sizeof(lab_task_stack));
+    heartbeat_used = stack_high_water(heartbeat_task_stack,
+        sizeof(heartbeat_task_stack));
+    fairness_ok = tflm_heartbeat > heartbeat_before;
+    stack_ok = lab_used + 256U < sizeof(lab_task_stack) &&
+        heartbeat_used + 256U < sizeof(heartbeat_task_stack);
+    tm_printf((UB *)"[RA0.1] scheduler heartbeat-delta=%u fairness=%s\n",
+        tflm_heartbeat - heartbeat_before,
+        fairness_ok ? (UB *)"PASS" : (UB *)"FAIL");
+    tm_printf((UB *)"[RA0.1] stack lab-used=%u/%u lab-margin=%u "
+        "heartbeat-used=%u/%u heartbeat-margin=%u guard=%s\n",
+        lab_used, (unsigned int)sizeof(lab_task_stack),
+        (unsigned int)sizeof(lab_task_stack) - lab_used,
+        heartbeat_used, (unsigned int)sizeof(heartbeat_task_stack),
+        (unsigned int)sizeof(heartbeat_task_stack) - heartbeat_used,
+        stack_ok ? (UB *)"PASS" : (UB *)"FAIL");
+    if (!cleanup_ok || !fairness_ok || !stack_ok) result = -1;
+    tm_printf((UB *)"[RA0.1] runtime-load exit=%d cleanup=%s\n", result,
+        cleanup_ok ? (UB *)"PASS" : (UB *)"FAIL");
+    return result;
+}
 #endif
 
 #if MTFS_ENABLE_STORAGE_SENTINEL
@@ -237,7 +348,8 @@ static int lab_command(void *context, const char *line)
             "help\r\n"
             "record [samples]\r\n"
             "pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
-            "pseudo-collect-hard-fault [samples] [seed]\r\n");
+            "pseudo-collect-hard-fault [samples] [seed]\r\n"
+            "sentinel-tflm-spike [iterations]  load SRA_A.TFL/B from SD and run Ethos-U\r\n");
 #else
         lab_console_write(NULL,
             "help    show this help\r\n"
@@ -270,6 +382,13 @@ static int lab_command(void *context, const char *line)
         tm_printf((UB *)"# hard_fault_exit=%d\n",
             run_collection(MTFS_SENTINEL_LAB_MODE_HARD_FAULT, samples,
                 seed));
+        return 1;
+    }
+    if (parse_command(line, "sentinel-tflm-spike", 100U, 0U,
+            &samples, &seed) && samples != 0U && seed == 0U) {
+        tm_printf((UB *)"# sentinel-tflm-spike iterations=%u\n", samples);
+        tm_printf((UB *)"# sentinel_tflm_spike_exit=%d\n",
+            run_tflm_spike(samples));
         return 1;
     }
 #endif
@@ -306,11 +425,13 @@ static void lab_task(INT start_code, void *context)
 
 EXPORT INT usermain(void)
 {
+    (void)memset(lab_task_stack, STACK_PATTERN, sizeof(lab_task_stack));
     T_CTSK task = {
-        .tskatr = TA_HLNG | TA_RNG3,
+        .tskatr = TA_HLNG | TA_RNG3 | TA_USERBUF,
         .task = lab_task,
         .itskpri = 9,
-        .stksz = 12U * 1024U
+        .stksz = sizeof(lab_task_stack),
+        .bufptr = lab_task_stack
     };
     ID task_id = tk_cre_tsk(&task);
     if ((task_id <= 0) || (tk_sta_tsk(task_id, 0) < E_OK)) {

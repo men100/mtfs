@@ -454,6 +454,26 @@
 			<description>Serial Peripheral Interface on Serial Communications Interface</description>
 			<originalPack>Renesas.RA.6.5.0.pack</originalPack>
 		</component>
+		<component apiversion="" class="TFLM" condition="" group="Kernel" subgroup="Ethos-U" variant="" vendor="Google" version="25.2.0+renesas.0.fsp.6.5.0">
+			<description>TFLM Ethos-U kernel</description>
+			<originalPack>Google.TFLM-Ethos-U-Kernel.25.2.0+renesas.0.fsp.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="Flatbuffers" condition="" group="Serialization" subgroup="Lib" variant="" vendor="Google" version="23.5.26+renesas.0.fsp.6.5.0">
+			<description>Flatbuffers</description>
+			<originalPack>Google.Flatbuffers.23.5.26+renesas.0.fsp.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="Middleware" condition="" group="all" subgroup="rm_ethosu" variant="" vendor="Renesas" version="6.5.0">
+			<description>Ethos-U Driver Wrapper</description>
+			<originalPack>Renesas.RA.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="TFLM" condition="" group="Core" subgroup="Lib" variant="" vendor="Google" version="25.2.0+renesas.0.fsp.6.5.0">
+			<description>TFLM Core Lib</description>
+			<originalPack>Google.TFLM-Core-Lib.25.2.0+renesas.0.fsp.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="Ethos-U" condition="" group="Core" subgroup="Driver" variant="" vendor="Arm" version="25.2.0+renesas.0.fsp.6.5.0">
+			<description>Ethos-U core driver</description>
+			<originalPack>Arm.Ethos-U-Core-Driver.25.2.0+renesas.0.fsp.6.5.0.pack</originalPack>
+		</component>
 	</raComponentSelection>
 	<raElcConfiguration />
 	<raIcuConfiguration />
@@ -496,10 +516,31 @@
 			<property id="module.driver.external_irq.p_callback" value="mtfs_ra8p1_card_detect_callback" />
 			<property id="module.driver.external_irq.ipl" value="board.icu.common.irq.priority12" />
 		</module>
+		<module id="module.google.tflm.core.lib.1890954285" />
+		<module id="module.google.flatbuffers.lib.219995116" />
+		<module id="module.google.tflm.kernel.ethosu.830742424" />
+		<module id="module.middleware.rm_ethosu.1764161963">
+			<property id="module.middleware.rm_ethosu.name" value="g_rm_ethosu0" />
+			<property id="module.middleware.rm_ethosu.p_callback" value="NULL" />
+			<property id="module.middleware.rm_ethosu.ipl" value="board.icu.common.irq.priority12" />
+			<property id="module.middleware.rm_ethosu.secure_mode" value="module.middleware.rm_ethosu.secure_mode.enabled" />
+			<property id="module.middleware.rm_ethosu.privilege_mode" value="module.middleware.rm_ethosu.privilege_mode.enabled" />
+		</module>
+		<module id="module.arm.ethosu.core.driver.1325351997">
+			<property id="module.arm.ethosu.core.driver.name" value="g_ethosu0" />
+		</module>
 		<context id="_hal.0">
 			<stack module="module.driver.ioport_on_ioport.0" />
 			<stack module="module.driver.spi_on_sci_b_spi.111267621" />
 			<stack module="module.driver.external_irq_on_icu.320409006" />
+			<stack module="module.google.tflm.core.lib.1890954285">
+				<stack module="module.google.flatbuffers.lib.219995116" requires="module.google.tflm.core.lib.requires.flatbuffers" />
+				<stack module="module.google.tflm.kernel.ethosu.830742424" requires="module.google.tflm.core.lib.requires.kernel.ethosu">
+					<stack module="module.middleware.rm_ethosu.1764161963" requires="module.google.tflm.kernel.ethosu.requires.driver">
+						<stack module="module.arm.ethosu.core.driver.1325351997" requires="module.middleware.rm_ethosu.requires.driver" />
+					</stack>
+				</stack>
+			</stack>
 		</context>
 		<config id="config.driver.sci_b_spi">
 			<property id="config.driver.sci_b_spi.param_checking_enable" value="config.driver.sci_b_spi.param_checking_enable.bsp" />
@@ -508,6 +549,10 @@
 		</config>
 		<config id="config.driver.icu">
 			<property id="config.driver.icu.param_checking_enable" value="config.driver.icu.param_checking_enable.bsp" />
+		</config>
+		<config id="config.middleware.rm_ethosu">
+			<property id="config.middleware.rm_ethosu.param_checking_enable" value="config.middleware.rm_ethosu.param_checking_enable.bsp" />
+			<property id="config.middleware.rm_ethosu.log_level" value="config.middleware.rm_ethosu.log_level.off" />
 		</config>
 		<config id="config.driver.ioport">
 			<property id="config.driver.ioport.checking" value="config.driver.ioport.checking.system" />
