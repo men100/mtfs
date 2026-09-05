@@ -134,7 +134,7 @@ mtfs_error_t mtfs_sentinel_npu_open(mtfs_sentinel_npu_context_t *context,
     mtfs_sentinel_runtime_region_info_t region;
     mtfs_error_t status;
     uint32_t i;
-    if (context == NULL || config == NULL || bundle == NULL || copy_memory == NULL ||
+    if (context == NULL || config == NULL || bundle == NULL ||
         config->api_version != MTFS_SENTINEL_NPU_PROVIDER_API_VERSION ||
         config->struct_size != sizeof(*config) || config->provider_id == 0U ||
         config->accelerator_id == 0U || config->ops == NULL ||
@@ -153,6 +153,10 @@ mtfs_error_t mtfs_sentinel_npu_open(mtfs_sentinel_npu_context_t *context,
         opened.runtime.accelerator_id != config->accelerator_id ||
         opened.runtime.runtime_type != MTFS_SENTINEL_RUNTIME_NPU)
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
+    if (opened.runtime.persistent_memory > copy_size ||
+        (opened.runtime.persistent_memory != 0U && copy_memory == NULL))
+        return MTFS_ERROR_BUFFER_TOO_SMALL;
+    opened.copy_size = opened.runtime.persistent_memory;
     status = mtfs_sentinel_bundle_runtime_regions_validate_policy(bundle, runtime_index,
         policies, policy_count, &opened.policy);
     if (status != MTFS_OK) return status;
@@ -163,7 +167,8 @@ mtfs_error_t mtfs_sentinel_npu_open(mtfs_sentinel_npu_context_t *context,
             if (region.storage_size > copy_size ||
                 ((uintptr_t)copy_memory & (region.alignment - 1U)) != 0U)
                 return MTFS_ERROR_BUFFER_TOO_SMALL;
-            opened.copy_size = (uint32_t)region.storage_size;
+            if (region.storage_size != opened.runtime.persistent_memory)
+                return MTFS_ERROR_UNSUPPORTED_FORMAT;
         } else if (region.placement == MTFS_SENTINEL_PLACEMENT_FIXED_ABSOLUTE &&
             (opened.policy.zeroize_mask & (UINT32_C(1) << i)) != 0U) {
             if (region.address_or_offset > UINTPTR_MAX || region.storage_size > UINT32_MAX)
@@ -180,7 +185,7 @@ mtfs_error_t mtfs_sentinel_npu_open(mtfs_sentinel_npu_context_t *context,
     }
     (void)memset(&actual, 0, sizeof(actual));
     status = config->ops->inspect(config->target, opened.runtime.binary,
-        opened.runtime.binary_size, &actual);
+        opened.runtime.binary_size, &opened.runtime, &actual);
     if (status != MTFS_OK) return status;
     status = compare_actual(bundle, runtime_index, &opened.runtime, &actual);
     if (status != MTFS_OK) return status;

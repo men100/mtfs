@@ -44,6 +44,7 @@ typedef struct mtfs_sentinel_npu_actual_info
 
 typedef mtfs_error_t (*mtfs_sentinel_npu_inspect_fn)(void *target,
     const uint8_t *binary, uint32_t binary_size,
+    const mtfs_sentinel_runtime_info_t *runtime,
     mtfs_sentinel_npu_actual_info_t *actual);
 typedef mtfs_error_t (*mtfs_sentinel_npu_install_fn)(void *target,
     const uint8_t *binary, uint32_t binary_size, void *copy_memory,

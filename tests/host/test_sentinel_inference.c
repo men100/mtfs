@@ -207,10 +207,11 @@ typedef struct fake_npu
 } fake_npu_t;
 
 static mtfs_error_t fake_inspect(void *opaque, const uint8_t *binary,
-    uint32_t binary_size, mtfs_sentinel_npu_actual_info_t *actual)
+    uint32_t binary_size, const mtfs_sentinel_runtime_info_t *runtime,
+    mtfs_sentinel_npu_actual_info_t *actual)
 {
     (void)opaque;
-    if (binary == NULL || binary_size != 16U || actual == NULL)
+    if (binary == NULL || binary_size != 16U || runtime == NULL || actual == NULL)
         return MTFS_ERROR_INVALID_ARGUMENT;
     (void)memset(actual, 0, sizeof(*actual));
     actual->runtime_abi = 0x00080000U;

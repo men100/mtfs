@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /*
- * The C++ link used by the TFLM spike pulls newlib's abort/stdio support.
+ * The C++ TFLM link pulls newlib's abort/stdio support.
  * This target has no POSIX file-descriptor layer: its console and storage use
  * T-Monitor and FatFs directly.  Supply bounded, allocation-free failure
  * stubs instead of linking libnosys (which emits linker warnings).

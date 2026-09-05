@@ -474,6 +474,26 @@
 			<description>Ethos-U core driver</description>
 			<originalPack>Arm.Ethos-U-Core-Driver.25.2.0+renesas.0.fsp.6.5.0.pack</originalPack>
 		</component>
+		<component apiversion="" class="PSA" condition="" group="Crypto" subgroup="mbedCrypto" variant="" vendor="Arm" version="3.6.6+renesas.0.fsp.6.5.0">
+			<description>Arm PSA Crypto Implementation</description>
+			<originalPack>Arm.MbedCrypto.3.6.6+renesas.0.fsp.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_ospi_b" variant="" vendor="Renesas" version="6.5.0">
+			<description>Octa Serial Peripheral Interface Flash</description>
+			<originalPack>Renesas.RA.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_rsip_e50d_key_injection" variant="" vendor="Renesas" version="6.5.0">
+			<description>Renesas Security IP on RA8 (RSIP-E50D) Key Injection</description>
+			<originalPack>Renesas.RA.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_rsip_e50d_ra8_plaintext" variant="" vendor="Renesas" version="6.5.0">
+			<description>Secure Cryptography Engine on RA8 (RSIP-E50D) Compatibility Mode</description>
+			<originalPack>Renesas.RA.6.5.0.pack</originalPack>
+		</component>
+		<component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="rm_psa_crypto" variant="" vendor="Renesas" version="6.5.0">
+			<description>MbedCrypto H/W Acceleration</description>
+			<originalPack>Renesas.RA.6.5.0.pack</originalPack>
+		</component>
 	</raComponentSelection>
 	<raElcConfiguration />
 	<raIcuConfiguration />
@@ -529,6 +549,50 @@
 		<module id="module.arm.ethosu.core.driver.1325351997">
 			<property id="module.arm.ethosu.core.driver.name" value="g_ethosu0" />
 		</module>
+		<module id="module.driver.psa_crypto.1164453105" />
+		<module id="module.driver.rm_psa_crypto.2078813637" />
+		<module id="module.driver.rsip_e50d.plaintext.784804638" />
+		<module id="module.driver.rsip_e50d_key_injection.1856649716">
+			<property id="module.driver.rsip_e50d_key_injection.name" value="g_rsip_e50d_key_install" />
+		</module>
+		<module id="module.driver.ospi_on_ospi_b.2130627991">
+			<property id="module.driver.ospi_b.name" value="g_ospi0" />
+			<property id="module.driver.ospi_b.unit" value="module.driver.ospi_b.unit.0" />
+			<property id="module.driver.ospi_b.channel" value="module.driver.ospi_b.channel.1" />
+			<property id="module.driver.ospi_b.write_status_bit" value="module.driver.ospi_b.bit_index.0" />
+			<property id="module.driver.ospi_b.write_enable_bit" value="module.driver.ospi_b.bit_index.1" />
+			<property id="module.driver.ospi_b.auto_callibration_address" value="0" />
+			<property id="module.driver.ospi_b.command_set_table" value="" />
+			<property id="module.driver.ospi_b.command_set_table_length" value="0" />
+			<property id="module.driver.ospi_b.sector_erase_size" value="4096" />
+			<property id="module.driver.ospi_b.block_erase_size" value="65536" />
+			<property id="module.driver.ospi_b.spi_protocol" value="module.driver.ospi_b.protocol_mode.protocol_1S_1S_1S" />
+			<property id="module.driver.ospi_b.cmd_set.initial.frame_format" value="module.driver.ospi_b.frame_format.standard" />
+			<property id="module.driver.ospi_b.cmd_set.initial.latency_mode" value="module.driver.ospi_b.latency_mode.fixed" />
+			<property id="module.driver.ospi_b.address_bytes" value="module.driver.ospi_b.address_bytes.address_bytes_4" />
+			<property id="module.driver.ospi_b.cmd_set.initial.address_msb_mask" value="0xF0" />
+			<property id="module.driver.ospi_b.command_bytes" value="module.driver.ospi_b.command_bytes.1" />
+			<property id="module.driver.ospi_b.cmd_set.initial.status_address_bytes" value="module.driver.ospi_b.address_bytes.none" />
+			<property id="module.driver.ospi_b.cmd_set.initial.status_address" value="0" />
+			<property id="module.driver.ospi_b.spi_read_command" value="0x0C" />
+			<property id="module.driver.ospi_b.default_mem_read_dummy_cycles" value="8" />
+			<property id="module.driver.ospi_b.spi_page_program_command" value="0x12" />
+			<property id="module.driver.ospi_b.cmd_set.initial.program.dummy_cycles" value="0" />
+			<property id="module.driver.ospi_b.spi_write_enable_command" value="0x06" />
+			<property id="module.driver.ospi_b.spi_status_command" value="0x05" />
+			<property id="module.driver.ospi_b.default_status_read_dummy_cycles" value="0" />
+			<property id="module.driver.ospi_b.sector_erase_command" value="0x21" />
+			<property id="module.driver.ospi_b.block_erase_command" value="0xDC" />
+			<property id="module.driver.ospi_b.chip_erase_command" value="0x60" />
+			<property id="module.driver.ospi_b.high_speed_protocol" value="module.driver.ospi_b.protocol_mode.protocol_8D_8D_8D" />
+			<property id="module.driver.ospi_b.command_interval_clocks" value="module.driver.ospi_b.command_interval_clocks.clocks_2" />
+			<property id="module.driver.ospi_b.pull_up_timing" value="module.driver.ospi_b.pull_up_timing.clocks_5" />
+			<property id="module.driver.ospi_b.pull_down_timing" value="module.driver.ospi_b.pull_down_timing.clocks_3" />
+			<property id="module.driver.ospi_b.data_latch_delay_setting" value="module.driver.ospi_b.ds_timing.delay.none" />
+			<property id="module.driver.ospi_b.sdr_timing.drive_timing" value="module.driver.ospi_b.sdr_timing.drive_timing.before_ck_rising" />
+			<property id="module.driver.ospi_b.sdr_timing.ck_sampling_edge" value="module.driver.ospi_b.sdr_timing.ck_sampling_edge.falling" />
+			<property id="module.driver.ospi_b.sdr_timing.sampling_delay" value="module.driver.ospi_b.sdr_timing.sampling_delay.none" />
+		</module>
 		<context id="_hal.0">
 			<stack module="module.driver.ioport_on_ioport.0" />
 			<stack module="module.driver.spi_on_sci_b_spi.111267621" />
@@ -541,6 +605,14 @@
 					</stack>
 				</stack>
 			</stack>
+			<stack module="module.driver.psa_crypto.1164453105">
+				<stack module="module.driver.rm_psa_crypto.2078813637" requires="module.driver.rm_psa_crypto">
+					<stack module="module.driver.rsip_e50d.plaintext.784804638" requires="module.driver.rm_psa_crypto.requires.sce">
+						<stack module="module.driver.rsip_e50d_key_injection.1856649716" requires="module.driver.sce.requires.rsip_e50d_key_injection" />
+					</stack>
+				</stack>
+			</stack>
+			<stack module="module.driver.ospi_on_ospi_b.2130627991" />
 		</context>
 		<config id="config.driver.sci_b_spi">
 			<property id="config.driver.sci_b_spi.param_checking_enable" value="config.driver.sci_b_spi.param_checking_enable.bsp" />
@@ -553,6 +625,33 @@
 		<config id="config.middleware.rm_ethosu">
 			<property id="config.middleware.rm_ethosu.param_checking_enable" value="config.middleware.rm_ethosu.param_checking_enable.bsp" />
 			<property id="config.middleware.rm_ethosu.log_level" value="config.middleware.rm_ethosu.log_level.off" />
+		</config>
+		<config id="config.driver.psa_crypto">
+			<property id="config.driver.psa_crypto.mbedtls_entropy_hardware_alt" value="config.driver.psa_crypto.mbedtls_entropy_hardware_alt.enabled" />
+			<property id="config.driver.psa_crypto.aes_format" value="config.driver.psa_crypto.aes_format.vendor_plaintext_wrapped" />
+			<property id="config.driver.psa_crypto.aes_alt" value="config.driver.psa_crypto.aes_alt.enabled" />
+			<property id="config.driver.psa_crypto.mbedtls_platform_setup_teardown_alt" value="config.driver.psa_crypto.mbedtls_platform_setup_teardown_alt.enabled" />
+			<property id="config.driver.psa_crypto.mbedtls_gcm_alt" value="config.driver.psa_crypto.aes_gcm_alt.enabled" />
+			<property id="config.driver.psa_crypto.mbedtls_gcm_c" value="config.driver.psa_crypto.mbedtls_gcm_c.enabled" />
+			<property id="config.driver.psa_crypto.mbedtls_threading_alt" value="config.driver.psa_crypto.mbedtls_threading_alt.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_threading_c" value="config.driver.psa_crypto.mbedtls_threading_c.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_platform_memory" value="config.driver.psa_crypto.mbedtls_platform_memory.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_ecp_c" value="config.driver.psa_crypto.mbedtls_ecp_c.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_ecdsa_c" value="config.driver.psa_crypto.mbedtls_ecdsa_c.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_rsa_c" value="config.driver.psa_crypto.mbedtls_rsa_c.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_pk_c" value="config.driver.psa_crypto.mbedtls_pk_c.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_pk_parse_c" value="config.driver.psa_crypto.mbedtls_pk_parse_c.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_pk_write_c" value="config.driver.psa_crypto.mbedtls_pk_write_c.disabled" />
+		</config>
+		<config id="config.driver.ospi_b">
+			<property id="config.driver.ospi_b.param_checking_enable" value="config.driver.ospi_b.param_checking_enable.bsp" />
+			<property id="config.driver.ospi_b.dmac_support" value="config.driver.ospi_b.dmac_support.disabled" />
+			<property id="config.driver.ospi_b.autocalibration_support" value="config.driver.ospi_b.autocalibration_support.disabled" />
+			<property id="config.driver.ospi_b.prefetch_function" value="config.driver.ospi_b.prefetch_function.enabled" />
+			<property id="config.driver.ospi_b.combination_function" value="config.driver.ospi_b.combination_function.64_BYTE" />
+			<property id="config.driver.ospi_b.xip_support" value="config.driver.ospi_b.xip_support.disabled" />
+			<property id="config.driver.ospi_b.dotf_support" value="config.driver.ospi_b.dotf_support.disabled" />
+			<property id="config.driver.ospi_b.row_addressing_support" value="config.driver.ospi_b.row_addressing_support.disabled" />
 		</config>
 		<config id="config.driver.ioport">
 			<property id="config.driver.ioport.checking" value="config.driver.ioport.checking.system" />
@@ -1386,6 +1485,33 @@
 			<configSetting altId="pdm2.mode.custom.free" configurationId="pdm2.mode" />
 			<configSetting altId="pdm2.pdmclk2.p812" configurationId="pdm2.pdmclk2" />
 			<configSetting altId="pdm2.pdmdat2.p502" configurationId="pdm2.pdmdat2" />
+			<configSetting altId="ospi0.mode.custom.free" configurationId="ospi0.mode" />
+			<configSetting altId="ospi0.om_0_cs1.p104" configurationId="ospi0.om_0_cs1" />
+			<configSetting altId="ospi0.om_0_dqs.p801" configurationId="ospi0.om_0_dqs" />
+			<configSetting altId="ospi0.om_0_ecsint1.p105" configurationId="ospi0.om_0_ecsint1" />
+			<configSetting altId="ospi0.om_0_reset.p106" configurationId="ospi0.om_0_reset" />
+			<configSetting altId="ospi0.om_0_sclk.p808" configurationId="ospi0.om_0_sclk" />
+			<configSetting altId="ospi0.om_0_sio0.p100" configurationId="ospi0.om_0_sio0" />
+			<configSetting altId="ospi0.om_0_sio1.p803" configurationId="ospi0.om_0_sio1" />
+			<configSetting altId="ospi0.om_0_sio2.p103" configurationId="ospi0.om_0_sio2" />
+			<configSetting altId="ospi0.om_0_sio3.p101" configurationId="ospi0.om_0_sio3" />
+			<configSetting altId="ospi0.om_0_sio4.p102" configurationId="ospi0.om_0_sio4" />
+			<configSetting altId="ospi0.om_0_sio5.p800" configurationId="ospi0.om_0_sio5" />
+			<configSetting altId="ospi0.om_0_sio6.p802" configurationId="ospi0.om_0_sio6" />
+			<configSetting altId="ospi0.om_0_sio7.p804" configurationId="ospi0.om_0_sio7" />
+			<configSetting altId="p100.ospi0.om_0_sio0" configurationId="p100" />
+			<configSetting altId="p101.ospi0.om_0_sio3" configurationId="p101" />
+			<configSetting altId="p102.ospi0.om_0_sio4" configurationId="p102" />
+			<configSetting altId="p103.ospi0.om_0_sio2" configurationId="p103" />
+			<configSetting altId="p104.ospi0.om_0_cs1" configurationId="p104" />
+			<configSetting altId="p105.ospi0.om_0_ecsint1" configurationId="p105" />
+			<configSetting altId="p106.ospi0.om_0_reset" configurationId="p106" />
+			<configSetting altId="p800.ospi0.om_0_sio5" configurationId="p800" />
+			<configSetting altId="p801.ospi0.om_0_dqs" configurationId="p801" />
+			<configSetting altId="p802.ospi0.om_0_sio6" configurationId="p802" />
+			<configSetting altId="p803.ospi0.om_0_sio1" configurationId="p803" />
+			<configSetting altId="p804.ospi0.om_0_sio7" configurationId="p804" />
+			<configSetting altId="p808.ospi0.om_0_sclk" configurationId="p808" />
 			<configSetting altId="sci0.mode.simplespi.free" configurationId="sci0.mode" />
 			<configSetting altId="sci0.rxd0.p602" configurationId="sci0.rxd0" />
 			<configSetting altId="sci0.sck0.p601" configurationId="sci0.sck0" />

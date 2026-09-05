@@ -67,7 +67,7 @@ static int power_of_two(uint32_t value)
 static int known_region_kind(uint16_t kind)
 {
     return kind >= MTFS_SENTINEL_REGION_EXECUTABLE_COPY &&
-        kind <= MTFS_SENTINEL_REGION_PROVIDER_CONTEXT;
+        kind <= MTFS_SENTINEL_REGION_PROVIDER_SYNC;
 }
 
 static int known_region_placement(uint16_t placement)
@@ -112,7 +112,7 @@ static mtfs_error_t validate_npu_regions(const uint8_t *section,
             logical == 0U || storage < logical || storage > UINT64_MAX - address ||
             !power_of_two(alignment) ||
             alignment > 4096U || lifetime < MTFS_SENTINEL_REGION_LIFETIME_INSTALL ||
-            lifetime > MTFS_SENTINEL_REGION_LIFETIME_INFERENCE ||
+            lifetime > MTFS_SENTINEL_REGION_LIFETIME_PROCESS ||
             (le32(entry + 36U) & ~access_mask) != 0U ||
             (le32(entry + 40U) & ~access_mask) != 0U ||
             (le32(entry + 44U) & ~requirement_mask) != 0U ||

@@ -59,6 +59,13 @@ REGION_ACTIVATION = 2
 REGION_PARAMETERS = 3
 REGION_EXTERNAL_RW = 4
 REGION_PROVIDER_CONTEXT = 5
+REGION_RUNTIME_BINARY = 6
+REGION_INTERPRETER = 7
+REGION_RESOLVER = 8
+REGION_TENSOR_ARENA = 9
+REGION_ACCELERATOR_CONTEXT = 10
+REGION_SEMAPHORE_POOL = 11
+REGION_PROVIDER_SYNC = 12
 PLACEMENT_CALLER_RELATIVE = 1
 PLACEMENT_FIXED_ABSOLUTE = 2
 PLACEMENT_BINARY_CONTAINED = 3
@@ -69,17 +76,24 @@ REGION_ACCESS_EXECUTE = 4
 REGION_LIFETIME_INSTALL = 1
 REGION_LIFETIME_INSTANCE = 2
 REGION_LIFETIME_INFERENCE = 3
+REGION_LIFETIME_PROCESS = 4
 REGION_REQUIRE_ZEROIZE = 1
 REGION_REQUIRE_CACHE_COHERENCY = 2
 REGION_REQUIRE_EXCLUSIVE = 4
 REGION_REQUIRE_SHAREABLE = 8
 REGION_REQUIRE_INPUT_OUTPUT_SHARED = 16
+PROVIDER_RA_TFLM_ETHOSU = 0x52415446
+ACCELERATOR_RA_ETHOS_U55 = 0x45553535
+MODEL_FORMAT_RA_TFLM_ETHOSU = 0x45555446
 _REGION_KINDS = {REGION_EXECUTABLE_COPY, REGION_ACTIVATION, REGION_PARAMETERS,
-                 REGION_EXTERNAL_RW, REGION_PROVIDER_CONTEXT}
+                 REGION_EXTERNAL_RW, REGION_PROVIDER_CONTEXT,
+                 REGION_RUNTIME_BINARY, REGION_INTERPRETER, REGION_RESOLVER,
+                 REGION_TENSOR_ARENA, REGION_ACCELERATOR_CONTEXT,
+                 REGION_SEMAPHORE_POOL, REGION_PROVIDER_SYNC}
 _REGION_PLACEMENTS = {PLACEMENT_CALLER_RELATIVE, PLACEMENT_FIXED_ABSOLUTE,
                       PLACEMENT_BINARY_CONTAINED, PLACEMENT_PROVIDER_ASSIGNED}
 _REGION_LIFETIMES = {REGION_LIFETIME_INSTALL, REGION_LIFETIME_INSTANCE,
-                     REGION_LIFETIME_INFERENCE}
+                     REGION_LIFETIME_INFERENCE, REGION_LIFETIME_PROCESS}
 _REGION_ACCESS_MASK = REGION_ACCESS_READ | REGION_ACCESS_WRITE | REGION_ACCESS_EXECUTE
 _REGION_REQUIREMENT_MASK = (REGION_REQUIRE_ZEROIZE | REGION_REQUIRE_CACHE_COHERENCY |
                             REGION_REQUIRE_EXCLUSIVE | REGION_REQUIRE_SHAREABLE |
@@ -710,7 +724,8 @@ def _npu_runtime(binary_path: Path, manifest_path: Path,
     if manifest["canonical_model_sha256"] != canonical_hash.hex() or \
             manifest["runtime_binary_sha256"] != hashlib.sha256(binary).hexdigest():
         raise BundleError("NPU runtime hash mismatch")
-    if manifest["input_shape"] != [24] or manifest["output_shape"] != [24] or \
+    if manifest["input_shape"] not in ([24], [1, 24]) or \
+            manifest["output_shape"] not in ([24], [1, 24]) or \
             manifest["input_dtype"] != "int8" or manifest["output_dtype"] != "int8" or \
             not 0 < int(manifest["input_scale_numerator"]) <= 0xffffffff or \
             not 0 <= int(manifest["input_scale_shift"]) <= 31 or \
@@ -725,9 +740,102 @@ def _npu_runtime(binary_path: Path, manifest_path: Path,
     if declared_conversion != conversion_hash.hex():
         raise BundleError("NPU conversion manifest hash mismatch")
     provider = _u32(int(manifest["provider_id"]), "provider_id")
+    if provider == PROVIDER_RA_TFLM_ETHOSU:
+        _validate_ra_ethosu_manifest(manifest, len(binary))
     descriptor = _npu_runtime_descriptor_v2(manifest, binary, canonical_hash,
                                             conversion_hash)
     return provider, descriptor + binary, manifest
+
+
+def _validate_ra_ethosu_manifest(manifest: dict, binary_size: int) -> None:
+    """Fail closed on the production RA Vela/TFLM artifact contract."""
+    fixed = {
+        "format": "mtfs-sentinel-ra-tflm-ethosu-v1",
+        "provider_id": PROVIDER_RA_TFLM_ETHOSU,
+        "accelerator_id": ACCELERATOR_RA_ETHOS_U55,
+        "model_format": MODEL_FORMAT_RA_TFLM_ETHOSU,
+        "model_version": 2, "runtime_abi": 0x00190200,
+        "runtime_version_major": 25, "runtime_version_minor": 2,
+        "runtime_variant": 256, "runtime_extra": 0x00060500,
+        "required_alignment": 32, "persistent_memory": 4896,
+        "scratch_memory": 0, "schema_version": 3, "subgraph_count": 1,
+        "operator_count": 1, "ethos_u_custom_operator_count": 1,
+        "cpu_operator_count": 0, "command_stream_size": 576,
+        "weight_size": 1536, "vela_scratch_size": 48,
+        "input_shape": [1, 24], "output_shape": [1, 24],
+        "input_dtype": "int8", "output_dtype": "int8",
+        "tensor_arena_size": 4096, "acceptance_contract_version": 2,
+        "generation_reproducible": True,
+        "tool_versions": {"vela": "5.1.0", "tflm": "25.2.0",
+                          "fsp": "6.5.0", "ethos_u_core_driver": "25.2.0"},
+        "vela_configuration": {"accelerator_config": "ethos-u55-256",
+            "optimise": "Performance", "memory_mode": "Shared_Sram",
+            "system_config": "Ethos_U55_High_End_Embedded"},
+    }
+    if any(manifest.get(name) != value for name, value in fixed.items()) or \
+            not 0 < int(manifest.get("arena_requirement", 0)) <= 4096:
+        raise BundleError("RA TFLM/Ethos-U artifact policy mismatch")
+    try:
+        if rational_scale(float(manifest["input_scale"])) != (
+                int(manifest["input_scale_numerator"]),
+                int(manifest["input_scale_shift"])) or \
+                rational_scale(float(manifest["output_scale"])) != (
+                int(manifest["output_scale_numerator"]),
+                int(manifest["output_scale_shift"])):
+            raise BundleError("RA TFLM/Ethos-U quantization policy mismatch")
+    except (KeyError, TypeError, ValueError, CanonicalInt8Error) as error:
+        raise BundleError("RA TFLM/Ethos-U quantization policy mismatch") from error
+    requirements = REGION_REQUIRE_ZEROIZE | REGION_REQUIRE_EXCLUSIVE
+    expected_regions = [
+        {"kind": REGION_RUNTIME_BINARY, "placement": PLACEMENT_BINARY_CONTAINED,
+         "logical_size": binary_size, "storage_size": binary_size,
+         "alignment": 32, "address_or_offset": 0,
+         "lifetime": REGION_LIFETIME_INSTANCE,
+         "install_access": REGION_ACCESS_READ,
+         "inference_access": REGION_ACCESS_READ,
+         "requirements": REGION_REQUIRE_ZEROIZE | REGION_REQUIRE_CACHE_COHERENCY},
+        {"kind": REGION_INTERPRETER, "placement": PLACEMENT_CALLER_RELATIVE,
+         "logical_size": 196, "storage_size": 224, "alignment": 32,
+         "address_or_offset": 0, "lifetime": REGION_LIFETIME_INSTANCE,
+         "install_access": 3, "inference_access": 3,
+         "requirements": requirements},
+        {"kind": REGION_RESOLVER, "placement": PLACEMENT_CALLER_RELATIVE,
+         "logical_size": 48, "storage_size": 64, "alignment": 32,
+         "address_or_offset": 224, "lifetime": REGION_LIFETIME_INSTANCE,
+         "install_access": 3, "inference_access": 3,
+         "requirements": requirements},
+        {"kind": REGION_TENSOR_ARENA, "placement": PLACEMENT_CALLER_RELATIVE,
+         "logical_size": 4096, "storage_size": 4096, "alignment": 32,
+         "address_or_offset": 288, "lifetime": REGION_LIFETIME_INSTANCE,
+         "install_access": 3, "inference_access": 3,
+         "requirements": requirements | REGION_REQUIRE_CACHE_COHERENCY |
+             REGION_REQUIRE_INPUT_OUTPUT_SHARED},
+        {"kind": REGION_PROVIDER_CONTEXT, "placement": PLACEMENT_CALLER_RELATIVE,
+         "logical_size": 512, "storage_size": 512, "alignment": 32,
+         "address_or_offset": 4384, "lifetime": REGION_LIFETIME_INSTANCE,
+         "install_access": 3, "inference_access": 3,
+         "requirements": requirements},
+        {"kind": REGION_ACCELERATOR_CONTEXT,
+         "placement": PLACEMENT_PROVIDER_ASSIGNED, "logical_size": 96,
+         "storage_size": 96, "alignment": 8, "provider_pool_id": 1,
+         "address_or_offset": 0, "lifetime": REGION_LIFETIME_PROCESS,
+         "install_access": 3, "inference_access": 3,
+         "requirements": REGION_REQUIRE_EXCLUSIVE},
+        {"kind": REGION_SEMAPHORE_POOL,
+         "placement": PLACEMENT_PROVIDER_ASSIGNED, "logical_size": 16,
+         "storage_size": 16, "alignment": 4, "provider_pool_id": 1,
+         "address_or_offset": 0, "lifetime": REGION_LIFETIME_PROCESS,
+         "install_access": 3, "inference_access": 3,
+         "requirements": REGION_REQUIRE_EXCLUSIVE},
+        {"kind": REGION_PROVIDER_SYNC,
+         "placement": PLACEMENT_PROVIDER_ASSIGNED, "logical_size": 4,
+         "storage_size": 4, "alignment": 4, "provider_pool_id": 1,
+         "address_or_offset": 0, "lifetime": REGION_LIFETIME_PROCESS,
+         "install_access": 3, "inference_access": 3,
+         "requirements": REGION_REQUIRE_EXCLUSIVE},
+    ]
+    if manifest.get("memory_regions") != expected_regions:
+        raise BundleError("RA TFLM/Ethos-U memory-region policy mismatch")
 
 
 @dataclass(frozen=True)

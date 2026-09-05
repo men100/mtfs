@@ -11,7 +11,8 @@
 #include "mtfs_media.h"
 #include "mtfs_media_service.h"
 #include "mtfs_ra8p1_platform.h"
-#include "mtfs_ra8p1_tflm_spike.h"
+#include "mtfs_ra8p1_sentinel_runtime.h"
+#include "mtfs_ra8p1_validation.h"
 #include "mtfs_ra_sd_spi.h"
 #include "mtfs_sentinel.h"
 #include "mtfs_sentinel_lab_console.h"
@@ -36,7 +37,7 @@
 static mtfs_ra_sd_spi_context_t sd_context;
 static mtfs_media_context_t media_context;
 static mtfs_media_service_context_t media_service;
-static FATFS tflm_spike_filesystem;
+static FATFS validation_filesystem;
 static volatile uint32_t tflm_heartbeat;
 static volatile uint8_t tflm_heartbeat_stop;
 #define LAB_STACK_SIZE (12U * 1024U)
@@ -221,7 +222,7 @@ static int run_collection(mtfs_sentinel_lab_mode_t mode, uint32_t samples,
     return mtfs_sentinel_lab_run(&lab_runtime, &config, mode, samples, seed);
 }
 
-static int run_tflm_spike(uint32_t iterations)
+static int run_ra_validation(uint32_t repeats)
 {
     mtfs_block_device_t *device = NULL;
     T_CTSK heartbeat_task;
@@ -261,10 +262,9 @@ static int run_tflm_spike(uint32_t iterations)
         mtfs_block_initialize(device) != MTFS_OK ||
         mtfs_block_registry_register(0U, device) != MTFS_OK) goto cleanup;
     registered = 1;
-    if (f_mount(&tflm_spike_filesystem, "0:", 1U) != FR_OK) goto cleanup;
+    if (f_mount(&validation_filesystem, "0:", 1U) != FR_OK) goto cleanup;
     mounted = 1;
-    result = mtfs_ra8p1_tflm_spike_run(iterations, heartbeat_before,
-        &tflm_heartbeat);
+    result = mtfs_ra8p1_validation_run(repeats);
 
 cleanup:
     if (mounted && f_mount(NULL, "0:", 0U) != FR_OK) cleanup_ok = 0;
@@ -286,10 +286,10 @@ cleanup:
     fairness_ok = tflm_heartbeat > heartbeat_before;
     stack_ok = lab_used + 256U < sizeof(lab_task_stack) &&
         heartbeat_used + 256U < sizeof(heartbeat_task_stack);
-    tm_printf((UB *)"[RA0.1] scheduler heartbeat-delta=%u fairness=%s\n",
+    tm_printf((UB *)"[RA1-VALIDATION] scheduler heartbeat-delta=%u fairness=%s\n",
         tflm_heartbeat - heartbeat_before,
         fairness_ok ? (UB *)"PASS" : (UB *)"FAIL");
-    tm_printf((UB *)"[RA0.1] stack lab-used=%u/%u lab-margin=%u "
+    tm_printf((UB *)"[RA1-VALIDATION] stack lab-used=%u/%u lab-margin=%u "
         "heartbeat-used=%u/%u heartbeat-margin=%u guard=%s\n",
         lab_used, (unsigned int)sizeof(lab_task_stack),
         (unsigned int)sizeof(lab_task_stack) - lab_used,
@@ -297,7 +297,7 @@ cleanup:
         (unsigned int)sizeof(heartbeat_task_stack) - heartbeat_used,
         stack_ok ? (UB *)"PASS" : (UB *)"FAIL");
     if (!cleanup_ok || !fairness_ok || !stack_ok) result = -1;
-    tm_printf((UB *)"[RA0.1] runtime-load exit=%d cleanup=%s\n", result,
+    tm_printf((UB *)"[RA1-VALIDATION] exit=%d cleanup=%s\n", result,
         cleanup_ok ? (UB *)"PASS" : (UB *)"FAIL");
     return result;
 }
@@ -349,7 +349,7 @@ static int lab_command(void *context, const char *line)
             "record [samples]\r\n"
             "pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
             "pseudo-collect-hard-fault [samples] [seed]\r\n"
-            "sentinel-tflm-spike [iterations]  load SRA_A.TFL/B from SD and run Ethos-U\r\n");
+            "sentinel-ra-validate [repeats]  validation-only Ethos-U characterization\r\n");
 #else
         lab_console_write(NULL,
             "help    show this help\r\n"
@@ -384,11 +384,11 @@ static int lab_command(void *context, const char *line)
                 seed));
         return 1;
     }
-    if (parse_command(line, "sentinel-tflm-spike", 100U, 0U,
+    if (parse_command(line, "sentinel-ra-validate", 2U, 0U,
             &samples, &seed) && samples != 0U && seed == 0U) {
-        tm_printf((UB *)"# sentinel-tflm-spike iterations=%u\n", samples);
-        tm_printf((UB *)"# sentinel_tflm_spike_exit=%d\n",
-            run_tflm_spike(samples));
+        tm_printf((UB *)"# sentinel-ra-validate repeats=%u\n", samples);
+        tm_printf((UB *)"# sentinel_ra_validate_exit=%d\n",
+            run_ra_validation(samples));
         return 1;
     }
 #endif
@@ -398,8 +398,10 @@ static int lab_command(void *context, const char *line)
 static void lab_task(INT start_code, void *context)
 {
     mtfs_sentinel_lab_console_t console;
+    int runtime_ready;
     (void)start_code;
     (void)context;
+    runtime_ready = mtfs_ra8p1_sentinel_runtime_init();
     mtfs_sentinel_lab_console_init(&console, lab_console_write, NULL,
         lab_command, NULL);
     tm_printf((UB *)"\nmicroT-FS Storage Sentinel Lab\n");
@@ -409,6 +411,8 @@ static void lab_task(INT start_code, void *context)
 #if MTFS_ENABLE_STORAGE_SENTINEL
     tm_printf((UB *)"# feature schema: v%u\n", MTFS_SENTINEL_SCHEMA_VERSION);
     tm_printf((UB *)"# arithmetic: portable-u64-v3\n");
+    tm_printf((UB *)"# RA sealed/NPU runtime: %s\n",
+        (UB *)(runtime_ready == 0 ? "READY" : "FAIL"));
     tm_printf((UB *)"# sentinel self-test: %s\n",
         (UB *)(sentinel_runtime_self_test() ? "PASS" : "FAIL"));
 #else

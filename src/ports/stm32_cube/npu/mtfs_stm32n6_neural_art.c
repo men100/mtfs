@@ -11,7 +11,8 @@
 #define MTFS_STM32N6_NO_WFE_LIMIT (UINT32_C(8))
 
 static mtfs_error_t inspect_runtime(void *opaque, const uint8_t *binary,
-    uint32_t binary_size, mtfs_sentinel_npu_actual_info_t *actual)
+    uint32_t binary_size, const mtfs_sentinel_runtime_info_t *runtime,
+    mtfs_sentinel_npu_actual_info_t *actual)
 {
     mtfs_stm32n6_neural_art_t *target = opaque;
     ll_aton_reloc_info info;
@@ -21,7 +22,7 @@ static mtfs_error_t inspect_runtime(void *opaque, const uint8_t *binary,
     int index = 0;
     int found_activation = 0, found_parameters = 0;
     uint32_t activation_total = 0U;
-    if (target == NULL || binary == NULL || actual == NULL ||
+    if (target == NULL || binary == NULL || runtime == NULL || actual == NULL ||
         ((uintptr_t)binary & 7U) != 0U) return MTFS_ERROR_INVALID_ARGUMENT;
     target->diagnostic_stage = MTFS_STM32N6_NPU_DIAG_INSPECT_BEGIN;
     target->diagnostic_detail = 0;
