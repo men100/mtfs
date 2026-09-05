@@ -6,6 +6,7 @@
 #include "ff.h"
 #include "mtfs_sentinel.h"
 #include "mtfs_sentinel_lab_injector.h"
+#include "mtfs_sentinel_lab_window.h"
 
 typedef enum mtfs_sentinel_lab_mode
 {
@@ -58,10 +59,16 @@ typedef struct mtfs_sentinel_lab_runtime
     FATFS filesystem;
     uint8_t workload_buffer[4096];
     char csv_line[6144];
+    mtfs_sentinel_lab_window_runtime_t window;
 } mtfs_sentinel_lab_runtime_t;
 
 int mtfs_sentinel_lab_run(mtfs_sentinel_lab_runtime_t *runtime,
     const mtfs_sentinel_lab_run_config_t *config,
     mtfs_sentinel_lab_mode_t mode, uint32_t samples, uint32_t seed);
+void mtfs_sentinel_lab_configure_stage(
+    const mtfs_sentinel_lab_run_config_t *config,
+    mtfs_sentinel_lab_runtime_t *runtime, mtfs_sentinel_lab_mode_t mode,
+    uint32_t stage, uint32_t seed,
+    mtfs_sentinel_dataset_metadata_t *metadata);
 
 #endif

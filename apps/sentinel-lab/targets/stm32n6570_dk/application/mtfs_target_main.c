@@ -11,6 +11,7 @@
 #include "mtfs_sentinel.h"
 #include "mtfs_sentinel_lab_console.h"
 #include "mtfs_sentinel_lab_run.h"
+#include "mtfs_sentinel_monitor.h"
 #include "mtfs_sentinel_recorder.h"
 #include "mtfs_stm32_sdmmc.h"
 #include "mtfs_stm32n6570_dk_platform.h"
@@ -207,6 +208,221 @@ static int run_collection(mtfs_sentinel_lab_mode_t mode, uint32_t samples,
 }
 
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+typedef struct target_monitor_context
+{
+    mtfs_sentinel_lab_run_config_t lab_config;
+    mtfs_sentinel_lab_window_config_t window_config;
+    mtfs_sentinel_monitor_t monitor;
+    uint32_t marker;
+    uint32_t seed;
+    uint8_t pseudo;
+    uint8_t mounted;
+} target_monitor_context_t;
+
+static void monitor_injected_delay(void *opaque, uint32_t delay_us)
+{
+    uint32_t delay_ms;
+    (void)opaque;
+    delay_ms = delay_us > UINT32_MAX - 999U ? UINT32_MAX / 1000U :
+        (delay_us + 999U) / 1000U;
+    platform_sleep(NULL, delay_ms);
+}
+
+static mtfs_error_t monitor_media_ready(void *opaque)
+{
+    target_monitor_context_t *context = opaque;
+    mtfs_media_state_t state = mtfs_media_state(&media_context);
+    if (state != MTFS_MEDIA_STATE_PRESENT) {
+        if (context->mounted != 0U) {
+            (void)f_mount(NULL, "0:", 0U);
+            context->mounted = 0U;
+        }
+        return state == MTFS_MEDIA_STATE_ABSENT ? MTFS_ERROR_NO_MEDIA :
+            MTFS_ERROR_NOT_READY;
+    }
+    if (context->mounted == 0U) {
+        if (f_mount(&lab_runtime.filesystem, "0:", 1U) != FR_OK)
+            return MTFS_ERROR_NOT_READY;
+        context->mounted = 1U;
+    }
+    return MTFS_OK;
+}
+
+static mtfs_sentinel_monitor_media_state_t monitor_media_state(void)
+{
+    mtfs_media_state_t state = mtfs_media_state(&media_context);
+    if (state == MTFS_MEDIA_STATE_PRESENT)
+        return MTFS_SENTINEL_MONITOR_MEDIA_PRESENT;
+    if (state == MTFS_MEDIA_STATE_ABSENT)
+        return MTFS_SENTINEL_MONITOR_MEDIA_ABSENT;
+    return MTFS_SENTINEL_MONITOR_MEDIA_NOT_READY;
+}
+
+static mtfs_error_t monitor_stage_begin(void *opaque, uint32_t stage)
+{
+    target_monitor_context_t *context = opaque;
+    mtfs_sentinel_dataset_metadata_t metadata;
+    mtfs_sentinel_lab_configure_stage(&context->lab_config, &lab_runtime,
+        context->pseudo != 0U ? MTFS_SENTINEL_LAB_MODE_DELAY_RAMP :
+            MTFS_SENTINEL_LAB_MODE_RECORD,
+        stage, context->seed, &metadata);
+    return MTFS_OK;
+}
+
+static mtfs_error_t monitor_stage_end(void *opaque, uint32_t stage)
+{
+    (void)opaque; (void)stage;
+    mtfs_sentinel_lab_injector_disable(&lab_runtime.injector);
+    return MTFS_OK;
+}
+
+static const char *monitor_stage_name(void *opaque, uint32_t stage)
+{
+    static const char *const names[] = {
+        "baseline", "light", "medium", "strong", "recovery"
+    };
+    target_monitor_context_t *context = opaque;
+    return context->pseudo != 0U && stage < 5U ? names[stage] : "natural";
+}
+
+static mtfs_error_t monitor_acquire(void *opaque, uint32_t stage,
+    uint32_t index, mtfs_sentinel_monitor_input_t *input)
+{
+    target_monitor_context_t *context = opaque;
+    (void)stage; (void)index;
+    ++context->marker;
+    (void)mtfs_sentinel_lab_window_step(&lab_runtime.window,
+        &context->window_config, context->marker, NULL, NULL,
+        &input->window);
+    input->media_state = monitor_media_state();
+    if (input->window.sample_status == MTFS_OK)
+        lab_runtime.frame = input->window.feature;
+    return MTFS_OK;
+}
+
+static const mtfs_sentinel_monitor_provider_ops_t monitor_provider_ops = {
+    mtfs_stm32n6570_sentinel_monitor_open,
+    mtfs_stm32n6570_sentinel_monitor_normalize,
+    mtfs_stm32n6570_sentinel_monitor_npu_infer,
+    mtfs_stm32n6570_sentinel_monitor_cpu_infer,
+    mtfs_stm32n6570_sentinel_monitor_close
+};
+
+static int run_monitor(uint32_t samples, uint32_t seed, int pseudo)
+{
+    target_monitor_context_t context;
+    mtfs_sentinel_monitor_run_config_t run_config;
+    mtfs_sentinel_observer_config_t observer_config;
+    mtfs_sentinel_lab_injector_config_t injector_config;
+    mtfs_sentinel_config_t sentinel_config;
+    mtfs_sentinel_sample_metadata_t metadata;
+    mtfs_block_device_t *device = NULL;
+    int prepared = 0, observer_ready = 0, registered = 0;
+    int failed = 1;
+
+    (void)memset(&context, 0, sizeof(context));
+    (void)memset(&run_config, 0, sizeof(run_config));
+    (void)memset(&lab_runtime, 0, sizeof(lab_runtime));
+    context.seed = seed;
+    context.pseudo = pseudo != 0 ? 1U : 0U;
+    context.lab_config.platform_context = NULL;
+    context.lab_config.clock_us = mtfs_stm32n6570_dk_benchmark_clock_us;
+    context.lab_config.sentinel_clock =
+        mtfs_stm32n6570_dk_sentinel_clock_us;
+    context.lab_config.sleep = platform_sleep;
+    context.lab_config.write = platform_write;
+    context.lab_config.collect_metadata = collect_metadata;
+    context.lab_config.build_type = LAB_BUILD_TYPE;
+    context.lab_config.target_id = LAB_TARGET_ID;
+    context.lab_config.transport_id = LAB_TRANSPORT_ID;
+    context.lab_config.light_delay_us = LAB_ST_LIGHT_DELAY_US;
+    context.lab_config.medium_delay_us = LAB_ST_MEDIUM_DELAY_US;
+    context.lab_config.strong_delay_us = LAB_ST_STRONG_DELAY_US;
+
+    if (platform_prepare(NULL, &device) != MTFS_OK) goto cleanup;
+    prepared = 1;
+    if (!mtfs_block_device_is_valid(device)) goto cleanup;
+    injector_config.downstream = device;
+    /* Delay injection uses the same non-busy T-Kernel sleep as record. */
+    injector_config.delay = monitor_injected_delay;
+    injector_config.delay_context = NULL;
+    if (mtfs_sentinel_lab_injector_init(&lab_runtime.injector,
+            &injector_config) != MTFS_OK) goto cleanup;
+    observer_config.downstream = mtfs_sentinel_lab_injector_block_device(
+        &lab_runtime.injector);
+    observer_config.clock = context.lab_config.sentinel_clock;
+    observer_config.clock_context = NULL;
+    observer_config.lock = observer_lock;
+    observer_config.unlock = observer_unlock;
+    observer_config.lock_context = &observer_mutex_id;
+    if (mtfs_sentinel_observer_init(&lab_runtime.observer,
+            &observer_config) != MTFS_OK) goto cleanup;
+    observer_ready = 1;
+    device = mtfs_sentinel_observer_block_device(&lab_runtime.observer);
+    if (mtfs_block_initialize(device) != MTFS_OK ||
+        mtfs_block_registry_register(0U, device) != MTFS_OK) goto cleanup;
+    registered = 1;
+    if (f_mount(&lab_runtime.filesystem, "0:", 1U) != FR_OK) goto cleanup;
+    context.mounted = 1U;
+    sentinel_config.observer = &lab_runtime.observer;
+    sentinel_config.clock = context.lab_config.sentinel_clock;
+    sentinel_config.clock_context = NULL;
+    sentinel_config.target_id = LAB_TARGET_ID;
+    sentinel_config.transport_id = LAB_TRANSPORT_ID;
+    sentinel_config.transport_sample = transport_sample;
+    sentinel_config.transport_context = &sd_context;
+    if (mtfs_sentinel_init(&lab_runtime.sentinel, &sentinel_config) != MTFS_OK)
+        goto cleanup;
+    (void)memset(&metadata, 0, sizeof(metadata));
+    collect_metadata(NULL, &metadata);
+    (void)mtfs_sentinel_sample(&lab_runtime.sentinel, &metadata,
+        &lab_runtime.frame);
+    mtfs_sentinel_lab_window_runtime_init(&lab_runtime.window);
+    context.window_config.context = &context;
+    context.window_config.clock_us = mtfs_stm32n6570_dk_benchmark_clock_us;
+    context.window_config.sleep = platform_sleep;
+    context.window_config.collect_metadata = collect_metadata;
+    context.window_config.media_ready = monitor_media_ready;
+    context.window_config.sentinel = &lab_runtime.sentinel;
+    context.window_config.volume = "0:";
+    context.window_config.workload_buffer = lab_runtime.workload_buffer;
+    context.window_config.workload_size = sizeof(lab_runtime.workload_buffer);
+    context.window_config.interval_ms = 1000U;
+    context.window_config.cadence = MTFS_SENTINEL_LAB_CADENCE_ABSOLUTE;
+    run_config.context = &context;
+    run_config.provider_ops = &monitor_provider_ops;
+    run_config.provider_context = &media_context;
+    run_config.acquire = monitor_acquire;
+    run_config.stage_begin = monitor_stage_begin;
+    run_config.stage_end = monitor_stage_end;
+    run_config.stage_name = monitor_stage_name;
+    run_config.write = platform_write;
+    run_config.stage_count = pseudo != 0 ? 5U : 1U;
+    run_config.samples_per_stage = samples;
+    run_config.maximum_q4_error = 1U;
+    failed = mtfs_sentinel_monitor_run(&context.monitor, &run_config);
+    tm_printf((UB *)"[MON-DIAG] open=%u install=%u infer=%u close=%u windows=%u rule=%u cpu-arb=%u cpu-fallback=%u failures=%u\n",
+        context.monitor.diagnostics.open_calls,
+        context.monitor.diagnostics.open_calls,
+        context.monitor.diagnostics.npu_inferences,
+        context.monitor.diagnostics.close_calls,
+        context.monitor.diagnostics.windows,
+        context.monitor.diagnostics.rule_decisions,
+        context.monitor.diagnostics.cpu_arbitrations,
+        context.monitor.diagnostics.cpu_fallbacks,
+        context.monitor.diagnostics.failures);
+cleanup:
+    mtfs_sentinel_lab_injector_disable(&lab_runtime.injector);
+    if (context.mounted != 0U) (void)f_mount(NULL, "0:", 0U);
+    if (registered) (void)mtfs_block_registry_unregister(0U);
+    if (observer_ready)
+        (void)mtfs_sentinel_observer_deinit(&lab_runtime.observer);
+    if (prepared) platform_finish(NULL);
+    lab_console_write(NULL,
+        "# injection=disabled temporary-file-cleanup=complete\r\n");
+    return failed;
+}
+
 static int run_inference(const mtfs_sentinel_feature_v1_t *feature,
     uint32_t iterations, int hotplug, int diagnostics)
 {
@@ -389,6 +605,8 @@ static int lab_command(void *context, const char *line)
             "pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
             "pseudo-collect-hard-fault [samples] [seed]\r\n"
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+            "sentinel-monitor [samples]  acquire and classify each live window\r\n"
+            "pseudo-monitor-delay-ramp [samples-per-stage] [seed]  monitor injected delay stages\r\n"
             "sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
             "sentinel-infer-profile [iterations]  diagnostic timing, scheduler, and stack measurements\r\n"
             "sentinel-infer-pseudo-slow [iterations]  compare retained strong-delay frame\r\n"
@@ -433,6 +651,21 @@ static int lab_command(void *context, const char *line)
         return 1;
     }
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+    if (parse_command(line, "sentinel-monitor", 0U, 0U,
+            &samples, &seed) && seed == 0U) {
+        tm_printf((UB *)"# sentinel-monitor samples=%u\n", samples);
+        tm_printf((UB *)"# sentinel_monitor_exit=%d\n",
+            run_monitor(samples, 0U, 0));
+        return 1;
+    }
+    if (parse_command(line, "pseudo-monitor-delay-ramp", 10U, 1U,
+            &samples, &seed) && samples != 0U && seed != 0U) {
+        tm_printf((UB *)"# pseudo-monitor-delay-ramp samples_per_stage=%u seed=%u\n",
+            samples, seed);
+        tm_printf((UB *)"# pseudo_monitor_delay_ramp_exit=%d\n",
+            run_monitor(samples, seed, 1));
+        return 1;
+    }
     if (parse_command(line, "sentinel-infer", 10U, 0U, &samples, &seed) &&
         samples != 0U && seed == 0U) {
         tm_printf((UB *)"# sentinel-infer iterations=%u exit=%d\n", samples,

@@ -74,6 +74,7 @@ static uint8_t arena[SENTINEL_ARENA_SIZE] SENTINEL_ALIGN32;
 static uint8_t scheduler_probe_stack[SENTINEL_SCHEDULER_PROBE_STACK_SIZE]
     SENTINEL_ALIGN32;
 static volatile uint32_t scheduler_probe_count;
+static sentinel_session_t monitor_session;
 
 static void scheduler_probe_task(INT start_code, void *context)
 {
@@ -283,6 +284,11 @@ static int session_open(sentinel_session_t *session)
     (void)memset(arena, 0, sizeof(arena));
     status = mtfs_model_load(&session->model, arena, sizeof(arena), &loaded);
     if (status != MTFS_OK || loaded != session->model_info.payload_size) return 7;
+    /* The authenticated payload is resident; release the SD/FatFs handle. */
+    status = mtfs_sealed_reader_fatfs_close(&session->fatfs_reader);
+    if (status != MTFS_OK) return 7;
+    session->reader_open = 0U;
+    (void)memset(&session->reader, 0, sizeof(session->reader));
     status = mtfs_sentinel_bundle_parse_model_payload(arena, loaded,
         &session->model_info, MTFS_SENTINEL_TRANSPORT_SDMMC_IDMA,
         SENTINEL_PROFILE_ID, &session->bundle);
@@ -680,6 +686,93 @@ int mtfs_stm32n6570_sentinel_inference_vector_run(
     return inference_run(media, NULL, input_q4, iterations, 0, 0);
 }
 
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_open(void *media,
+    uint64_t *threshold_q8)
+{
+    int stage;
+    if (media == NULL || threshold_q8 == NULL)
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    if (monitor_session.npu_open != 0U &&
+        session_cleanup(&monitor_session) != 0)
+        return MTFS_ERROR_INVALID_STATE;
+    (void)memset(&monitor_session, 0, sizeof(monitor_session));
+    monitor_session.media = media;
+    stage = session_open(&monitor_session);
+    if (stage != 0) {
+        (void)session_cleanup(&monitor_session);
+        tm_printf((UB *)"[sentinel-monitor] provider-open-stage=%d\n", stage);
+        return stage == 5 || stage == 8 ? MTFS_ERROR_AUTHENTICATION :
+            MTFS_ERROR_NOT_READY;
+    }
+    *threshold_q8 = monitor_session.bundle.threshold_q8;
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_normalize(void *media,
+    const mtfs_sentinel_feature_v1_t *feature, int8_t input_q4[24])
+{
+    uint32_t raw[MTFS_SENTINEL_FEATURE_DIMENSION];
+    mtfs_error_t status;
+    (void)media;
+    if (monitor_session.npu_open == 0U || feature == NULL || input_q4 == NULL)
+        return MTFS_ERROR_INVALID_STATE;
+    status = mtfs_sentinel_feature_encode_raw(feature, raw);
+    if (status == MTFS_OK)
+        status = mtfs_sentinel_normalize_int8(
+            &monitor_session.bundle.normalization, raw, input_q4);
+    mtfs_secure_zero(raw, sizeof(raw));
+    return status;
+}
+
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_npu_infer(void *media,
+    const int8_t input_q4[24], int8_t output_q4[24],
+    mtfs_sentinel_inference_result_t *result, uint32_t *latency_us)
+{
+    uint64_t start_us;
+    uint64_t end_us;
+    mtfs_error_t status;
+    (void)media;
+    if (monitor_session.npu_open == 0U || input_q4 == NULL ||
+        output_q4 == NULL || result == NULL || latency_us == NULL)
+        return MTFS_ERROR_INVALID_STATE;
+    start_us = mtfs_stm32n6570_dk_benchmark_clock_us(NULL);
+    status = mtfs_sentinel_npu_infer(&monitor_session.npu, input_q4,
+        output_q4, SENTINEL_TIMEOUT_MS, result);
+    end_us = mtfs_stm32n6570_dk_benchmark_clock_us(NULL);
+    *latency_us = end_us >= start_us && end_us - start_us <= UINT32_MAX ?
+        (uint32_t)(end_us - start_us) : UINT32_MAX;
+    return status;
+}
+
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_cpu_infer(void *media,
+    const int8_t input_q4[24], mtfs_sentinel_inference_result_t *result,
+    uint32_t *latency_us)
+{
+    int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION];
+    uint64_t start_us;
+    uint64_t end_us;
+    mtfs_error_t status;
+    (void)media;
+    if (monitor_session.npu_open == 0U || input_q4 == NULL ||
+        result == NULL || latency_us == NULL)
+        return MTFS_ERROR_INVALID_STATE;
+    start_us = mtfs_stm32n6570_dk_benchmark_clock_us(NULL);
+    status = mtfs_sentinel_cpu_infer(&monitor_session.cpu, input_q4,
+        arena + monitor_session.plan.scratch_offset,
+        monitor_session.plan.scratch_size, output_q4, result);
+    end_us = mtfs_stm32n6570_dk_benchmark_clock_us(NULL);
+    *latency_us = end_us >= start_us && end_us - start_us <= UINT32_MAX ?
+        (uint32_t)(end_us - start_us) : UINT32_MAX;
+    mtfs_secure_zero(output_q4, sizeof(output_q4));
+    return status;
+}
+
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_close(void *media)
+{
+    (void)media;
+    return session_cleanup(&monitor_session) == 0 ? MTFS_OK : MTFS_ERROR_IO;
+}
+
 #else
 
 int mtfs_stm32n6570_sentinel_inference_run(
@@ -713,5 +806,37 @@ int mtfs_stm32n6570_sentinel_inference_vector_run(
     (void)media; (void)input_q4; (void)iterations;
     return 1;
 }
+
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_open(void *media,
+    uint64_t *threshold_q8)
+{
+    (void)media; (void)threshold_q8; return MTFS_ERROR_NOT_SUPPORTED;
+}
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_normalize(void *media,
+    const mtfs_sentinel_feature_v1_t *feature, int8_t input_q4[24])
+{
+    (void)media; (void)feature; (void)input_q4;
+    return MTFS_ERROR_NOT_SUPPORTED;
+}
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_npu_infer(void *media,
+    const int8_t input_q4[24], int8_t output_q4[24],
+    mtfs_sentinel_inference_result_t *result, uint32_t *latency_us)
+{
+    (void)media; (void)input_q4; (void)output_q4; (void)result;
+    (void)latency_us; return MTFS_ERROR_NOT_SUPPORTED;
+}
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_cpu_infer(void *media,
+    const int8_t input_q4[24], mtfs_sentinel_inference_result_t *result,
+    uint32_t *latency_us)
+{
+    (void)media; (void)input_q4; (void)result; (void)latency_us;
+    return MTFS_ERROR_NOT_SUPPORTED;
+}
+mtfs_error_t mtfs_stm32n6570_sentinel_monitor_close(void *media)
+{
+    (void)media; return MTFS_OK;
+}
+#endif
 
 #endif

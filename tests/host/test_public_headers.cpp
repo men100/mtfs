@@ -2,6 +2,7 @@
 #include "core/mtfs_media.h"
 #include "sentinel/mtfs_sentinel_npu_provider.h"
 #include "sentinel/mtfs_sentinel_sha256.h"
+#include "mtfs_sentinel_monitor.h"
 
 static_assert(MTFS_BLOCK_DIAGNOSTICS_API_VERSION == 1U,
     "diagnostics API version must be visible from C++");
@@ -11,6 +12,8 @@ static_assert(MTFS_SENTINEL_BUNDLE_VERSION == 1U,
     "Sentinel bundle API must be visible from C++");
 static_assert(MTFS_SENTINEL_NPU_PROVIDER_API_VERSION == 1U,
     "Sentinel NPU provider API must be visible from C++");
+static_assert(MTFS_SENTINEL_MONITOR_SOURCE_NPU == 1,
+    "Sentinel monitor application API must be visible from C++");
 #if UINTPTR_MAX == UINT32_MAX
 static_assert(sizeof(mtfs_sentinel_bundle_policy_t) == 28U,
     "32-bit bundle policy ABI size");

@@ -62,7 +62,8 @@ static uint32_t stage_count(mtfs_sentinel_lab_mode_t mode)
     return mode == MTFS_SENTINEL_LAB_MODE_DELAY_RAMP ? 5U : 1U;
 }
 
-static void configure_stage(const mtfs_sentinel_lab_run_config_t *config,
+void mtfs_sentinel_lab_configure_stage(
+    const mtfs_sentinel_lab_run_config_t *config,
     mtfs_sentinel_lab_runtime_t *runtime, mtfs_sentinel_lab_mode_t mode,
     uint32_t stage, uint32_t seed, mtfs_sentinel_dataset_metadata_t *metadata)
 {
@@ -135,9 +136,9 @@ int mtfs_sentinel_lab_run(mtfs_sentinel_lab_runtime_t *runtime,
     mtfs_sentinel_config_t sentinel_config;
     mtfs_sentinel_sample_metadata_t sample_metadata;
     mtfs_sentinel_dataset_metadata_t dataset_metadata;
+    mtfs_sentinel_lab_window_config_t window_config;
+    mtfs_sentinel_lab_window_result_t window_result;
     mtfs_block_device_t *device = NULL;
-    mtfs_error_t workload_error;
-    uint64_t start_us, end_us;
     uint32_t stage, index, marker = 1U;
     int prepared = 0, observer_ready = 0, registered = 0, mounted = 0;
     int result = 1;
@@ -187,6 +188,18 @@ int mtfs_sentinel_lab_run(mtfs_sentinel_lab_runtime_t *runtime,
     sentinel_config.transport_context = config->transport_context;
     if (mtfs_sentinel_init(&runtime->sentinel, &sentinel_config) != MTFS_OK)
         goto cleanup;
+    (void)memset(&window_config, 0, sizeof(window_config));
+    window_config.context = config->platform_context;
+    window_config.clock_us = config->clock_us;
+    window_config.sleep = config->sleep;
+    window_config.collect_metadata = config->collect_metadata;
+    window_config.sentinel = &runtime->sentinel;
+    window_config.volume = "0:";
+    window_config.workload_buffer = runtime->workload_buffer;
+    window_config.workload_size = sizeof(runtime->workload_buffer);
+    window_config.interval_ms = LAB_RECORD_INTERVAL_MS;
+    window_config.cadence = MTFS_SENTINEL_LAB_CADENCE_RELATIVE;
+    mtfs_sentinel_lab_window_runtime_init(&runtime->window);
     (void)memset(&sample_metadata, 0, sizeof(sample_metadata));
     config->collect_metadata(config->platform_context, &sample_metadata);
     (void)mtfs_sentinel_sample(&runtime->sentinel, &sample_metadata,
@@ -195,7 +208,7 @@ int mtfs_sentinel_lab_run(mtfs_sentinel_lab_runtime_t *runtime,
     write_text(config, "\r\n");
 
     for (stage = 0U; stage < stage_count(mode); ++stage) {
-        configure_stage(config, runtime, mode, stage, seed,
+        mtfs_sentinel_lab_configure_stage(config, runtime, mode, stage, seed,
             &dataset_metadata);
         write_status(config,
             "# stage=%u rate_permille=%u requested_delay_us=%d\r\n",
@@ -205,24 +218,19 @@ int mtfs_sentinel_lab_run(mtfs_sentinel_lab_runtime_t *runtime,
             if (mode == MTFS_SENTINEL_LAB_MODE_HARD_FAULT)
                 enable_hard_fault(runtime, &dataset_metadata,
                     derived_seed(seed, index));
-            start_us = config->clock_us(config->platform_context);
-            workload_error = mtfs_sentinel_recorder_workload_ex("0:", marker,
-                runtime->workload_buffer, sizeof(runtime->workload_buffer),
-                mode == MTFS_SENTINEL_LAB_MODE_HARD_FAULT ?
-                    disable_before_cleanup : NULL,
-                &runtime->injector);
-            end_us = config->clock_us(config->platform_context);
+            if (mtfs_sentinel_lab_window_step(&runtime->window,
+                    &window_config, marker,
+                    mode == MTFS_SENTINEL_LAB_MODE_HARD_FAULT ?
+                        disable_before_cleanup : NULL,
+                    &runtime->injector, &window_result) != MTFS_OK)
+                (void)memset(&window_result.feature, 0,
+                    sizeof(window_result.feature));
             write_status(config,
                 "# workload-perf marker=%u elapsed_us=%u mtfs=%d\r\n",
-                marker, end_us >= start_us && end_us - start_us <= UINT32_MAX ?
-                    (uint32_t)(end_us - start_us) : UINT32_MAX,
-                (int)workload_error);
-            config->sleep(config->platform_context, LAB_RECORD_INTERVAL_MS);
-            (void)memset(&sample_metadata, 0, sizeof(sample_metadata));
-            config->collect_metadata(config->platform_context,
-                &sample_metadata);
-            if (mtfs_sentinel_sample(&runtime->sentinel, &sample_metadata,
-                    &runtime->frame) == MTFS_OK) {
+                marker, window_result.workload_elapsed_us,
+                (int)window_result.workload_status);
+            if (window_result.sample_status == MTFS_OK) {
+                runtime->frame = window_result.feature;
                 if (mode == MTFS_SENTINEL_LAB_MODE_DELAY_RAMP && stage == 3U) {
                     runtime->evaluation_frame = runtime->frame;
                     runtime->evaluation_frame_valid = 1U;

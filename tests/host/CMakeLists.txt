@@ -64,7 +64,12 @@ add_executable(mtfs_host_tests
 )
 
 add_library(mtfs_public_headers_cpp_compile OBJECT test_public_headers.cpp)
-target_include_directories(mtfs_public_headers_cpp_compile PRIVATE ../../src)
+target_include_directories(mtfs_public_headers_cpp_compile PRIVATE
+    ../../src
+    ../../src/block
+    ../../src/sentinel
+    ../../apps/sentinel-lab/application
+)
 target_compile_definitions(mtfs_public_headers_cpp_compile PRIVATE
     MTFS_ENABLE_SEALED_MODEL=1
     MTFS_ENABLE_STORAGE_SENTINEL=1
@@ -373,8 +378,75 @@ target_compile_options(mtfs_sentinel_lab_injector_test PRIVATE
 add_test(NAME mtfs_sentinel_lab_injector
     COMMAND mtfs_sentinel_lab_injector_test)
 
+add_executable(mtfs_sentinel_lab_window_test
+    test_sentinel_lab_window.c
+    ../../apps/sentinel-lab/application/mtfs_sentinel_lab_window.c
+)
+target_include_directories(mtfs_sentinel_lab_window_test PRIVATE
+    ../../apps/sentinel-lab/application
+    ../../src
+    ../../src/block
+    ../../src/sentinel
+)
+target_compile_definitions(mtfs_sentinel_lab_window_test PRIVATE
+    MTFS_ENABLE_DIAGNOSTICS=1
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+)
+set_target_properties(mtfs_sentinel_lab_window_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES
+)
+target_compile_options(mtfs_sentinel_lab_window_test PRIVATE
+    -Wall -Wextra -Wpedantic
+)
+add_test(NAME mtfs_sentinel_lab_window
+    COMMAND mtfs_sentinel_lab_window_test)
+
+add_executable(mtfs_sentinel_monitor_test
+    test_sentinel_monitor.c
+    ../../apps/sentinel-lab/application/mtfs_sentinel_monitor.c
+    ../../src/sentinel/mtfs_sentinel_inference.c
+)
+target_include_directories(mtfs_sentinel_monitor_test PRIVATE
+    ../../apps/sentinel-lab/application
+    ../../src
+    ../../src/block
+    ../../src/sentinel
+)
+target_compile_definitions(mtfs_sentinel_monitor_test PRIVATE
+    MTFS_ENABLE_DIAGNOSTICS=1
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1
+)
+set_target_properties(mtfs_sentinel_monitor_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES
+)
+target_compile_options(mtfs_sentinel_monitor_test PRIVATE
+    -Wall -Wextra -Wpedantic
+)
+add_test(NAME mtfs_sentinel_monitor
+    COMMAND mtfs_sentinel_monitor_test)
+
+add_library(mtfs_sentinel_monitor_disabled_compile OBJECT
+    ../../apps/sentinel-lab/application/mtfs_sentinel_monitor.c
+)
+target_include_directories(mtfs_sentinel_monitor_disabled_compile PRIVATE
+    ../../apps/sentinel-lab/application
+    ../../src
+)
+target_compile_definitions(mtfs_sentinel_monitor_disabled_compile PRIVATE
+    MTFS_ENABLE_STORAGE_SENTINEL=0
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=0
+)
+set_target_properties(mtfs_sentinel_monitor_disabled_compile PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES
+)
+target_compile_options(mtfs_sentinel_monitor_disabled_compile PRIVATE
+    -Wall -Wextra -Wpedantic
+)
+
 add_library(mtfs_sentinel_lab_run_compile OBJECT
     ../../apps/sentinel-lab/application/mtfs_sentinel_lab_run.c
+    ../../apps/sentinel-lab/application/mtfs_sentinel_lab_window.c
 )
 target_include_directories(mtfs_sentinel_lab_run_compile PRIVATE
     ../../apps/sentinel-lab/application
