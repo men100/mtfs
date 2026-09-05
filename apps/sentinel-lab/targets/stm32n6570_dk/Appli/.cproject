@@ -58,7 +58,7 @@
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
 									<listOptionValue builtIn="false" value="MTFS_STM32N6570_DK_LINKER_POLICY=1"/>
 									<listOptionValue builtIn="false" value="LL_ATON_PLATFORM=LL_ATON_PLAT_STM32N6"/>
-									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_BARE_METAL"/>
+									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_USER_IMPL"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_MODE=LL_ATON_RT_ASYNC"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_RELOC"/>
 									<listOptionValue builtIn="false" value="LL_ATON_EB_DBG_INFO"/>
@@ -202,7 +202,7 @@
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
 									<listOptionValue builtIn="false" value="MTFS_STM32N6570_DK_LINKER_POLICY=1"/>
 									<listOptionValue builtIn="false" value="LL_ATON_PLATFORM=LL_ATON_PLAT_STM32N6"/>
-									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_BARE_METAL"/>
+									<listOptionValue builtIn="false" value="LL_ATON_OSAL=LL_ATON_OSAL_USER_IMPL"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_MODE=LL_ATON_RT_ASYNC"/>
 									<listOptionValue builtIn="false" value="LL_ATON_RT_RELOC"/>
 									<listOptionValue builtIn="false" value="LL_ATON_EB_DBG_INFO"/>

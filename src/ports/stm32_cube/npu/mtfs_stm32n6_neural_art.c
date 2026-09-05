@@ -5,6 +5,10 @@
 #include "ll_aton_caches_interface.h"
 #include "ll_aton_reloc_network.h"
 #include "ll_aton_rt_user_api.h"
+#include "mtfs_stm32n6_async_wait.h"
+#include "mtfs_stm32n6_aton_osal.h"
+
+#define MTFS_STM32N6_NO_WFE_LIMIT (UINT32_C(8))
 
 static mtfs_error_t inspect_runtime(void *opaque, const uint8_t *binary,
     uint32_t binary_size, mtfs_sentinel_npu_actual_info_t *actual)
@@ -247,6 +251,11 @@ static mtfs_error_t install_runtime(void *opaque, const uint8_t *binary,
         return MTFS_ERROR_UNSUPPORTED_FORMAT;
     }
     LL_ATON_RT_RuntimeInit();
+    if (!mtfs_stm32n6_aton_osal_ready()) {
+        LL_ATON_RT_RuntimeDeInit();
+        target->diagnostic_detail = 5;
+        return MTFS_ERROR_NOT_READY;
+    }
     target->runtime_initialized = 1U;
     LL_ATON_RT_Init_Network((NN_Instance_TypeDef *)target->nn_instance);
     target->installed = 1U;
@@ -254,19 +263,98 @@ static mtfs_error_t install_runtime(void *opaque, const uint8_t *binary,
     return MTFS_OK;
 }
 
+static mtfs_stm32n6_async_state_t run_epoch_async(void *opaque)
+{
+    mtfs_stm32n6_neural_art_t *target = opaque;
+    LL_ATON_RT_RetValues_t state;
+    uint32_t started = 0U;
+    if (target->profile_cycle_count != NULL)
+        started = target->profile_cycle_count(target->profile_cycle_context);
+    state = LL_ATON_RT_RunEpochBlock(
+        (NN_Instance_TypeDef *)target->nn_instance);
+    if (target->profile_cycle_count != NULL)
+        target->profile.epoch_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            started;
+    if (state == LL_ATON_RT_NO_WFE) return MTFS_STM32N6_ASYNC_NO_WFE;
+    if (state == LL_ATON_RT_WFE) return MTFS_STM32N6_ASYNC_WFE;
+    if (state == LL_ATON_RT_DONE) return MTFS_STM32N6_ASYNC_DONE;
+    return MTFS_STM32N6_ASYNC_UNKNOWN;
+}
+
+static uint32_t clock_async(void *opaque)
+{
+    mtfs_stm32n6_neural_art_t *target = opaque;
+    return (uint32_t)target->clock_ms(target->callback_context);
+}
+
+static mtfs_stm32n6_event_wait_result_t wait_event_async(void *opaque,
+    uint32_t remaining_timeout_ms, int *immediate)
+{
+    mtfs_stm32n6_neural_art_t *target = opaque;
+    mtfs_stm32n6_event_wait_result_t result;
+    uint32_t started = 0U;
+    if (target->profile_cycle_count != NULL)
+        started = target->profile_cycle_count(target->profile_cycle_context);
+    result = mtfs_stm32n6_aton_osal_wait_event(remaining_timeout_ms,
+        immediate);
+    if (target->profile_cycle_count != NULL)
+        target->profile.wait_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            started;
+    return result;
+}
+
+static void recover_async(void *opaque)
+{
+    mtfs_stm32n6_neural_art_t *target = opaque;
+    LL_ATON_RT_DeInit_Network((NN_Instance_TypeDef *)target->nn_instance);
+    LL_ATON_RT_Init_Network((NN_Instance_TypeDef *)target->nn_instance);
+}
+
+static void profile_add_async(mtfs_stm32n6_neural_art_t *target,
+    const mtfs_stm32n6_async_diagnostics_t *diagnostics)
+{
+    target->profile.attempted += diagnostics->attempted;
+    target->profile.completed += diagnostics->completed;
+    target->profile.failed += diagnostics->failed;
+    target->profile.epoch_calls += diagnostics->state_no_wfe +
+        diagnostics->state_wfe + diagnostics->state_done +
+        diagnostics->state_other;
+    target->profile.state_no_wfe += diagnostics->state_no_wfe;
+    target->profile.state_wfe += diagnostics->state_wfe;
+    target->profile.state_done += diagnostics->state_done;
+    target->profile.state_other += diagnostics->state_other;
+    target->profile.event_wait_starts += diagnostics->event_wait_starts;
+    target->profile.immediate_event_completions +=
+        diagnostics->immediate_event_completions;
+    target->profile.spurious_notifications +=
+        diagnostics->spurious_notifications;
+    target->profile.late_notifications += diagnostics->late_notifications;
+    target->profile.timeouts += diagnostics->timeouts;
+    target->profile.kernel_wait_errors += diagnostics->kernel_wait_errors;
+    if (diagnostics->consecutive_no_wfe_max >
+        target->profile.consecutive_no_wfe_max)
+        target->profile.consecutive_no_wfe_max =
+            diagnostics->consecutive_no_wfe_max;
+    target->profile.consecutive_no_wfe_limit_errors +=
+        diagnostics->consecutive_no_wfe_limit_errors;
+    target->profile.recoveries += diagnostics->recoveries;
+}
+
 static mtfs_error_t infer_runtime(void *opaque, const int8_t input[24],
     int8_t output[24], uint32_t timeout_ms)
 {
     mtfs_stm32n6_neural_art_t *target = opaque;
-    LL_ATON_RT_RetValues_t state;
-    uint64_t start;
+    mtfs_stm32n6_async_config_t async_config;
+    mtfs_stm32n6_async_diagnostics_t async_diagnostics;
     uint32_t stage_start = 0U, total_start = 0U;
     mtfs_error_t status = MTFS_OK;
     int profiling;
     if (!target->installed || timeout_ms == 0U) return MTFS_ERROR_INVALID_STATE;
+    (void)memset(&async_diagnostics, 0, sizeof(async_diagnostics));
     profiling = target->profile_cycle_count != NULL;
     if (profiling) {
-        ++target->profile.attempted;
         total_start = target->profile_cycle_count(target->profile_cycle_context);
         stage_start = target->profile_cycle_count(target->profile_cycle_context);
     }
@@ -284,44 +372,32 @@ static mtfs_error_t infer_runtime(void *opaque, const int8_t input[24],
             stage_start;
         stage_start = target->profile_cycle_count(target->profile_cycle_context);
     }
+    status = mtfs_stm32n6_aton_osal_inference_begin();
+    if (status != MTFS_OK) {
+        async_diagnostics.attempted = 1U;
+        async_diagnostics.failed = 1U;
+        if (status == MTFS_ERROR_IO)
+            async_diagnostics.kernel_wait_errors = 1U;
+        if (profiling) profile_add_async(target, &async_diagnostics);
+        goto finish;
+    }
     LL_ATON_RT_Reset_Network((NN_Instance_TypeDef *)target->nn_instance);
     if (profiling)
         target->profile.reset_cycles +=
             target->profile_cycle_count(target->profile_cycle_context) -
             stage_start;
-    start = target->clock_ms(target->callback_context);
-    do {
-        if (profiling)
-            stage_start = target->profile_cycle_count(
-                target->profile_cycle_context);
-        state = LL_ATON_RT_RunEpochBlock((NN_Instance_TypeDef *)target->nn_instance);
-        if (profiling) {
-            target->profile.epoch_cycles +=
-                target->profile_cycle_count(target->profile_cycle_context) -
-                stage_start;
-            ++target->profile.epoch_calls;
-            if (state == LL_ATON_RT_NO_WFE) ++target->profile.state_no_wfe;
-            else if (state == LL_ATON_RT_WFE) ++target->profile.state_wfe;
-            else if (state == LL_ATON_RT_DONE) ++target->profile.state_done;
-            else ++target->profile.state_other;
-        }
-        if (state != LL_ATON_RT_DONE) {
-            if (target->clock_ms(target->callback_context) - start >= timeout_ms) {
-                status = MTFS_ERROR_NOT_READY;
-                goto finish;
-            }
-            if (profiling)
-                stage_start = target->profile_cycle_count(
-                    target->profile_cycle_context);
-            target->yield(target->callback_context);
-            if (profiling) {
-                target->profile.wait_cycles +=
-                    target->profile_cycle_count(target->profile_cycle_context) -
-                    stage_start;
-                ++target->profile.yield_calls;
-            }
-        }
-    } while (state != LL_ATON_RT_DONE);
+    (void)memset(&async_config, 0, sizeof(async_config));
+    async_config.context = target;
+    async_config.run_epoch = run_epoch_async;
+    async_config.clock_ms = clock_async;
+    async_config.wait_event = wait_event_async;
+    async_config.recover = recover_async;
+    async_config.timeout_ms = timeout_ms;
+    async_config.consecutive_no_wfe_limit = MTFS_STM32N6_NO_WFE_LIMIT;
+    status = mtfs_stm32n6_async_run(&async_config, &async_diagnostics);
+    mtfs_stm32n6_aton_osal_inference_end();
+    if (profiling) profile_add_async(target, &async_diagnostics);
+    if (status != MTFS_OK) goto finish;
     if (profiling)
         stage_start = target->profile_cycle_count(target->profile_cycle_context);
     LL_ATON_Cache_MCU_Invalidate_Range((uintptr_t)target->output, 24U);
@@ -336,7 +412,6 @@ static mtfs_error_t infer_runtime(void *opaque, const int8_t input[24],
         target->profile.output_copy_cycles +=
             target->profile_cycle_count(target->profile_cycle_context) -
             stage_start;
-        ++target->profile.completed;
     }
 finish:
     if (profiling)
@@ -415,6 +490,8 @@ mtfs_error_t mtfs_stm32n6_neural_art_profile_start(
 {
     if (target == NULL || cycle_count == NULL || !target->installed)
         return MTFS_ERROR_INVALID_ARGUMENT;
+    if (mtfs_stm32n6_aton_osal_diagnostics_reset() != MTFS_OK)
+        return MTFS_ERROR_INVALID_STATE;
     (void)memset(&target->profile, 0, sizeof(target->profile));
     target->profile_cycle_context = cycle_context;
     target->profile_cycle_count = cycle_count;
@@ -425,8 +502,16 @@ mtfs_error_t mtfs_stm32n6_neural_art_profile_stop(
     mtfs_stm32n6_neural_art_t *target,
     mtfs_stm32n6_neural_art_profile_t *profile)
 {
+    mtfs_stm32n6_aton_osal_diagnostics_t osal;
     if (target == NULL || profile == NULL ||
         target->profile_cycle_count == NULL) return MTFS_ERROR_INVALID_STATE;
+    (void)memset(&osal, 0, sizeof(osal));
+    mtfs_stm32n6_aton_osal_diagnostics_get(&osal);
+    target->profile.event_irq_notifications = osal.irq_notifications;
+    target->profile.spurious_notifications += osal.spurious_notifications;
+    target->profile.late_notifications += osal.late_notifications;
+    target->profile.kernel_wait_errors += osal.kernel_signal_errors;
+    target->profile.last_kernel_error = osal.last_kernel_error;
     *profile = target->profile;
     target->profile_cycle_count = NULL;
     target->profile_cycle_context = NULL;

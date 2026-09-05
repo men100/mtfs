@@ -239,6 +239,18 @@ target_compile_options(mtfs_sentinel_inference_test PRIVATE
     -Wall -Wextra -Wpedantic)
 add_test(NAME mtfs_sentinel_inference COMMAND mtfs_sentinel_inference_test)
 
+add_executable(mtfs_stm32n6_async_wait_test
+    test_stm32n6_async_wait.c
+    ../../src/ports/stm32_cube/npu/mtfs_stm32n6_async_wait.c
+    ../../src/ports/stm32_cube/npu/mtfs_stm32n6_aton_osal.c)
+target_include_directories(mtfs_stm32n6_async_wait_test PRIVATE
+    fakes ../../src ../../src/ports/stm32_cube/npu)
+set_target_properties(mtfs_stm32n6_async_wait_test PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES)
+target_compile_options(mtfs_stm32n6_async_wait_test PRIVATE
+    -Wall -Wextra -Wpedantic)
+add_test(NAME mtfs_stm32n6_async_wait COMMAND mtfs_stm32n6_async_wait_test)
+
 # Artifact-driven exhaustive validation. It is run explicitly with a generated
 # canonical bundle and corpus, so ordinary source-only CTest remains hermetic.
 add_executable(mtfs_sentinel_canonical_corpus_test

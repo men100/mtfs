@@ -24,12 +24,24 @@ typedef struct mtfs_stm32n6_neural_art_profile
     uint64_t total_cycles;
     uint32_t attempted;
     uint32_t completed;
+    uint32_t failed;
     uint32_t epoch_calls;
     uint32_t state_no_wfe;
     uint32_t state_wfe;
     uint32_t state_done;
     uint32_t state_other;
     uint32_t yield_calls;
+    uint32_t event_wait_starts;
+    uint32_t event_irq_notifications;
+    uint32_t immediate_event_completions;
+    uint32_t spurious_notifications;
+    uint32_t late_notifications;
+    uint32_t timeouts;
+    uint32_t kernel_wait_errors;
+    int32_t last_kernel_error;
+    uint32_t consecutive_no_wfe_max;
+    uint32_t consecutive_no_wfe_limit_errors;
+    uint32_t recoveries;
 } mtfs_stm32n6_neural_art_profile_t;
 
 /* Diagnostic substages are observational only and are not part of policy. */
