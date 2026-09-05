@@ -13,6 +13,9 @@ int mtfs_stm32n6570_sentinel_inference_run(
 int mtfs_stm32n6570_sentinel_inference_hotplug_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations);
+int mtfs_stm32n6570_sentinel_inference_profile_run(
+    const mtfs_media_context_t *media,
+    const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations);
 int mtfs_stm32n6570_sentinel_inference_vector_run(
     const mtfs_media_context_t *media, const int8_t input_q4[24],
     uint32_t iterations);

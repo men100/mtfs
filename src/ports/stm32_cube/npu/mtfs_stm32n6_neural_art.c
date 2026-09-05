@@ -260,22 +260,90 @@ static mtfs_error_t infer_runtime(void *opaque, const int8_t input[24],
     mtfs_stm32n6_neural_art_t *target = opaque;
     LL_ATON_RT_RetValues_t state;
     uint64_t start;
+    uint32_t stage_start = 0U, total_start = 0U;
+    mtfs_error_t status = MTFS_OK;
+    int profiling;
     if (!target->installed || timeout_ms == 0U) return MTFS_ERROR_INVALID_STATE;
+    profiling = target->profile_cycle_count != NULL;
+    if (profiling) {
+        ++target->profile.attempted;
+        total_start = target->profile_cycle_count(target->profile_cycle_context);
+        stage_start = target->profile_cycle_count(target->profile_cycle_context);
+    }
     (void)memcpy(target->input, input, 24U);
+    if (profiling) {
+        target->profile.input_copy_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            stage_start;
+        stage_start = target->profile_cycle_count(target->profile_cycle_context);
+    }
     LL_ATON_Cache_MCU_Clean_Range((uintptr_t)target->input, 24U);
+    if (profiling) {
+        target->profile.cache_clean_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            stage_start;
+        stage_start = target->profile_cycle_count(target->profile_cycle_context);
+    }
     LL_ATON_RT_Reset_Network((NN_Instance_TypeDef *)target->nn_instance);
+    if (profiling)
+        target->profile.reset_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            stage_start;
     start = target->clock_ms(target->callback_context);
     do {
+        if (profiling)
+            stage_start = target->profile_cycle_count(
+                target->profile_cycle_context);
         state = LL_ATON_RT_RunEpochBlock((NN_Instance_TypeDef *)target->nn_instance);
+        if (profiling) {
+            target->profile.epoch_cycles +=
+                target->profile_cycle_count(target->profile_cycle_context) -
+                stage_start;
+            ++target->profile.epoch_calls;
+            if (state == LL_ATON_RT_NO_WFE) ++target->profile.state_no_wfe;
+            else if (state == LL_ATON_RT_WFE) ++target->profile.state_wfe;
+            else if (state == LL_ATON_RT_DONE) ++target->profile.state_done;
+            else ++target->profile.state_other;
+        }
         if (state != LL_ATON_RT_DONE) {
-            if (target->clock_ms(target->callback_context) - start >= timeout_ms)
-                return MTFS_ERROR_NOT_READY;
+            if (target->clock_ms(target->callback_context) - start >= timeout_ms) {
+                status = MTFS_ERROR_NOT_READY;
+                goto finish;
+            }
+            if (profiling)
+                stage_start = target->profile_cycle_count(
+                    target->profile_cycle_context);
             target->yield(target->callback_context);
+            if (profiling) {
+                target->profile.wait_cycles +=
+                    target->profile_cycle_count(target->profile_cycle_context) -
+                    stage_start;
+                ++target->profile.yield_calls;
+            }
         }
     } while (state != LL_ATON_RT_DONE);
+    if (profiling)
+        stage_start = target->profile_cycle_count(target->profile_cycle_context);
     LL_ATON_Cache_MCU_Invalidate_Range((uintptr_t)target->output, 24U);
+    if (profiling) {
+        target->profile.cache_invalidate_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            stage_start;
+        stage_start = target->profile_cycle_count(target->profile_cycle_context);
+    }
     (void)memcpy(output, target->output, 24U);
-    return MTFS_OK;
+    if (profiling) {
+        target->profile.output_copy_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            stage_start;
+        ++target->profile.completed;
+    }
+finish:
+    if (profiling)
+        target->profile.total_cycles +=
+            target->profile_cycle_count(target->profile_cycle_context) -
+            total_start;
+    return status;
 }
 
 static mtfs_error_t close_runtime(void *opaque)
@@ -338,5 +406,29 @@ mtfs_error_t mtfs_stm32n6_neural_art_provider_config(
     config->provider_id = MTFS_SENTINEL_PROVIDER_ST_NEURAL_ART_RELOC;
     config->accelerator_id = MTFS_SENTINEL_ACCELERATOR_NEURAL_ART;
     config->ops = &ops; config->target = target;
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_stm32n6_neural_art_profile_start(
+    mtfs_stm32n6_neural_art_t *target,
+    mtfs_sentinel_npu_cycle_count_fn cycle_count, void *cycle_context)
+{
+    if (target == NULL || cycle_count == NULL || !target->installed)
+        return MTFS_ERROR_INVALID_ARGUMENT;
+    (void)memset(&target->profile, 0, sizeof(target->profile));
+    target->profile_cycle_context = cycle_context;
+    target->profile_cycle_count = cycle_count;
+    return MTFS_OK;
+}
+
+mtfs_error_t mtfs_stm32n6_neural_art_profile_stop(
+    mtfs_stm32n6_neural_art_t *target,
+    mtfs_stm32n6_neural_art_profile_t *profile)
+{
+    if (target == NULL || profile == NULL ||
+        target->profile_cycle_count == NULL) return MTFS_ERROR_INVALID_STATE;
+    *profile = target->profile;
+    target->profile_cycle_count = NULL;
+    target->profile_cycle_context = NULL;
     return MTFS_OK;
 }

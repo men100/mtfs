@@ -213,38 +213,64 @@ mtfs_error_t mtfs_sentinel_npu_infer(mtfs_sentinel_npu_context_t *context,
                                              output_q4, timeout_ms, result);
 }
 
-mtfs_error_t mtfs_sentinel_npu_infer_detailed(
+static mtfs_error_t infer_detailed(
     mtfs_sentinel_npu_context_t *context, const int8_t input_q4[24],
     int8_t raw_output_int8[24], int8_t output_q4[24], uint32_t timeout_ms,
-    mtfs_sentinel_inference_result_t *result)
+    mtfs_sentinel_inference_result_t *result,
+    mtfs_sentinel_npu_cycle_count_fn cycle_count, void *cycle_context,
+    mtfs_sentinel_npu_inference_profile_t *profile)
 {
     int8_t vendor_input[24], vendor_output[24], converted[24];
-    uint32_t i;
-    mtfs_error_t status;
+    uint32_t i, stage_start = 0U, total_start = 0U;
+    mtfs_error_t status = MTFS_OK;
+    if ((cycle_count == NULL) != (profile == NULL))
+        return MTFS_ERROR_INVALID_ARGUMENT;
     if (context == NULL || input_q4 == NULL || raw_output_int8 == NULL ||
         output_q4 == NULL || result == NULL ||
         context->api_version != MTFS_SENTINEL_NPU_PROVIDER_API_VERSION ||
         context->struct_size != sizeof(*context) || !context->open || !context->locked)
         return MTFS_ERROR_INVALID_STATE;
+    if (profile != NULL) {
+        (void)memset(profile, 0, sizeof(*profile));
+        profile->attempted = 1U;
+        total_start = cycle_count(cycle_context);
+        stage_start = cycle_count(cycle_context);
+    }
     for (i = 0U; i < 24U; ++i) {
         status = mtfs_sentinel_requantize_q4_to_int8(input_q4[i],
             context->runtime.input_scale_numerator,
             context->runtime.input_scale_shift, context->runtime.input_zero_point,
             &vendor_input[i]);
-        if (status != MTFS_OK) goto cleanup;
+        if (status != MTFS_OK) break;
     }
+    if (profile != NULL)
+        profile->input_requantize_cycles +=
+            cycle_count(cycle_context) - stage_start;
+    if (status != MTFS_OK) goto cleanup;
+    if (profile != NULL) stage_start = cycle_count(cycle_context);
     status = context->config.ops->infer(context->config.target, vendor_input,
         vendor_output, timeout_ms);
+    if (profile != NULL)
+        profile->target_infer_cycles += cycle_count(cycle_context) - stage_start;
     if (status != MTFS_OK) goto cleanup;
+    if (profile != NULL) stage_start = cycle_count(cycle_context);
     for (i = 0U; i < 24U; ++i) {
         status = mtfs_sentinel_requantize_int8_to_q4(vendor_output[i],
             context->runtime.output_scale_numerator,
             context->runtime.output_scale_shift, context->runtime.output_zero_point,
             &converted[i]);
-        if (status != MTFS_OK) goto cleanup;
+        if (status != MTFS_OK) break;
     }
+    if (profile != NULL)
+        profile->output_requantize_cycles +=
+            cycle_count(cycle_context) - stage_start;
+    if (status != MTFS_OK) goto cleanup;
+    if (profile != NULL) stage_start = cycle_count(cycle_context);
     status = mtfs_sentinel_score_q8(input_q4, converted,
         context->threshold_q8, result);
+    if (profile != NULL)
+        profile->score_decision_cycles +=
+            cycle_count(cycle_context) - stage_start;
     if (status == MTFS_OK) {
         (void)memcpy(raw_output_int8, vendor_output, sizeof(vendor_output));
         (void)memcpy(output_q4, converted, sizeof(converted));
@@ -253,7 +279,31 @@ cleanup:
     (void)memset(vendor_input, 0, sizeof(vendor_input));
     (void)memset(vendor_output, 0, sizeof(vendor_output));
     (void)memset(converted, 0, sizeof(converted));
+    if (profile != NULL) {
+        profile->total_cycles += cycle_count(cycle_context) - total_start;
+        profile->completed = status == MTFS_OK ? 1U : 0U;
+    }
     return status;
+}
+
+mtfs_error_t mtfs_sentinel_npu_infer_detailed(
+    mtfs_sentinel_npu_context_t *context, const int8_t input_q4[24],
+    int8_t raw_output_int8[24], int8_t output_q4[24], uint32_t timeout_ms,
+    mtfs_sentinel_inference_result_t *result)
+{
+    return infer_detailed(context, input_q4, raw_output_int8, output_q4,
+        timeout_ms, result, NULL, NULL, NULL);
+}
+
+mtfs_error_t mtfs_sentinel_npu_infer_profiled_detailed(
+    mtfs_sentinel_npu_context_t *context, const int8_t input_q4[24],
+    int8_t raw_output_int8[24], int8_t output_q4[24], uint32_t timeout_ms,
+    mtfs_sentinel_inference_result_t *result,
+    mtfs_sentinel_npu_cycle_count_fn cycle_count, void *cycle_context,
+    mtfs_sentinel_npu_inference_profile_t *profile)
+{
+    return infer_detailed(context, input_q4, raw_output_int8, output_q4,
+        timeout_ms, result, cycle_count, cycle_context, profile);
 }
 
 mtfs_error_t mtfs_sentinel_npu_close(mtfs_sentinel_npu_context_t *context,

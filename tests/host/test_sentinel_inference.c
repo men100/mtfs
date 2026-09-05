@@ -291,6 +291,12 @@ static void fake_zeroize(void *opaque, void *address, uint32_t size)
     fake->zeroized = 1U;
 }
 
+static uint32_t fake_cycle_count(void *opaque)
+{
+    uint32_t *cycles = opaque;
+    return ++*cycles;
+}
+
 static int test_alias_pair(mtfs_test_t *test,
     const mtfs_sentinel_cpu_context_t *cpu, uint32_t pair)
 {
@@ -350,7 +356,9 @@ int test_sentinel_inference(mtfs_test_t *test)
     mtfs_sentinel_runtime_policy_result_t policy_result;
     mtfs_sentinel_npu_context_t npu_context;
     mtfs_sentinel_npu_provider_config_t npu_config;
+    mtfs_sentinel_npu_inference_profile_t npu_profile;
     fake_npu_t fake_npu;
+    uint32_t fake_cycles;
     uint8_t npu_copy_storage[79];
     uint8_t *npu_copy = (uint8_t *)(((uintptr_t)npu_copy_storage + 15U) &
         ~(uintptr_t)15U);
@@ -358,7 +366,7 @@ int test_sentinel_inference(mtfs_test_t *test)
     mtfs_sentinel_normalization_t normalization;
     mtfs_sentinel_feature_v1_t feature;
     uint32_t raw[24];
-    int8_t input[24], output[24];
+    int8_t input[24], output[24], raw_output[24];
     uint32_t i, runtime_count;
     mtfs_error_t open_status;
     if (!MTFS_TEST_CHECK(test,
@@ -561,6 +569,28 @@ int test_sentinel_inference(mtfs_test_t *test)
                 !fake_npu.locked && fake_npu.closed && fake_npu.zeroized &&
                 npu_copy[0] == 0U,
                 "common provider validates, requantizes, infers, and zeroizes"))
+            return 1;
+
+        (void)memset(&fake_npu, 0, sizeof(fake_npu));
+        fake_cycles = 0U;
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_sentinel_npu_open(&npu_context, &npu_config, &bundle, 1U,
+                    npu_copy, 64U, region_policy, 3U, 100U) == MTFS_OK &&
+                mtfs_sentinel_npu_infer_profiled_detailed(&npu_context,
+                    input, raw_output, output, 100U, &result, fake_cycle_count,
+                    &fake_cycles, &npu_profile) == MTFS_OK &&
+                npu_profile.attempted == 1U && npu_profile.completed == 1U &&
+                npu_profile.input_requantize_cycles != 0U &&
+                npu_profile.target_infer_cycles != 0U &&
+                npu_profile.output_requantize_cycles != 0U &&
+                npu_profile.score_decision_cycles != 0U &&
+                npu_profile.total_cycles >=
+                    npu_profile.input_requantize_cycles +
+                    npu_profile.target_infer_cycles +
+                    npu_profile.output_requantize_cycles +
+                    npu_profile.score_decision_cycles &&
+                mtfs_sentinel_npu_close(&npu_context, 100U) == MTFS_OK,
+                "opt-in provider profiling reports each inference stage"))
             return 1;
 
         (void)memset(&fake_npu, 0, sizeof(fake_npu));

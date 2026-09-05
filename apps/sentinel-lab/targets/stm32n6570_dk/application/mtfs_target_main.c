@@ -29,6 +29,9 @@
 #define LAB_ST_LIGHT_DELAY_US (1000U)
 #define LAB_ST_MEDIUM_DELAY_US (3000U)
 #define LAB_ST_STRONG_DELAY_US (10000U)
+#define LAB_TASK_STACK_SIZE (12U * 1024U)
+#define LAB_TASK_STACK_PATTERN (0xa5U)
+#define LAB_TASK_STACK_GUARD_SIZE (64U)
 #if !defined(MTFS_SENTINEL_LAB_BUILD_RELEASE)
 #error "MTFS_SENTINEL_LAB_BUILD_RELEASE must be defined by the build configuration"
 #elif MTFS_SENTINEL_LAB_BUILD_RELEASE == 1
@@ -39,9 +42,16 @@
 #error "MTFS_SENTINEL_LAB_BUILD_RELEASE must be 0 or 1"
 #endif
 
+#if defined(__GNUC__)
+#define LAB_ALIGN8 __attribute__((aligned(8)))
+#else
+#define LAB_ALIGN8
+#endif
+
 static mtfs_stm32_sdmmc_context_t sd_context;
 static mtfs_media_context_t media_context;
 static mtfs_media_service_context_t media_service;
+static uint8_t lab_task_stack[LAB_TASK_STACK_SIZE] LAB_ALIGN8;
 #if MTFS_ENABLE_STORAGE_SENTINEL
 static ID observer_mutex_id;
 static mtfs_sentinel_lab_runtime_t lab_runtime;
@@ -198,7 +208,7 @@ static int run_collection(mtfs_sentinel_lab_mode_t mode, uint32_t samples,
 
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
 static int run_inference(const mtfs_sentinel_feature_v1_t *feature,
-    uint32_t iterations, int hotplug)
+    uint32_t iterations, int hotplug, int diagnostics)
 {
     mtfs_block_device_t *device = NULL;
     FATFS filesystem;
@@ -216,10 +226,15 @@ static int run_inference(const mtfs_sentinel_feature_v1_t *feature,
     registered = 1;
     if (f_mount(&filesystem, "0:", 1U) != FR_OK) goto cleanup;
     mounted = 1;
-    failed = hotplug ? mtfs_stm32n6570_sentinel_inference_hotplug_run(
-        &media_context, feature, iterations) :
-        mtfs_stm32n6570_sentinel_inference_run(&media_context, feature,
-            iterations);
+    if (hotplug)
+        failed = mtfs_stm32n6570_sentinel_inference_hotplug_run(
+            &media_context, feature, iterations);
+    else if (diagnostics)
+        failed = mtfs_stm32n6570_sentinel_inference_profile_run(
+            &media_context, feature, iterations);
+    else
+        failed = mtfs_stm32n6570_sentinel_inference_run(&media_context,
+            feature, iterations);
 cleanup:
     if (mounted) (void)f_mount(NULL, "0:", 0U);
     if (registered) (void)mtfs_block_registry_unregister(0U);
@@ -326,6 +341,19 @@ static int parse_inference_vector_base64(const char *line,
 }
 #endif
 
+static int report_lab_task_stack(void)
+{
+    uint32_t untouched = 0U;
+    uint32_t used;
+    while (untouched < sizeof(lab_task_stack) &&
+        lab_task_stack[untouched] == LAB_TASK_STACK_PATTERN) ++untouched;
+    used = (uint32_t)sizeof(lab_task_stack) - untouched;
+    tm_printf((UB *)"[sentinel-profile] stack-high-water scope=since-boot used=%u size=%u margin=%u guard=%s\n",
+        used, (UW)sizeof(lab_task_stack), untouched,
+        untouched >= LAB_TASK_STACK_GUARD_SIZE ? (UB *)"PASS" : (UB *)"FAIL");
+    return untouched >= LAB_TASK_STACK_GUARD_SIZE ? 0 : 1;
+}
+
 static int parse_command(const char *line, const char *expected,
     uint32_t default_first, uint32_t default_second, uint32_t *first,
     uint32_t *second)
@@ -349,6 +377,7 @@ static int lab_command(void *context, const char *line)
     uint32_t samples, seed;
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
     int8_t input_q4[24];
+    int diagnostics_failed;
 #endif
 #endif
     (void)context;
@@ -361,6 +390,7 @@ static int lab_command(void *context, const char *line)
             "pseudo-collect-hard-fault [samples] [seed]\r\n"
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
             "sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
+            "sentinel-infer-profile [iterations]  diagnostic timing, scheduler, and stack measurements\r\n"
             "sentinel-infer-pseudo-slow [iterations]  compare retained strong-delay frame\r\n"
             "sentinel-infer-hotplug [iterations]  remove/reinsert SD during resident inference\r\n"
             "sentinel-infer-vector HEX48 [iterations]  compare an exact common-Q4 vector\r\n"
@@ -406,7 +436,15 @@ static int lab_command(void *context, const char *line)
     if (parse_command(line, "sentinel-infer", 10U, 0U, &samples, &seed) &&
         samples != 0U && seed == 0U) {
         tm_printf((UB *)"# sentinel-infer iterations=%u exit=%d\n", samples,
-            run_inference(&lab_runtime.frame, samples, 0));
+            run_inference(&lab_runtime.frame, samples, 0, 0));
+        return 1;
+    }
+    if (parse_command(line, "sentinel-infer-profile", 10U, 0U,
+            &samples, &seed) && samples != 0U && seed == 0U) {
+        diagnostics_failed = run_inference(&lab_runtime.frame, samples, 0, 1);
+        if (report_lab_task_stack() != 0) diagnostics_failed = 1;
+        tm_printf((UB *)"# sentinel-infer-profile iterations=%u exit=%d\n",
+            samples, diagnostics_failed);
         return 1;
     }
     if (parse_command(line, "sentinel-infer-pseudo-slow", 10U, 0U,
@@ -416,13 +454,14 @@ static int lab_command(void *context, const char *line)
                 "# no strong-delay frame; run pseudo-collect-delay-ramp first\r\n");
         else
             tm_printf((UB *)"# sentinel-infer-pseudo-slow iterations=%u exit=%d\n",
-                samples, run_inference(&lab_runtime.evaluation_frame, samples, 0));
+                samples, run_inference(&lab_runtime.evaluation_frame, samples,
+                    0, 0));
         return 1;
     }
     if (parse_command(line, "sentinel-infer-hotplug", 10U, 0U,
             &samples, &seed) && samples != 0U && seed == 0U) {
         tm_printf((UB *)"# sentinel-infer-hotplug iterations=%u exit=%d\n",
-            samples, run_inference(&lab_runtime.frame, samples, 1));
+            samples, run_inference(&lab_runtime.frame, samples, 1, 0));
         return 1;
     }
     if (parse_inference_vector(line, input_q4, &samples)) {
@@ -471,8 +510,10 @@ static void lab_task(INT start_code, void *context)
 
 EXPORT INT usermain(void)
 {
-    T_CTSK task = {.tskatr=TA_HLNG|TA_RNG3,.task=lab_task,
-        .itskpri=9,.stksz=12U*1024U};
+    T_CTSK task = {.tskatr=TA_HLNG|TA_RNG3|TA_USERBUF,.task=lab_task,
+        .itskpri=9,.stksz=LAB_TASK_STACK_SIZE,.bufptr=lab_task_stack};
+    (void)memset(lab_task_stack, LAB_TASK_STACK_PATTERN,
+        sizeof(lab_task_stack));
     ID task_id = tk_cre_tsk(&task);
     if ((task_id <= 0) || (tk_sta_tsk(task_id, 0) < E_OK))
         tm_printf((UB *)"# sentinel-lab task start failed\n");

@@ -31,6 +31,8 @@
 #define SENTINEL_HOTPLUG_WAIT_TICKS (UINT32_C(12000))
 #define SENTINEL_MAX_OUTPUT_ERROR_Q4 (1)
 #define SENTINEL_MAX_RAW_OUTPUT_ERROR_INT8 (1)
+#define SENTINEL_SCHEDULER_PROBE_STACK_SIZE (UINT32_C(1024))
+#define SENTINEL_SCHEDULER_PROBE_PRIORITY (32)
 
 #if defined(__GNUC__)
 #define SENTINEL_ALIGN32 __attribute__((aligned(32)))
@@ -69,6 +71,50 @@ static uint8_t aad_work[MTFS_SEALED_CHUNK_AAD_SIZE] SENTINEL_ALIGN32;
 static uint8_t ciphertext_work[MTFS_SEALED_CIPHER_BUFFER_SIZE] SENTINEL_ALIGN32;
 static uint8_t plaintext_work[MTFS_SEALED_MAX_CHUNK_SIZE] SENTINEL_ALIGN32;
 static uint8_t arena[SENTINEL_ARENA_SIZE] SENTINEL_ALIGN32;
+static uint8_t scheduler_probe_stack[SENTINEL_SCHEDULER_PROBE_STACK_SIZE]
+    SENTINEL_ALIGN32;
+static volatile uint32_t scheduler_probe_count;
+
+static void scheduler_probe_task(INT start_code, void *context)
+{
+    (void)start_code;
+    (void)context;
+    for (;;) {
+        if (scheduler_probe_count != UINT32_MAX) ++scheduler_probe_count;
+    }
+}
+
+static int scheduler_probe_start(ID *task_id)
+{
+    T_CTSK task = {0};
+    ER status;
+    if (task_id == NULL) return 1;
+    scheduler_probe_count = 0U;
+    task.tskatr = TA_HLNG | TA_RNG3 | TA_USERBUF;
+    task.task = scheduler_probe_task;
+    task.itskpri = SENTINEL_SCHEDULER_PROBE_PRIORITY;
+    task.stksz = sizeof(scheduler_probe_stack);
+    task.bufptr = scheduler_probe_stack;
+    *task_id = tk_cre_tsk(&task);
+    if (*task_id <= 0) return 1;
+    status = tk_sta_tsk(*task_id, 0);
+    if (status < E_OK) {
+        (void)tk_del_tsk(*task_id);
+        *task_id = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static int scheduler_probe_stop(ID task_id, uint32_t *count)
+{
+    ER terminate_status, delete_status;
+    if (task_id <= 0 || count == NULL) return 1;
+    terminate_status = tk_ter_tsk(task_id);
+    *count = scheduler_probe_count;
+    delete_status = tk_del_tsk(task_id);
+    return terminate_status < E_OK || delete_status < E_OK;
+}
 
 static mtfs_sealed_work_t sealed_work(void)
 {
@@ -151,6 +197,12 @@ static uint64_t npu_clock_ms(void *opaque)
 {
     (void)opaque;
     return mtfs_stm32n6570_dk_benchmark_clock_us(NULL) / UINT64_C(1000);
+}
+
+static uint32_t diagnostic_cycle_count(void *opaque)
+{
+    (void)opaque;
+    return mtfs_stm32n6570_dk_cycle_count();
 }
 
 static void npu_yield(void *opaque)
@@ -288,10 +340,33 @@ static uint32_t average_cycles_to_us(uint64_t total, uint32_t count,
     return (uint32_t)((scaled + clock_hz - 1U) / clock_hz);
 }
 
+static uint32_t average_cycles(uint64_t total, uint32_t count)
+{
+    return count == 0U ? 0U : (uint32_t)(total / count);
+}
+
+static uint64_t residual_cycles(uint64_t total, uint64_t accounted)
+{
+    return total >= accounted ? total - accounted : 0U;
+}
+
+static void profile_accumulate(
+    mtfs_sentinel_npu_inference_profile_t *total,
+    const mtfs_sentinel_npu_inference_profile_t *sample)
+{
+    total->input_requantize_cycles += sample->input_requantize_cycles;
+    total->target_infer_cycles += sample->target_infer_cycles;
+    total->output_requantize_cycles += sample->output_requantize_cycles;
+    total->score_decision_cycles += sample->score_decision_cycles;
+    total->total_cycles += sample->total_cycles;
+    total->attempted += sample->attempted;
+    total->completed += sample->completed;
+}
+
 static int inference_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, const int8_t supplied_input[24],
-    uint32_t iterations, int hotplug)
+    uint32_t iterations, int hotplug, int diagnostics)
 {
     static sentinel_session_t session;
     uint32_t raw[MTFS_SENTINEL_FEATURE_DIMENSION];
@@ -302,6 +377,9 @@ static int inference_run(
     int8_t npu_raw_output[MTFS_SENTINEL_FEATURE_DIMENSION];
     mtfs_sentinel_inference_result_t cpu_result, npu_result;
     mtfs_sentinel_score_interval_t score_interval;
+    mtfs_sentinel_npu_inference_profile_t provider_profile;
+    mtfs_sentinel_npu_inference_profile_t provider_sample;
+    mtfs_stm32n6_neural_art_profile_t neural_art_profile;
     uint64_t cpu_total_cycles = 0U, npu_total_cycles = 0U;
     uint64_t score_error = 0U;
     uint32_t i, j, start_cycles, elapsed_cycles, max_error = 0U;
@@ -311,7 +389,11 @@ static int inference_run(
     uint32_t ambiguous = 0U, cpu_arbitrated = 0U;
     uint32_t cycle_clock_hz = mtfs_stm32n6570_dk_cycle_clock_hz();
     uint32_t required_ram = 0U;
+    uint32_t scheduler_count = 0U;
+    ID scheduler_task_id = 0;
+    mtfs_error_t infer_status;
     int stage, cleanup_failed, reopen_attempted = 0, reopen_passed = 0;
+    int scheduler_started = 0, neural_profile_started = 0;
 
     if (media == NULL || (feature == NULL && supplied_input == NULL) ||
         (feature != NULL && supplied_input != NULL) || iterations == 0U) return 1;
@@ -323,6 +405,8 @@ static int inference_run(
     (void)memset(&cpu_result, 0, sizeof(cpu_result));
     (void)memset(&npu_result, 0, sizeof(npu_result));
     (void)memset(&score_interval, 0, sizeof(score_interval));
+    (void)memset(&provider_profile, 0, sizeof(provider_profile));
+    (void)memset(&neural_art_profile, 0, sizeof(neural_art_profile));
     session.media = media;
     stage = session_open(&session);
     if (stage != 0) {
@@ -344,6 +428,16 @@ static int inference_run(
         stage = 15;
     }
     if (stage == 0 && cycle_clock_hz == 0U) stage = 21;
+    if (stage == 0 && diagnostics) {
+        if (mtfs_stm32n6_neural_art_profile_start(&session.neural_art,
+                diagnostic_cycle_count, NULL) != MTFS_OK) {
+            stage = 24;
+        } else {
+            neural_profile_started = 1;
+            if (scheduler_probe_start(&scheduler_task_id) != 0) stage = 25;
+            else scheduler_started = 1;
+        }
+    }
     for (i = 0U; stage == 0 && i < iterations; ++i) {
         ++attempted;
         start_cycles = mtfs_stm32n6570_dk_cycle_count();
@@ -355,9 +449,18 @@ static int inference_run(
         elapsed_cycles = mtfs_stm32n6570_dk_cycle_count() - start_cycles;
         cpu_total_cycles += elapsed_cycles; ++cpu_completed;
         start_cycles = mtfs_stm32n6570_dk_cycle_count();
-        if (mtfs_sentinel_npu_infer_detailed(&session.npu, input,
-                npu_raw_output, npu_output, SENTINEL_TIMEOUT_MS,
-                &npu_result) != MTFS_OK) { stage = 17; ++failed; break; }
+        if (diagnostics) {
+            infer_status = mtfs_sentinel_npu_infer_profiled_detailed(
+                &session.npu, input, npu_raw_output, npu_output,
+                SENTINEL_TIMEOUT_MS, &npu_result,
+                diagnostic_cycle_count, NULL, &provider_sample);
+            profile_accumulate(&provider_profile, &provider_sample);
+        } else {
+            infer_status = mtfs_sentinel_npu_infer_detailed(&session.npu,
+                input, npu_raw_output, npu_output, SENTINEL_TIMEOUT_MS,
+                &npu_result);
+        }
+        if (infer_status != MTFS_OK) { stage = 17; ++failed; break; }
         elapsed_cycles = mtfs_stm32n6570_dk_cycle_count() - start_cycles;
         npu_total_cycles += elapsed_cycles; ++npu_completed; ++completed;
         for (j = 0U; j < MTFS_SENTINEL_FEATURE_DIMENSION; ++j) {
@@ -400,6 +503,15 @@ static int inference_run(
             ++cpu_arbitrated;
         }
         ++accepted;
+    }
+    if (scheduler_started &&
+        scheduler_probe_stop(scheduler_task_id, &scheduler_count) != 0) {
+        if (stage == 0) stage = 26;
+    }
+    if (neural_profile_started &&
+        mtfs_stm32n6_neural_art_profile_stop(&session.neural_art,
+            &neural_art_profile) != MTFS_OK) {
+        if (stage == 0) stage = 27;
     }
     cleanup_failed = session_cleanup(&session);
     if (hotplug && cleanup_failed == 0) {
@@ -448,6 +560,62 @@ static int inference_run(
             reopen_attempted && reopen_passed && !cleanup_failed ?
                 (UB *)"PASS" : (UB *)"FAIL");
     }
+    if (diagnostics) {
+        uint64_t provider_accounted =
+            provider_profile.input_requantize_cycles +
+            provider_profile.target_infer_cycles +
+            provider_profile.output_requantize_cycles +
+            provider_profile.score_decision_cycles;
+        uint64_t neural_accounted = neural_art_profile.input_copy_cycles +
+            neural_art_profile.cache_clean_cycles +
+            neural_art_profile.reset_cycles + neural_art_profile.epoch_cycles +
+            neural_art_profile.wait_cycles +
+            neural_art_profile.cache_invalidate_cycles +
+            neural_art_profile.output_copy_cycles;
+        tm_printf((UB *)"[sentinel-profile] provider-avg-cycles samples=%u input-requant=%u target=%u output-requant=%u score-decision=%u other=%u total=%u total-us=%u\n",
+            provider_profile.attempted,
+            average_cycles(provider_profile.input_requantize_cycles,
+                provider_profile.attempted),
+            average_cycles(provider_profile.target_infer_cycles,
+                provider_profile.attempted),
+            average_cycles(provider_profile.output_requantize_cycles,
+                provider_profile.attempted),
+            average_cycles(provider_profile.score_decision_cycles,
+                provider_profile.attempted),
+            average_cycles(residual_cycles(provider_profile.total_cycles,
+                provider_accounted), provider_profile.attempted),
+            average_cycles(provider_profile.total_cycles,
+                provider_profile.attempted),
+            average_cycles_to_us(provider_profile.total_cycles,
+                provider_profile.attempted, cycle_clock_hz));
+        tm_printf((UB *)"[sentinel-profile] neural-art-avg-cycles samples=%u input-copy=%u cache-clean=%u reset=%u epoch-call=%u wait=%u cache-invalidate=%u output-copy=%u other=%u total=%u\n",
+            neural_art_profile.attempted,
+            average_cycles(neural_art_profile.input_copy_cycles,
+                neural_art_profile.attempted),
+            average_cycles(neural_art_profile.cache_clean_cycles,
+                neural_art_profile.attempted),
+            average_cycles(neural_art_profile.reset_cycles,
+                neural_art_profile.attempted),
+            average_cycles(neural_art_profile.epoch_cycles,
+                neural_art_profile.attempted),
+            average_cycles(neural_art_profile.wait_cycles,
+                neural_art_profile.attempted),
+            average_cycles(neural_art_profile.cache_invalidate_cycles,
+                neural_art_profile.attempted),
+            average_cycles(neural_art_profile.output_copy_cycles,
+                neural_art_profile.attempted),
+            average_cycles(residual_cycles(neural_art_profile.total_cycles,
+                neural_accounted), neural_art_profile.attempted),
+            average_cycles(neural_art_profile.total_cycles,
+                neural_art_profile.attempted));
+        tm_printf((UB *)"[sentinel-profile] neural-art-states epoch-calls=%u no-wfe=%u wfe=%u done=%u other=%u yields=%u scheduler-probe-count=%u scheduler-probe=%s\n",
+            neural_art_profile.epoch_calls, neural_art_profile.state_no_wfe,
+            neural_art_profile.state_wfe, neural_art_profile.state_done,
+            neural_art_profile.state_other, neural_art_profile.yield_calls,
+            scheduler_count,
+            scheduler_started && scheduler_count != 0U ?
+                (UB *)"OBSERVED" : (UB *)"NOT-OBSERVED");
+    }
     return stage == 0 && !cleanup_failed ? 0 : 1;
 }
 
@@ -455,21 +623,28 @@ int mtfs_stm32n6570_sentinel_inference_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
 {
-    return inference_run(media, feature, NULL, iterations, 0);
+    return inference_run(media, feature, NULL, iterations, 0, 0);
 }
 
 int mtfs_stm32n6570_sentinel_inference_hotplug_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
 {
-    return inference_run(media, feature, NULL, iterations, 1);
+    return inference_run(media, feature, NULL, iterations, 1, 0);
+}
+
+int mtfs_stm32n6570_sentinel_inference_profile_run(
+    const mtfs_media_context_t *media,
+    const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
+{
+    return inference_run(media, feature, NULL, iterations, 0, 1);
 }
 
 int mtfs_stm32n6570_sentinel_inference_vector_run(
     const mtfs_media_context_t *media, const int8_t input_q4[24],
     uint32_t iterations)
 {
-    return inference_run(media, NULL, input_q4, iterations, 0);
+    return inference_run(media, NULL, input_q4, iterations, 0, 0);
 }
 
 #else
@@ -483,6 +658,14 @@ int mtfs_stm32n6570_sentinel_inference_run(
 }
 
 int mtfs_stm32n6570_sentinel_inference_hotplug_run(
+    const mtfs_media_context_t *media,
+    const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
+{
+    (void)media; (void)feature; (void)iterations;
+    return 1;
+}
+
+int mtfs_stm32n6570_sentinel_inference_profile_run(
     const mtfs_media_context_t *media,
     const mtfs_sentinel_feature_v1_t *feature, uint32_t iterations)
 {

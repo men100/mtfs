@@ -57,6 +57,19 @@ typedef mtfs_error_t (*mtfs_sentinel_npu_lock_fn)(void *target,
 typedef void (*mtfs_sentinel_npu_unlock_fn)(void *target);
 typedef void (*mtfs_sentinel_npu_zeroize_fn)(void *target, void *address,
     uint32_t size);
+typedef uint32_t (*mtfs_sentinel_npu_cycle_count_fn)(void *context);
+
+/* Diagnostic timing is opt-in and does not alter the normal inference path. */
+typedef struct mtfs_sentinel_npu_inference_profile
+{
+    uint64_t input_requantize_cycles;
+    uint64_t target_infer_cycles;
+    uint64_t output_requantize_cycles;
+    uint64_t score_decision_cycles;
+    uint64_t total_cycles;
+    uint32_t attempted;
+    uint32_t completed;
+} mtfs_sentinel_npu_inference_profile_t;
 
 typedef struct mtfs_sentinel_npu_provider_ops
 {
@@ -113,6 +126,14 @@ mtfs_error_t mtfs_sentinel_npu_infer_detailed(
     int8_t raw_output_int8[MTFS_SENTINEL_FEATURE_DIMENSION],
     int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
     uint32_t timeout_ms, mtfs_sentinel_inference_result_t *result);
+mtfs_error_t mtfs_sentinel_npu_infer_profiled_detailed(
+    mtfs_sentinel_npu_context_t *context,
+    const int8_t input_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    int8_t raw_output_int8[MTFS_SENTINEL_FEATURE_DIMENSION],
+    int8_t output_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
+    uint32_t timeout_ms, mtfs_sentinel_inference_result_t *result,
+    mtfs_sentinel_npu_cycle_count_fn cycle_count, void *cycle_context,
+    mtfs_sentinel_npu_inference_profile_t *profile);
 mtfs_error_t mtfs_sentinel_npu_close(mtfs_sentinel_npu_context_t *context,
     uint32_t timeout_ms);
 mtfs_error_t mtfs_sentinel_requantize_q4_to_int8(int8_t input_q4,
