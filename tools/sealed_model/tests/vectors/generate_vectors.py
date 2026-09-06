@@ -22,7 +22,10 @@ def tlv(t, flags, value):
     return raw + b"\0" * ((-len(raw)) % 8)
 
 
-fleet_key = bytes(range(0x00, 0x20))
+fleet_key_path = ROOT / "fleet_test.key"
+fleet_key = fleet_key_path.read_bytes()
+if len(fleet_key) != 32:
+    raise ValueError(f"{fleet_key_path} must contain exactly 32 bytes")
 model_key = bytes(range(0x20, 0x40))
 package_id = bytes(range(0x40, 0x50))
 model_id = bytes(range(0x50, 0x60))
@@ -67,7 +70,7 @@ for index in range(chunk_count):
 vector = {
     "notice": NOTICE,
     "generator": "Python cryptography AESGCM (independent of mtfs_sealed_host)",
-    "fleet_key_hex": fleet_key.hex(),
+    "fleet_key_source": "fleet_test.key (32 bytes; value intentionally omitted)",
     "model_key_hex": model_key.hex(),
     "package_id_hex": package_id.hex(),
     "model_id_hex": model_id.hex(),
@@ -86,10 +89,12 @@ vector = {
     ],
 }
 
-(ROOT / "fleet_test.key").write_bytes(fleet_key)
 (ROOT / "golden_payload.bin").write_bytes(payload)
 (ROOT / "golden_package.mtfs").write_bytes(package)
-(ROOT / "golden_package.hex").write_text(package.hex() + "\n", encoding="ascii")
-(ROOT / "golden_manifest.hex").write_text(manifest.hex() + "\n", encoding="ascii")
-(ROOT / "golden_vector.json").write_text(json.dumps(vector, indent=2) + "\n", encoding="ascii")
+(ROOT / "golden_package.hex").write_text(
+    package.hex() + "\n", encoding="ascii", newline="\n")
+(ROOT / "golden_manifest.hex").write_text(
+    manifest.hex() + "\n", encoding="ascii", newline="\n")
+(ROOT / "golden_vector.json").write_text(
+    json.dumps(vector, indent=2) + "\n", encoding="ascii", newline="\n")
 print(f"generated {len(package)}-byte package with {chunk_count} chunks")

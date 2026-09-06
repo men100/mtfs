@@ -64,6 +64,15 @@ typedef struct mtfs_ra8p1_rsip_provider_context
     mtfs_ra8p1_key_store_diagnostics_t store_diagnostics;
     int32_t last_psa_status;
     int32_t last_fsp_status;
+    int32_t last_open_psa_status;
+    int32_t last_open_fsp_status;
+    uint32_t last_open_stage;
+    int32_t last_decrypt_psa_status;
+    uint32_t last_decrypt_stage;
+    uint32_t last_decrypt_ciphertext_size;
+    uint32_t last_decrypt_aad_size;
+    uint32_t last_decrypt_output_size;
+    uint32_t decrypt_attempts;
     mtfs_ra8p1_rsip_model_key_work_t model_key_work MTFS_RA8P1_RSIP_ALIGN;
     rsip_aes_wrapped_key_t wrapped_model_key MTFS_RA8P1_RSIP_ALIGN;
     uint8_t combined[MTFS_SEALED_CIPHER_BUFFER_SIZE] MTFS_RA8P1_RSIP_ALIGN;

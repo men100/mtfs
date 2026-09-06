@@ -994,6 +994,68 @@ def _validate_npu_acceptance(acceptance: dict, canonical_hash: bytes,
     if not isinstance(held_out, dict) or held_out.get("violations") != 0:
         raise BundleError("NPU acceptance contract mismatch")
 
+    if acceptance.get("format") == "mtfs-sentinel-ra-ethosu-acceptance-v2":
+        core = acceptance.get("contract_core")
+        core_hash = acceptance.get("contract_core_sha256")
+        if not isinstance(core, dict) or not isinstance(core_hash, str) or \
+                hashlib.sha256(canonical_json_bytes(core)).hexdigest() != core_hash or \
+                held_out.get("contract_core_sha256") != core_hash or \
+                held_out.get("vectors") != 200 or \
+                held_out.get("repeats_per_build") != 2 or \
+                held_out.get("invocations_per_build") != 400 or \
+                held_out.get("builds") != ["Debug", "Release"]:
+            raise BundleError("NPU acceptance contract mismatch")
+        if core.get("format") != "mtfs-sentinel-ra-ethosu-acceptance-core-v2" or \
+                core.get("contract_version") != 2 or \
+                core.get("status") != "FROZEN" or \
+                core.get("canonical_full_int8_tflite_sha256") != canonical_hash.hex() or \
+                core.get("npu_runtime_binary_sha256") != npu_info["runtime_binary_sha256"] or \
+                core.get("conversion_manifest_sha256") != \
+                    npu_info["conversion_manifest_sha256"]:
+            raise BundleError("NPU acceptance contract mismatch")
+        limits = core.get("fixed_limits")
+        score = core.get("score_interval")
+        decision = core.get("decision_policy")
+        reference = core.get("canonical_reference")
+        exact_limits = {
+            "decision_disagreements": 0,
+            "maximum_common_q4_output_error": 0,
+            "maximum_raw_output_error_int8": 0,
+            "maximum_score_error_q8": 0,
+            "repeatability_failures": 0,
+            "score_interval_violations": 0,
+        }
+        result_fields = ("maximum_raw_output_error_int8",
+                         "maximum_common_q4_output_error",
+                         "maximum_score_error_q8",
+                         "score_interval_violations",
+                         "decision_disagreements",
+                         "repeatability_failures",
+                         "invoke_failures", "heap_call_delta")
+        per_build = held_out.get("per_build")
+        if limits != exact_limits or \
+                not isinstance(score, dict) or score.get("version") != 1 or \
+                score.get("candidate_component_interval") != \
+                    "[max(-128,y_i-e),min(127,y_i+e)]" or \
+                score.get("rounding") != "(sum + 12) // 24" or \
+                score.get("candidate_score_requirement") != \
+                    "score_min_q8 <= score_q8 <= score_max_q8" or \
+                decision != {"threshold_q8": threshold_q8,
+                             "definitely_normal": "score_max_q8 <= threshold_q8",
+                             "definitely_anomaly": "score_min_q8 > threshold_q8",
+                             "ambiguous": "otherwise",
+                             "ambiguous_action": "canonical CPU arbitration"} or \
+                reference != {"runtime": "canonical CPU int8",
+                              "tflite_evaluator": "BUILTIN_REF"} or \
+                not isinstance(per_build, dict) or \
+                set(per_build) != {"Debug", "Release"} or \
+                any(not isinstance(per_build[name], dict) or
+                    per_build[name].get("status") != "PASS" or
+                    any(per_build[name].get(field) != 0 for field in result_fields)
+                    for name in ("Debug", "Release")):
+            raise BundleError("NPU acceptance contract mismatch")
+        return
+
     if acceptance.get("format") == "mtfs-sentinel-neural-art-acceptance-v1":
         limits = acceptance.get("fixed_limits")
         if not isinstance(limits, dict) or limits.get("decision_must_match") is not True:

@@ -633,9 +633,13 @@
 			<property id="config.driver.psa_crypto.mbedtls_platform_setup_teardown_alt" value="config.driver.psa_crypto.mbedtls_platform_setup_teardown_alt.enabled" />
 			<property id="config.driver.psa_crypto.mbedtls_gcm_alt" value="config.driver.psa_crypto.aes_gcm_alt.enabled" />
 			<property id="config.driver.psa_crypto.mbedtls_gcm_c" value="config.driver.psa_crypto.mbedtls_gcm_c.enabled" />
+			<property id="config.driver.psa_crypto.mbedtls_psa_assume_exclusive_buffers" value="config.driver.psa_crypto.mbedtls_psa_assume_exclusive_buffers.enabled" />
+			<property id="config.driver.psa_crypto.mbedtls_psa_static_key_slots" value="config.driver.psa_crypto.mbedtls_psa_static_key_slots.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_memory_buffer_alloc_c" value="config.driver.psa_crypto.mbedtls_memory_buffer_alloc_c.enabled" />
+			<property id="config.driver.psa_crypto.mbedtls_memory_debug" value="config.driver.psa_crypto.mbedtls_memory_debug.disabled" />
 			<property id="config.driver.psa_crypto.mbedtls_threading_alt" value="config.driver.psa_crypto.mbedtls_threading_alt.disabled" />
 			<property id="config.driver.psa_crypto.mbedtls_threading_c" value="config.driver.psa_crypto.mbedtls_threading_c.disabled" />
-			<property id="config.driver.psa_crypto.mbedtls_platform_memory" value="config.driver.psa_crypto.mbedtls_platform_memory.disabled" />
+			<property id="config.driver.psa_crypto.mbedtls_platform_memory" value="config.driver.psa_crypto.mbedtls_platform_memory.enabled" />
 			<property id="config.driver.psa_crypto.mbedtls_ecp_c" value="config.driver.psa_crypto.mbedtls_ecp_c.disabled" />
 			<property id="config.driver.psa_crypto.mbedtls_ecdsa_c" value="config.driver.psa_crypto.mbedtls_ecdsa_c.disabled" />
 			<property id="config.driver.psa_crypto.mbedtls_rsa_c" value="config.driver.psa_crypto.mbedtls_rsa_c.disabled" />

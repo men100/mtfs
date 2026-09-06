@@ -21,6 +21,7 @@ namespace {
 
 constexpr char kModelPath[] = "0:/SRA_VAL.TFL";
 constexpr char kCorpusPath[] = "0:/SRA_VAL.BIN";
+constexpr char kHeldOutPath[] = "0:/SRA_HO.BIN";
 constexpr uint32_t kModelSize = 3376U;
 constexpr uint32_t kHeaderSize = 192U;
 constexpr uint32_t kRecordSize = 128U;
@@ -45,6 +46,41 @@ constexpr uint8_t kConversionHash[32] = {
     0x15, 0x13, 0x00, 0x85, 0x67, 0x6d, 0xd8, 0x54,
     0xdd, 0xf6, 0x89, 0x3e, 0x58, 0x18, 0x72, 0x5c,
     0x42, 0x65, 0xd4, 0xdb, 0x65, 0x80, 0x23, 0xfc};
+constexpr uint8_t kValidationDatasetHash[32] = {
+    0x8e, 0xab, 0x5b, 0xa9, 0xfa, 0x3e, 0x8a, 0x54,
+    0xe2, 0xb3, 0x5a, 0x28, 0x3d, 0xd5, 0x42, 0xb0,
+    0x88, 0x21, 0x10, 0xbc, 0xc7, 0x98, 0x67, 0xd1,
+    0xef, 0x3e, 0x5a, 0x80, 0x33, 0x8e, 0x46, 0xb4};
+constexpr uint8_t kValidationCorpusHash[32] = {
+    0xbe, 0xfc, 0x35, 0xcf, 0x15, 0xa6, 0x13, 0xc8,
+    0x99, 0x1d, 0xa4, 0x6e, 0x8b, 0xa1, 0xc4, 0x71,
+    0xaa, 0xd9, 0xbc, 0x8a, 0x61, 0xde, 0x20, 0x05,
+    0x69, 0x9a, 0x7a, 0xdb, 0x17, 0x1c, 0xf4, 0xd4};
+constexpr uint8_t kHeldOutDatasetHash[32] = {
+    0x45, 0x02, 0x09, 0xdb, 0xdd, 0x10, 0x86, 0xcf,
+    0x80, 0xa1, 0x6b, 0x72, 0x12, 0x9d, 0xe8, 0xf9,
+    0x95, 0x5b, 0x58, 0x5a, 0x3e, 0x4f, 0x8e, 0x87,
+    0xaa, 0xa2, 0x25, 0x67, 0x3c, 0x2d, 0xb2, 0x1a};
+constexpr uint8_t kHeldOutCorpusHash[32] = {
+    0xd5, 0x34, 0x0a, 0xd5, 0x67, 0xcc, 0x27, 0x44,
+    0x46, 0x65, 0x86, 0x43, 0x88, 0xb6, 0x00, 0x83,
+    0x9e, 0x9c, 0x48, 0xb9, 0x4e, 0x65, 0xd3, 0xfa,
+    0xae, 0x00, 0x25, 0x05, 0x8c, 0x57, 0x92, 0xa3};
+
+struct CorpusSpec {
+  const char* label;
+  const char* path;
+  const uint8_t* dataset_hash;
+  const uint8_t* corpus_hash;
+  bool enforce_frozen_contract;
+};
+
+constexpr CorpusSpec kValidationSpec = {
+    "VALIDATION", kCorpusPath, kValidationDatasetHash,
+    kValidationCorpusHash, false};
+constexpr CorpusSpec kHeldOutSpec = {
+    "HELDOUT", kHeldOutPath, kHeldOutDatasetHash,
+    kHeldOutCorpusHash, true};
 
 alignas(32) uint8_t g_model[kModelSize];
 alignas(32) uint8_t g_corpus[kCorpusSize];
@@ -86,8 +122,9 @@ bool HashMatches(const void* data, uint32_t size, const uint8_t expected[32]) {
   return ok;
 }
 
-bool ValidateHeader() {
-  return std::memcmp(g_corpus, "MTFSRAV1", 8U) == 0 &&
+bool ValidateHeader(const CorpusSpec& spec) {
+  return HashMatches(g_corpus, sizeof(g_corpus), spec.corpus_hash) &&
+      std::memcmp(g_corpus, "MTFSRAV1", 8U) == 0 &&
       Load16(g_corpus + 8U) == 1U &&
       Load16(g_corpus + 10U) == kHeaderSize &&
       Load16(g_corpus + 12U) == kRecordSize &&
@@ -99,6 +136,7 @@ bool ValidateHeader() {
       Load64(g_corpus + 56U) == kExpectedThresholdQ8 &&
       std::memcmp(g_corpus + 64U, kCanonicalHash, 32U) == 0 &&
       std::memcmp(g_corpus + 96U, kOptimizedHash, 32U) == 0 &&
+      std::memcmp(g_corpus + 128U, spec.dataset_hash, 32U) == 0 &&
       HashMatches(g_corpus + kHeaderSize, kRecordSize * kRecordCount,
                   g_corpus + 160U);
 }
@@ -108,17 +146,17 @@ uint32_t AbsoluteDelta(int first, int second) {
   return static_cast<uint32_t>(delta < 0 ? -delta : delta);
 }
 
-void PrintHistogram(const char* name, const uint32_t histogram[10]) {
+void PrintHistogram(const char* label, const char* name,
+                    const uint32_t histogram[10]) {
   tm_printf(reinterpret_cast<UB*>(const_cast<char*>(
-      "[RA1-VALIDATION] %s=0:%u,1:%u,2:%u,3:%u,4:%u,5:%u,6:%u,7:%u,8:%u,9+:%u\n")),
+      "[RA1-%s] %s=0:%u,1:%u,2:%u,3:%u,4:%u,5:%u,6:%u,7:%u,8:%u,9+:%u\n")),
+      reinterpret_cast<UB*>(const_cast<char*>(label)),
       reinterpret_cast<UB*>(const_cast<char*>(name)), histogram[0],
       histogram[1], histogram[2], histogram[3], histogram[4], histogram[5],
       histogram[6], histogram[7], histogram[8], histogram[9]);
 }
 
-}  // namespace
-
-extern "C" int mtfs_ra8p1_validation_run(uint32_t repeats) {
+int RunCorpus(const CorpusSpec& spec, uint32_t repeats) {
   mtfs_ra8p1_tflm_ethosu_t target{};
   mtfs_sentinel_npu_provider_config_t config{};
   mtfs_sentinel_npu_actual_info_t actual{};
@@ -135,11 +173,12 @@ extern "C" int mtfs_ra8p1_validation_run(uint32_t repeats) {
 
   if (repeats == 0U || repeats > 100U ||
       !ReadExact(kModelPath, g_model, sizeof(g_model)) ||
-      !ReadExact(kCorpusPath, g_corpus, sizeof(g_corpus)) ||
+      !ReadExact(spec.path, g_corpus, sizeof(g_corpus)) ||
       !HashMatches(g_model, sizeof(g_model), kOptimizedHash) ||
-      !ValidateHeader()) {
+      !ValidateHeader(spec)) {
     tm_printf(reinterpret_cast<UB*>(const_cast<char*>(
-        "[RA1-VALIDATION] FAIL stage=artifact-load-or-identity\n")));
+        "[RA1-%s] FAIL stage=artifact-load-or-identity\n")),
+        reinterpret_cast<UB*>(const_cast<char*>(spec.label)));
     failures = 1U;
     goto cleanup;
   }
@@ -182,7 +221,8 @@ extern "C" int mtfs_ra8p1_validation_run(uint32_t repeats) {
       std::memcmp(actual.runtime_binary_hash, kOptimizedHash, 32U) != 0 ||
       actual.copy_size != sizeof(g_persistent) || actual.region_count != 8U) {
     tm_printf(reinterpret_cast<UB*>(const_cast<char*>(
-        "[RA1-VALIDATION] FAIL stage=embedded-artifact-policy substage=%u detail=%d\n")),
+        "[RA1-%s] FAIL stage=embedded-artifact-policy substage=%u detail=%d\n")),
+        reinterpret_cast<UB*>(const_cast<char*>(spec.label)),
         target.diagnostics.diagnostic_stage,
         target.diagnostics.diagnostic_detail);
     failures = 1U;
@@ -196,7 +236,8 @@ extern "C" int mtfs_ra8p1_validation_run(uint32_t repeats) {
   if (config.ops->install(config.target, g_model, sizeof(g_model),
                           g_persistent, sizeof(g_persistent), &runtime) != MTFS_OK) {
     tm_printf(reinterpret_cast<UB*>(const_cast<char*>(
-        "[RA1-VALIDATION] FAIL stage=install substage=%u detail=%d\n")),
+        "[RA1-%s] FAIL stage=install substage=%u detail=%d\n")),
+        reinterpret_cast<UB*>(const_cast<char*>(spec.label)),
         target.diagnostics.diagnostic_stage,
         target.diagnostics.diagnostic_detail);
     failures = 1U;
@@ -286,11 +327,18 @@ cleanup:
   }
   const uint32_t heap_after = mtfs_ra8p1_heap_call_count();
   if (heap_after != heap_before) ++failures;
-  PrintHistogram("raw-vector-max-histogram", raw_histogram);
-  PrintHistogram("q4-vector-max-histogram", q4_histogram);
-  PrintHistogram("score-error-histogram", score_histogram);
+  if (spec.enforce_frozen_contract &&
+      (max_raw != 0U || max_q4 != 0U || max_score != 0U ||
+       interval_violations != 0U || decision_disagreements != 0U ||
+       repeatability_failures != 0U)) {
+    ++failures;
+  }
+  PrintHistogram(spec.label, "raw-vector-max-histogram", raw_histogram);
+  PrintHistogram(spec.label, "q4-vector-max-histogram", q4_histogram);
+  PrintHistogram(spec.label, "score-error-histogram", score_histogram);
   tm_printf(reinterpret_cast<UB*>(const_cast<char*>(
-      "[RA1-VALIDATION] %s samples=%u repeats=%u invocations=%u raw-max=%u q4-max=%u score-error-max=%u score-interval-violations=%u decision-disagreements=%u repeatability-failures=%u threshold-q8=%u threshold-margin-min=%u near-threshold=%u arena-used=%u installs=%u closes=%u invokes=%u invoke-failures=%u heap-calls-delta=%u\n")),
+      "[RA1-%s] %s samples=%u repeats=%u invocations=%u raw-max=%u q4-max=%u score-error-max=%u score-interval-violations=%u decision-disagreements=%u repeatability-failures=%u threshold-q8=%u threshold-margin-min=%u near-threshold=%u arena-used=%u installs=%u closes=%u invokes=%u invoke-failures=%u heap-calls-delta=%u\n")),
+      reinterpret_cast<UB*>(const_cast<char*>(spec.label)),
       reinterpret_cast<UB*>(const_cast<char*>(failures == 0U ? "PASS" : "FAIL")),
       kRecordCount, repeats, kRecordCount * repeats, max_raw, max_q4,
       static_cast<uint32_t>(max_score), interval_violations,
@@ -305,8 +353,23 @@ cleanup:
   return failures == 0U ? 0 : 1;
 }
 
+}  // namespace
+
+extern "C" int mtfs_ra8p1_validation_run(uint32_t repeats) {
+  return RunCorpus(kValidationSpec, repeats);
+}
+
+extern "C" int mtfs_ra8p1_acceptance_run(uint32_t repeats) {
+  return RunCorpus(kHeldOutSpec, repeats);
+}
+
 #else
 extern "C" int mtfs_ra8p1_validation_run(uint32_t repeats) {
+  (void)repeats;
+  return 1;
+}
+
+extern "C" int mtfs_ra8p1_acceptance_run(uint32_t repeats) {
   (void)repeats;
   return 1;
 }

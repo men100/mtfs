@@ -223,6 +223,82 @@ class NumericContractTests(unittest.TestCase):
         with self.assertRaises(BundleError):
             _validate_npu_acceptance(mutated, canonical_hash, npu_info, 6)
 
+    def test_ra_ethosu_acceptance_requires_exact_frozen_heldout(self):
+        canonical_hash = bytes.fromhex("11" * 32)
+        npu_info = {"runtime_binary_sha256": "22" * 32,
+                    "conversion_manifest_sha256": "33" * 32}
+        core = {
+            "format": "mtfs-sentinel-ra-ethosu-acceptance-core-v2",
+            "contract_version": 2,
+            "status": "FROZEN",
+            "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+            "npu_runtime_binary_sha256": npu_info["runtime_binary_sha256"],
+            "conversion_manifest_sha256": npu_info["conversion_manifest_sha256"],
+            "canonical_reference": {"runtime": "canonical CPU int8",
+                                    "tflite_evaluator": "BUILTIN_REF"},
+            "fixed_limits": {
+                "decision_disagreements": 0,
+                "maximum_common_q4_output_error": 0,
+                "maximum_raw_output_error_int8": 0,
+                "maximum_score_error_q8": 0,
+                "repeatability_failures": 0,
+                "score_interval_violations": 0},
+            "score_interval": {
+                "version": 1,
+                "candidate_component_interval":
+                    "[max(-128,y_i-e),min(127,y_i+e)]",
+                "rounding": "(sum + 12) // 24",
+                "candidate_score_requirement":
+                    "score_min_q8 <= score_q8 <= score_max_q8"},
+            "decision_policy": {
+                "threshold_q8": 8,
+                "definitely_normal": "score_max_q8 <= threshold_q8",
+                "definitely_anomaly": "score_min_q8 > threshold_q8",
+                "ambiguous": "otherwise",
+                "ambiguous_action": "canonical CPU arbitration"}}
+        core_hash = hashlib.sha256(canonical_json_bytes(core)).hexdigest()
+        zero_result = {
+            "status": "PASS", "maximum_raw_output_error_int8": 0,
+            "maximum_common_q4_output_error": 0,
+            "maximum_score_error_q8": 0, "score_interval_violations": 0,
+            "decision_disagreements": 0, "repeatability_failures": 0,
+            "invoke_failures": 0, "heap_call_delta": 0}
+        acceptance = {
+            "format": "mtfs-sentinel-ra-ethosu-acceptance-v2",
+            "status": "PASS",
+            "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+            "npu_runtime_binary_sha256": npu_info["runtime_binary_sha256"],
+            "conversion_manifest_sha256": npu_info["conversion_manifest_sha256"],
+            "contract_core": core,
+            "contract_core_sha256": core_hash,
+            "held_out_test": {
+                "vectors": 200, "repeats_per_build": 2,
+                "invocations_per_build": 400,
+                "builds": ["Debug", "Release"], "violations": 0,
+                "contract_core_sha256": core_hash,
+                "per_build": {"Debug": dict(zero_result),
+                              "Release": dict(zero_result)}}}
+        _validate_npu_acceptance(acceptance, canonical_hash, npu_info, 8)
+
+        mutations = []
+        changed = json.loads(json.dumps(acceptance))
+        changed["contract_core"]["fixed_limits"][
+            "maximum_raw_output_error_int8"] = 1
+        mutations.append(changed)
+        changed = json.loads(json.dumps(acceptance))
+        changed["held_out_test"]["per_build"]["Debug"][
+            "heap_call_delta"] = 1
+        mutations.append(changed)
+        changed = json.loads(json.dumps(acceptance))
+        changed["held_out_test"]["vectors"] = 199
+        mutations.append(changed)
+        changed = json.loads(json.dumps(acceptance))
+        changed["held_out_test"]["contract_core_sha256"] = "00" * 32
+        mutations.append(changed)
+        for changed in mutations:
+            with self.assertRaises(BundleError):
+                _validate_npu_acceptance(changed, canonical_hash, npu_info, 8)
+
     def test_fixed_normalization_rounding_and_clamps(self):
         normalization = {"mean_q16": [0] * 24,
                          "inverse_std_q20": [1 << 20] * 24}

@@ -105,6 +105,9 @@ static mtfs_crypto_status_t open_fleet_key(void *opaque, uint32_t key_id,
     mtfs_ra8p1_key_metadata_t metadata;
     mtfs_crypto_status_t result;
     psa_status_t status;
+    context->last_open_stage = 1U;
+    context->last_open_psa_status = 0;
+    context->last_open_fsp_status = 0;
     if (fleet_handle == NULL || key_id == 0U || key_version == 0U)
         return MTFS_CRYPTO_INVALID_ARGUMENT;
     *fleet_handle = MTFS_CRYPTO_INVALID_KEY_HANDLE;
@@ -123,17 +126,20 @@ static mtfs_crypto_status_t open_fleet_key(void *opaque, uint32_t key_id,
     result = map_store(context->store_diagnostics.last_status);
     if (result != MTFS_CRYPTO_OK)
         goto cleanup;
+    context->last_open_stage = 2U;
     if (metadata.key_id != key_id || metadata.key_version != key_version) {
         result = MTFS_CRYPTO_KEY_NOT_FOUND;
         goto cleanup;
     }
     status = import_wrapped(&wrapped, &context->fleet_psa_handle);
     context->last_psa_status = (int32_t)status;
+    context->last_open_psa_status = (int32_t)status;
     result = map_psa(status, 0);
     if (result != MTFS_CRYPTO_OK) {
         context->fleet_psa_handle = 0U;
         goto cleanup;
     }
+    context->last_open_stage = 3U;
     context->fleet_metadata = metadata;
     context->fleet_handle = next_handle(context, FLEET_HANDLE_TAG);
     context->fleet_open = 1U;
@@ -155,6 +161,7 @@ static mtfs_crypto_status_t open_model_key(void *opaque,
     mtfs_crypto_status_t result;
     psa_status_t status;
     size_t output_size = 0U;
+    context->last_open_stage = 4U;
     if (aad_size > MTFS_SEALED_KEY_AAD_SIZE)
         return MTFS_CRYPTO_RESOURCE_EXHAUSTED;
     if (model_handle == NULL || nonce == NULL || ciphertext == NULL ||
@@ -177,27 +184,33 @@ static mtfs_crypto_status_t open_model_key(void *opaque,
         context->model_key_work.psa_output,
         sizeof(context->model_key_work.psa_output), &output_size);
     context->last_psa_status = (int32_t)status;
+    context->last_open_psa_status = (int32_t)status;
     result = map_psa(status, 1);
     if (result != MTFS_CRYPTO_OK || output_size != 32U) {
         if (result == MTFS_CRYPTO_OK)
             result = MTFS_CRYPTO_FAILED;
         goto cleanup;
     }
+    context->last_open_stage = 5U;
     context->last_fsp_status = (int32_t)R_RSIP_AES256_InitialKeyWrap(
         RSIP_KEY_INJECTION_TYPE_PLAIN, NULL, NULL,
         context->model_key_work.fields.raw_key, &context->wrapped_model_key);
+    context->last_open_fsp_status = context->last_fsp_status;
     if (context->last_fsp_status != (int32_t)FSP_SUCCESS) {
         result = MTFS_CRYPTO_FAILED;
         goto cleanup;
     }
+    context->last_open_stage = 6U;
     status = import_wrapped(&context->wrapped_model_key,
         &context->model_psa_handle);
     context->last_psa_status = (int32_t)status;
+    context->last_open_psa_status = (int32_t)status;
     result = map_psa(status, 0);
     if (result != MTFS_CRYPTO_OK) {
         context->model_psa_handle = 0U;
         goto cleanup;
     }
+    context->last_open_stage = 7U;
     context->model_handle = next_handle(context, MODEL_HANDLE_TAG);
     context->model_open = 1U;
     *model_handle = context->model_handle;
@@ -227,10 +240,17 @@ static mtfs_crypto_status_t decrypt_chunk(void *opaque,
     psa_status_t status;
     size_t output_size = 0U;
     size_t combined_size;
+    ++context->decrypt_attempts;
+    context->last_decrypt_stage = 1U;
+    context->last_decrypt_ciphertext_size = (uint32_t)ciphertext_size;
+    context->last_decrypt_aad_size = (uint32_t)aad_size;
+    context->last_decrypt_output_size = 0U;
+    context->last_decrypt_psa_status = 0;
     /* Preflight length rejection must not acquire RSIP or touch output. */
     if (ciphertext_size > MTFS_SEALED_MAX_CHUNK_SIZE ||
         aad_size > MTFS_SEALED_CHUNK_AAD_SIZE)
         return MTFS_CRYPTO_RESOURCE_EXHAUSTED;
+    context->last_decrypt_stage = 2U;
     if (nonce == NULL || tag == NULL || plaintext == NULL ||
         (aad == NULL && aad_size != 0U) ||
         (ciphertext == NULL && ciphertext_size != 0U)) {
@@ -244,26 +264,34 @@ static mtfs_crypto_status_t decrypt_chunk(void *opaque,
         mtfs_secure_zero(plaintext, ciphertext_size);
         return result;
     }
+    context->last_decrypt_stage = 3U;
     if (context->model_open == 0U || model_handle != context->model_handle ||
         (model_handle & HANDLE_TAG_MASK) != MODEL_HANDLE_TAG) {
         result = MTFS_CRYPTO_INVALID_ARGUMENT;
         goto failed;
     }
+    context->last_decrypt_stage = 4U;
     if (ciphertext_size != 0U)
         memcpy(context->combined, ciphertext, ciphertext_size);
     memcpy(context->combined + ciphertext_size, tag, MTFS_SEALED_TAG_SIZE);
     status = psa_aead_decrypt(context->model_psa_handle, PSA_ALG_GCM,
         nonce, 12U, aad, aad_size, context->combined, combined_size,
-        context->authenticated, sizeof(context->authenticated), &output_size);
+        context->authenticated,
+        ciphertext_size + MTFS_RA8P1_RSIP_PSA_TAIL_BYTES, &output_size);
     context->last_psa_status = (int32_t)status;
+    context->last_decrypt_psa_status = (int32_t)status;
+    context->last_decrypt_output_size = (uint32_t)output_size;
+    context->last_decrypt_stage = 5U;
     result = map_psa(status, 1);
     if (result != MTFS_CRYPTO_OK || output_size != ciphertext_size) {
         if (result == MTFS_CRYPTO_OK)
             result = MTFS_CRYPTO_FAILED;
         goto failed;
     }
+    context->last_decrypt_stage = 6U;
     if (ciphertext_size != 0U)
         memcpy(plaintext, context->authenticated, ciphertext_size);
+    context->last_decrypt_stage = 7U;
     goto cleanup;
 
 failed:
