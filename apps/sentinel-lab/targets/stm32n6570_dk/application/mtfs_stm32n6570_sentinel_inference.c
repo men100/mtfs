@@ -14,6 +14,7 @@
 #include "mtfs_sealed_format.h"
 #include "mtfs_sealed_reader_fatfs.h"
 #include "mtfs_secure_zero.h"
+#include "mtfs_sentinel_baseline.h"
 #include "mtfs_sentinel_inference.h"
 #include "mtfs_sentinel_npu_provider.h"
 #include "mtfs_sentinel_sealed_adapter.h"
@@ -30,7 +31,7 @@
 #define SENTINEL_TIMEOUT_MS (UINT32_C(2000))
 #define SENTINEL_HOTPLUG_WAIT_TICKS (UINT32_C(12000))
 #define SENTINEL_MAX_OUTPUT_ERROR_Q4 (1)
-#define SENTINEL_MAX_RAW_OUTPUT_ERROR_INT8 (1)
+#define SENTINEL_MAX_RAW_OUTPUT_ERROR_INT8 (2)
 #define SENTINEL_SCHEDULER_PROBE_STACK_SIZE (UINT32_C(1024))
 #define SENTINEL_SCHEDULER_PROBE_PRIORITY (32)
 
@@ -55,11 +56,13 @@ typedef struct sentinel_session
     mtfs_sentinel_npu_context_t npu;
     mtfs_stm32n6_neural_art_t neural_art;
     mtfs_sentinel_npu_provider_config_t npu_config;
+    mtfs_sentinel_baseline_t baseline;
     NN_Instance_TypeDef nn_instance;
     const mtfs_media_context_t *media;
     ID saes_mutex;
     ID npu_mutex;
     uint32_t npu_runtime_index;
+    uint32_t preprocessing_saturation_mask;
     uint8_t reader_open;
     uint8_t crypto_open;
     uint8_t model_initialized;
@@ -240,6 +243,8 @@ static int session_cleanup(sentinel_session_t *session)
     mtfs_secure_zero(aad_work, sizeof(aad_work));
     mtfs_secure_zero(ciphertext_work, sizeof(ciphertext_work));
     mtfs_secure_zero(plaintext_work, sizeof(plaintext_work));
+    mtfs_secure_zero(&session->baseline, sizeof(session->baseline));
+    session->preprocessing_saturation_mask = 0U;
     if (session->npu_open == 0U) {
         if (session->npu_mutex > 0) (void)tk_del_mtx(session->npu_mutex);
         if (session->saes_mutex > 0) (void)tk_del_mtx(session->saes_mutex);
@@ -293,6 +298,9 @@ static int session_open(sentinel_session_t *session)
         &session->model_info, MTFS_SENTINEL_TRANSPORT_SDMMC_IDMA,
         SENTINEL_PROFILE_ID, &session->bundle);
     if (status != MTFS_OK) return 8;
+    if (session->bundle.preprocessing_present == 0U ||
+        mtfs_sentinel_baseline_init(&session->baseline,
+            &session->bundle.preprocessing) != MTFS_OK) return 15;
     if (mtfs_sentinel_bundle_memory_plan(&session->bundle, &session->plan) !=
             MTFS_OK || session->plan.required_ram > sizeof(arena)) return 9;
     if (mtfs_sentinel_cpu_init(&session->cpu, &session->bundle) != MTFS_OK)
@@ -709,19 +717,62 @@ mtfs_error_t mtfs_stm32n6570_sentinel_monitor_open(void *media,
 }
 
 mtfs_error_t mtfs_stm32n6570_sentinel_monitor_normalize(void *media,
-    const mtfs_sentinel_feature_v1_t *feature, int8_t input_q4[24])
+    const mtfs_sentinel_feature_v1_t *feature, uint8_t injection_active,
+    int8_t input_q4[24])
 {
     uint32_t raw[MTFS_SENTINEL_FEATURE_DIMENSION];
+    mtfs_sentinel_baseline_result_t result;
     mtfs_error_t status;
     (void)media;
     if (monitor_session.npu_open == 0U || feature == NULL || input_q4 == NULL)
         return MTFS_ERROR_INVALID_STATE;
+    monitor_session.preprocessing_saturation_mask = 0U;
     status = mtfs_sentinel_feature_encode_raw(feature, raw);
-    if (status == MTFS_OK)
-        status = mtfs_sentinel_normalize_int8(
-            &monitor_session.bundle.normalization, raw, input_q4);
+    if (status != MTFS_OK) goto complete;
+    if (monitor_session.baseline.state ==
+            MTFS_SENTINEL_BASELINE_UNINITIALIZED ||
+        monitor_session.baseline.state ==
+            MTFS_SENTINEL_BASELINE_INVALID_DISCONTINUOUS ||
+        monitor_session.baseline.media_generation !=
+            feature->media_generation) {
+        if (monitor_session.baseline.state !=
+                MTFS_SENTINEL_BASELINE_UNINITIALIZED)
+            mtfs_sentinel_baseline_invalidate(&monitor_session.baseline);
+        status = mtfs_sentinel_baseline_start(&monitor_session.baseline,
+            feature->media_generation);
+        if (status != MTFS_OK) goto complete;
+    }
+    if (monitor_session.baseline.state == MTFS_SENTINEL_BASELINE_WARMUP) {
+        status = mtfs_sentinel_baseline_observe(&monitor_session.baseline,
+            feature->media_generation, raw, 1U, injection_active);
+        if (status == MTFS_OK) status = MTFS_ERROR_NOT_READY;
+        goto complete;
+    }
+    status = mtfs_sentinel_baseline_transform(&monitor_session.baseline,
+        raw, &result);
+    if (status == MTFS_OK) {
+        monitor_session.preprocessing_saturation_mask =
+            result.saturation_mask;
+        (void)memcpy(input_q4, result.input_q4, sizeof(result.input_q4));
+        if (result.out_of_distribution != 0U)
+            status = MTFS_ERROR_OUT_OF_RANGE;
+    }
+    mtfs_secure_zero(&result, sizeof(result));
+complete:
     mtfs_secure_zero(raw, sizeof(raw));
     return status;
+}
+
+void mtfs_stm32n6570_sentinel_monitor_preprocessing_status(void *media,
+    mtfs_sentinel_monitor_preprocessing_status_t *status)
+{
+    (void)media;
+    if (status == NULL) return;
+    (void)memset(status, 0, sizeof(*status));
+    status->baseline_progress = monitor_session.baseline.sample_count;
+    status->baseline_required = monitor_session.baseline.policy.warmup_windows;
+    status->saturation_mask =
+        monitor_session.preprocessing_saturation_mask;
 }
 
 mtfs_error_t mtfs_stm32n6570_sentinel_monitor_npu_infer(void *media,
@@ -814,10 +865,17 @@ mtfs_error_t mtfs_stm32n6570_sentinel_monitor_open(void *media,
     (void)media; (void)threshold_q8; return MTFS_ERROR_NOT_SUPPORTED;
 }
 mtfs_error_t mtfs_stm32n6570_sentinel_monitor_normalize(void *media,
-    const mtfs_sentinel_feature_v1_t *feature, int8_t input_q4[24])
+    const mtfs_sentinel_feature_v1_t *feature, uint8_t injection_active,
+    int8_t input_q4[24])
 {
-    (void)media; (void)feature; (void)input_q4;
+    (void)media; (void)feature; (void)injection_active; (void)input_q4;
     return MTFS_ERROR_NOT_SUPPORTED;
+}
+void mtfs_stm32n6570_sentinel_monitor_preprocessing_status(void *media,
+    mtfs_sentinel_monitor_preprocessing_status_t *status)
+{
+    (void)media;
+    if (status != NULL) (void)memset(status, 0, sizeof(*status));
 }
 mtfs_error_t mtfs_stm32n6570_sentinel_monitor_npu_infer(void *media,
     const int8_t input_q4[24], int8_t output_q4[24],

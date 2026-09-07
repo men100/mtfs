@@ -146,12 +146,18 @@ def select_policy(training_normal_paths: list[Path],
                   validation_normal_paths: list[Path],
                   training_pseudo_paths: list[Path],
                   validation_pseudo_paths: list[Path],
-                  candidates: tuple[int, ...] = WARMUP_CANDIDATES) -> dict:
+                  candidates: tuple[int, ...] = WARMUP_CANDIDATES,
+                  selection_scope: str = "combined",
+                  required_training_cards: int = 0) -> dict:
     """Select the v2 preprocessing policy without reading held-out data."""
     training_normal = [load_dataset(path) for path in training_normal_paths]
     validation_normal = [load_dataset(path) for path in validation_normal_paths]
     training_pseudo = [load_dataset(path) for path in training_pseudo_paths]
     validation_pseudo = [load_dataset(path) for path in validation_pseudo_paths]
+    if selection_scope not in ("combined", "validation-only"):
+        raise DatasetError("invalid baseline policy selection scope")
+    if required_training_cards < 0:
+        raise DatasetError("required training card count must not be negative")
     supplied = training_normal + validation_normal + training_pseudo + validation_pseudo
     if not training_normal or not validation_normal or not validation_pseudo:
         raise DatasetError("training normal, validation normal, and validation pseudo data are required")
@@ -173,10 +179,17 @@ def select_policy(training_normal_paths: list[Path],
     if not training_cards or len(validation_cards) != 1 or \
             training_cards & validation_cards:
         raise DatasetError("validation must be one identified card disjoint from all training cards")
+    if required_training_cards and len(training_cards) != required_training_cards:
+        raise DatasetError(
+            f"exactly {required_training_cards} identified training cards are required")
 
     reports = []
-    normal_datasets = training_normal + validation_normal
-    pseudo_datasets = training_pseudo + validation_pseudo
+    if selection_scope == "validation-only":
+        normal_datasets = validation_normal
+        pseudo_datasets = validation_pseudo
+    else:
+        normal_datasets = training_normal + validation_normal
+        pseudo_datasets = training_pseudo + validation_pseudo
     for windows in candidates:
         normal_relative: list[list[int]] = []
         pseudo_by_stage: dict[str, list[list[int]]] = {}
@@ -246,6 +259,14 @@ def select_policy(training_normal_paths: list[Path],
             "ood": "any int8 saturation",
         },
     }
+    if selection_scope == "validation-only":
+        policy["selection_scope"] = selection_scope
+        policy["selection_rule"] = {
+            "active": "validation pseudo medium-or-strong median absolute signal >= 16",
+            "scale": "max(16, maximum absolute validation-normal relative value)",
+            "warmup": "minimum sum of active-feature validation-normal p95 absolute relative values; largest wins tie",
+            "ood": "any int8 saturation",
+        }
     policy["canonical_sha256"] = hashlib.sha256(
         canonical_json_bytes(policy)).hexdigest()
     return {
@@ -328,6 +349,10 @@ def build_parser() -> argparse.ArgumentParser:
                         default=[])
     parser.add_argument("--candidate", type=int, action="append",
                         choices=WARMUP_CANDIDATES)
+    parser.add_argument("--selection-scope",
+                        choices=("combined", "validation-only"),
+                        default="combined")
+    parser.add_argument("--required-training-cards", type=int, default=0)
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -343,7 +368,9 @@ def main(argv: list[str] | None = None) -> int:
         if selecting:
             report = select_policy(args.training_normal, args.validation_normal,
                                    args.training_pseudo,
-                                   args.validation_pseudo, candidates)
+                                   args.validation_pseudo, candidates,
+                                   args.selection_scope,
+                                   args.required_training_cards)
         elif args.dataset:
             report = audit(args.dataset, candidates)
         else:

@@ -84,7 +84,10 @@ def run(args: argparse.Namespace) -> dict:
             "score_median_q8": float(np.median(scores)),
             "score_p95_q8": _higher(scores),
         }
-    limits = freeze["acceptance_limits"]
+    limits = freeze.get("classification_acceptance_limits",
+                        freeze.get("acceptance_limits"))
+    if not isinstance(limits, dict):
+        raise DatasetError("freeze record has no classification acceptance limits")
     normal_fwr = false_warnings / len(normal_scores)
     normal_ood_rate = normal_ood / len(normal_scores)
     recovery_normal_rate = 1.0 - \
@@ -106,7 +109,9 @@ def run(args: argparse.Namespace) -> dict:
     }
     status = "PASS" if all(checks.values()) else "STOP"
     result = {
-        "format": "mtfs-sentinel-ra-baseline-relative-heldout-v2",
+        "format": ("mtfs-sentinel-st-baseline-relative-heldout-v2"
+                   if freeze.get("target") == "STM32N6570-DK"
+                   else "mtfs-sentinel-ra-baseline-relative-heldout-v2"),
         "status": status,
         "freeze_record_sha256": freeze_hash,
         "threshold_q8_unchanged": threshold,

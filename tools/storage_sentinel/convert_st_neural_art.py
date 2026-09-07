@@ -120,13 +120,39 @@ def main() -> None:
     if args.input_tflite is None:
         tensor = export_tflite(args.artifact.resolve(),
                                args.training_dataset.resolve(), model_path)
+        calibration_identity = {"sha256": training_hash,
+            "split": "training", "session": next((item.get("session_id")
+            for item in training_manifest.get("train_sessions", []) if
+            item.get("dataset_sha256") == training_hash), None)}
     else:
         source_tflite = args.input_tflite.resolve()
         if not source_tflite.is_file():
             raise SystemExit("input TFLite does not exist")
+        source_manifest_path = source_tflite.with_suffix(
+            source_tflite.suffix + ".manifest.json")
+        if not source_manifest_path.is_file():
+            raise SystemExit("input TFLite manifest does not exist")
+        source_manifest = json.loads(source_manifest_path.read_text(
+            encoding="utf-8"))
+        artifact_index = args.artifact.resolve() / "artifact_index.json"
+        if source_manifest.get("heldout_read") is not False or \
+                source_manifest.get("canonical_full_int8_tflite_sha256") != \
+                sha256(source_tflite) or \
+                source_manifest.get("source_artifact_index_sha256") != \
+                sha256(artifact_index) or \
+                source_manifest.get("source_model_sha256") != \
+                sha256(args.artifact.resolve() / "model.json") or \
+                source_manifest.get("preprocessing_policy_sha256") != \
+                training_manifest.get("preprocessing_policy_sha256"):
+            raise SystemExit("input TFLite provenance mismatch")
         shutil.copyfile(source_tflite, model_path)
-        tensor = {"calibration_rows": len(usable_vectors(
-            load_dataset(args.training_dataset.resolve()))[0])}
+        tensor = {"calibration_rows": int(source_manifest["calibration_rows"])}
+        calibration_identity = {
+            "artifact_index_sha256": sha256(artifact_index),
+            "split": "training-artifact",
+            "sessions": [item.get("session_id") for item in
+                         training_manifest.get("train_sessions", [])],
+        }
     generated = output / "generated"
     workspace = output / "workspace"
     command = [str(args.stedgeai), "generate", "-m", str(model_path),
@@ -188,6 +214,12 @@ def main() -> None:
         struct.pack("<f", canonical.output_scale).hex(),
         "zero_point": canonical.output_zero_point})
     source_float_hash = sha256(args.artifact.resolve() / "model.json")
+    threshold_document = json.loads((args.artifact.resolve() /
+        "threshold.json").read_text(encoding="utf-8"))
+    threshold_quantile = float(threshold_document.get("quantile", 0.95))
+    if not 0.0 < threshold_quantile <= 1.0 or \
+            threshold_document.get("selection_data") != "normal-validation-only":
+        raise RuntimeError("invalid threshold provenance")
     manifest = {
         "format": "mtfs-sentinel-st-neural-art-reloc-v2",
         "provider_id": PROVIDER_ST_NEURAL_ART_RELOC,
@@ -226,10 +258,7 @@ def main() -> None:
         "source_float_model_sha256": source_float_hash,
         "training_dataset_sha256": training_hash,
         "calibration_rows": tensor["calibration_rows"],
-        "calibration_dataset_identity": {"sha256": training_hash,
-            "split": "training", "session": next((item.get("session_id") for item in
-            training_manifest.get("train_sessions", []) if
-            item.get("dataset_sha256") == training_hash), None)},
+        "calibration_dataset_identity": calibration_identity,
         "input_output_shape": {"input": [24], "output": [24]},
         "tensor_dtype": "int8", "boundary_tensors": boundary_tensors,
         "quantization_contract_version": 2,
@@ -237,7 +266,8 @@ def main() -> None:
             "TFLite-int8-gemmlowp-rounding-fused-activation-signed-int8-saturation",
         "score_contract": "common-Q4-reconstruction-mean-squared-error-Q8",
         "threshold_provenance": {"source": training_manifest.get("threshold_source"),
-            "selection": "normal-validation-p95-higher; value supplied by bundle"},
+            "selection": f"normal-validation-p{threshold_quantile * 100:g}-higher; "
+                         "value supplied by bundle"},
         "generation_command": ["stedgeai", "generate", "-m", "sentinel_st_int8.tflite",
             "--target", "stm32n6", "--st-neural-art",
             f"{args.reloc_profile_name}@<reloc-profile>",

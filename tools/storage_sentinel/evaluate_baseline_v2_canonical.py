@@ -113,7 +113,7 @@ def run(args: argparse.Namespace) -> dict:
     model_path = args.canonical_tflite.resolve()
     if args.output_dir.exists():
         raise DatasetError("output directory already exists; refusing overwrite")
-    _, manifest, policy = _artifact_files(artifact)
+    index, manifest, policy = _artifact_files(artifact)
     canonical_manifest_path = model_path.with_suffix(
         model_path.suffix + ".manifest.json")
     canonical_manifest = json.loads(canonical_manifest_path.read_text(
@@ -137,7 +137,14 @@ def run(args: argparse.Namespace) -> dict:
     normal_inferred = inferred[:len(normal_q4)]
     pseudo_inferred = inferred[len(normal_q4):]
     normal_scores = [row["score_q8"] for row in normal_inferred]
-    threshold = _higher(normal_scores)
+    threshold_document = json.loads((artifact / "threshold.json").read_text(
+        encoding="utf-8"))
+    if threshold_document.get("selection_data") != "normal-validation-only":
+        raise DatasetError("threshold source is not validation-only")
+    threshold_quantile = float(threshold_document.get("quantile", 0.95))
+    if not 0.0 < threshold_quantile <= 1.0:
+        raise DatasetError("invalid threshold quantile")
+    threshold = _higher(normal_scores, threshold_quantile)
     false_warnings = sum(score > threshold for score in normal_scores)
     stage_metrics = {}
     for stage in ("baseline", "light", "medium", "strong", "recovery"):
@@ -184,7 +191,8 @@ def run(args: argparse.Namespace) -> dict:
         "canonical_full_int8_tflite_sha256": sha256_file(model_path),
         "preprocessing_policy_sha256": policy["canonical_sha256"],
         "threshold_q8": threshold,
-        "threshold_selection": "normal-validation-p95-higher",
+        "threshold_selection":
+            f"normal-validation-p{threshold_quantile * 100:g}-higher",
         "normal": {"samples": len(normal_scores),
                    "false_warnings": false_warnings,
                    "false_warning_rate": false_warnings / len(normal_scores),
@@ -230,7 +238,9 @@ def run(args: argparse.Namespace) -> dict:
         "threshold_q8": threshold,
         "validation_sha256": file_hashes["canonical_validation.json"],
         "cpu_runtime_sha256": file_hashes["sentinel_cpu_tflite_int8.bin"],
-        "next_gate": "Vela artifact identity and acceptance limits",
+        "next_gate": ("Neural-ART artifact identity and acceptance limits"
+                      if int(index["target_id"]) == 0x53544e36 else
+                      "Vela artifact identity and acceptance limits"),
     }
     _write_new(args.output_dir / "freeze-core.json",
                canonical_json_bytes(freeze) + b"\n")

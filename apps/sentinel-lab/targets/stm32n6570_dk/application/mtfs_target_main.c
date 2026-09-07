@@ -217,7 +217,19 @@ typedef struct target_monitor_context
     uint32_t seed;
     uint8_t pseudo;
     uint8_t mounted;
+    uint8_t injection_active;
+    uint8_t hotplug;
 } target_monitor_context_t;
+
+static int monitor_wait_media(int present)
+{
+    uint32_t count;
+    for (count = 0U; count < 12000U; ++count) {
+        if (!!mtfs_media_is_present(&media_context) == !!present) return 0;
+        (void)tk_dly_tsk(10U);
+    }
+    return 1;
+}
 
 static void monitor_injected_delay(void *opaque, uint32_t delay_us)
 {
@@ -266,12 +278,16 @@ static mtfs_error_t monitor_stage_begin(void *opaque, uint32_t stage)
         context->pseudo != 0U ? MTFS_SENTINEL_LAB_MODE_DELAY_RAMP :
             MTFS_SENTINEL_LAB_MODE_RECORD,
         stage, context->seed, &metadata);
+    context->injection_active = context->pseudo != 0U && stage >= 1U &&
+        stage <= 3U ? 1U : 0U;
     return MTFS_OK;
 }
 
 static mtfs_error_t monitor_stage_end(void *opaque, uint32_t stage)
 {
-    (void)opaque; (void)stage;
+    target_monitor_context_t *context = opaque;
+    (void)stage;
+    context->injection_active = 0U;
     mtfs_sentinel_lab_injector_disable(&lab_runtime.injector);
     return MTFS_OK;
 }
@@ -282,6 +298,7 @@ static const char *monitor_stage_name(void *opaque, uint32_t stage)
         "baseline", "light", "medium", "strong", "recovery"
     };
     target_monitor_context_t *context = opaque;
+    if (context->hotplug != 0U) return "hotplug-lifecycle";
     return context->pseudo != 0U && stage < 5U ? names[stage] : "natural";
 }
 
@@ -289,7 +306,14 @@ static mtfs_error_t monitor_acquire(void *opaque, uint32_t stage,
     uint32_t index, mtfs_sentinel_monitor_input_t *input)
 {
     target_monitor_context_t *context = opaque;
-    (void)stage; (void)index;
+    (void)stage;
+    if (context->hotplug != 0U && stage == 0U && index == 1U) {
+        tm_printf((UB *)"[sentinel-monitor-hotplug] ACTION REQUIRED: REMOVE card; resident model retained\n");
+        if (monitor_wait_media(0) != 0) return MTFS_ERROR_NOT_READY;
+    } else if (context->hotplug != 0U && stage == 0U && index == 2U) {
+        tm_printf((UB *)"[sentinel-monitor-hotplug] ACTION REQUIRED: REINSERT card\n");
+        if (monitor_wait_media(1) != 0) return MTFS_ERROR_NOT_READY;
+    }
     ++context->marker;
     (void)mtfs_sentinel_lab_window_step(&lab_runtime.window,
         &context->window_config, context->marker, NULL, NULL,
@@ -300,15 +324,63 @@ static mtfs_error_t monitor_acquire(void *opaque, uint32_t stage,
     return MTFS_OK;
 }
 
+static mtfs_error_t monitor_provider_open(void *opaque,
+    uint64_t *threshold_q8)
+{
+    (void)opaque;
+    return mtfs_stm32n6570_sentinel_monitor_open(&media_context, threshold_q8);
+}
+
+static mtfs_error_t monitor_provider_normalize(void *opaque,
+    const mtfs_sentinel_feature_v1_t *feature, int8_t input_q4[24])
+{
+    target_monitor_context_t *context = opaque;
+    return mtfs_stm32n6570_sentinel_monitor_normalize(&media_context, feature,
+        context != NULL ? context->injection_active : 0U, input_q4);
+}
+
+static void monitor_provider_preprocessing_status(void *opaque,
+    mtfs_sentinel_monitor_preprocessing_status_t *status)
+{
+    (void)opaque;
+    mtfs_stm32n6570_sentinel_monitor_preprocessing_status(&media_context,
+        status);
+}
+
+static mtfs_error_t monitor_provider_npu_infer(void *opaque,
+    const int8_t input_q4[24], int8_t output_q4[24],
+    mtfs_sentinel_inference_result_t *result, uint32_t *latency_us)
+{
+    (void)opaque;
+    return mtfs_stm32n6570_sentinel_monitor_npu_infer(&media_context,
+        input_q4, output_q4, result, latency_us);
+}
+
+static mtfs_error_t monitor_provider_cpu_infer(void *opaque,
+    const int8_t input_q4[24], mtfs_sentinel_inference_result_t *result,
+    uint32_t *latency_us)
+{
+    (void)opaque;
+    return mtfs_stm32n6570_sentinel_monitor_cpu_infer(&media_context,
+        input_q4, result, latency_us);
+}
+
+static mtfs_error_t monitor_provider_close(void *opaque)
+{
+    (void)opaque;
+    return mtfs_stm32n6570_sentinel_monitor_close(&media_context);
+}
+
 static const mtfs_sentinel_monitor_provider_ops_t monitor_provider_ops = {
-    mtfs_stm32n6570_sentinel_monitor_open,
-    mtfs_stm32n6570_sentinel_monitor_normalize,
-    mtfs_stm32n6570_sentinel_monitor_npu_infer,
-    mtfs_stm32n6570_sentinel_monitor_cpu_infer,
-    mtfs_stm32n6570_sentinel_monitor_close
+    monitor_provider_open,
+    monitor_provider_normalize,
+    monitor_provider_npu_infer,
+    monitor_provider_cpu_infer,
+    monitor_provider_close,
+    monitor_provider_preprocessing_status
 };
 
-static int run_monitor(uint32_t samples, uint32_t seed, int pseudo)
+static int run_monitor(uint32_t samples, uint32_t seed, int pseudo, int hotplug)
 {
     target_monitor_context_t context;
     mtfs_sentinel_monitor_run_config_t run_config;
@@ -320,11 +392,26 @@ static int run_monitor(uint32_t samples, uint32_t seed, int pseudo)
     int prepared = 0, observer_ready = 0, registered = 0;
     int failed = 1;
 
+    if (hotplug != 0 && samples > UINT32_MAX - 35U) return 1;
+
+#if MTFS_SENTINEL_LAB_BUILD_RELEASE == 0
+    lab_console_write(NULL,
+        "# Debug classification is diagnostic/non-normative; "
+        "no classification PASS is asserted\r\n"
+        "# monitor exit status covers execution integrity only\r\n");
+#elif MTFS_STM32_SD_USE_IDMA == 0
+    lab_console_write(NULL,
+        "# polling classification is diagnostic/non-normative; "
+        "no classification PASS is asserted\r\n"
+        "# monitor exit status covers execution integrity only\r\n");
+#endif
+
     (void)memset(&context, 0, sizeof(context));
     (void)memset(&run_config, 0, sizeof(run_config));
     (void)memset(&lab_runtime, 0, sizeof(lab_runtime));
     context.seed = seed;
     context.pseudo = pseudo != 0 ? 1U : 0U;
+    context.hotplug = hotplug != 0 ? 1U : 0U;
     context.lab_config.platform_context = NULL;
     context.lab_config.clock_us = mtfs_stm32n6570_dk_benchmark_clock_us;
     context.lab_config.sentinel_clock =
@@ -391,23 +478,29 @@ static int run_monitor(uint32_t samples, uint32_t seed, int pseudo)
     context.window_config.cadence = MTFS_SENTINEL_LAB_CADENCE_ABSOLUTE;
     run_config.context = &context;
     run_config.provider_ops = &monitor_provider_ops;
-    run_config.provider_context = &media_context;
+    run_config.provider_context = &context;
     run_config.acquire = monitor_acquire;
     run_config.stage_begin = monitor_stage_begin;
     run_config.stage_end = monitor_stage_end;
     run_config.stage_name = monitor_stage_name;
     run_config.write = platform_write;
     run_config.stage_count = pseudo != 0 ? 5U : 1U;
-    run_config.samples_per_stage = samples;
+    run_config.samples_per_stage = hotplug != 0 ? samples + 35U : samples;
+    run_config.warmup_samples = 32U;
     run_config.maximum_q4_error = 1U;
     failed = mtfs_sentinel_monitor_run(&context.monitor, &run_config);
-    tm_printf((UB *)"[MON-DIAG] open=%u install=%u infer=%u close=%u windows=%u rule=%u cpu-arb=%u cpu-fallback=%u failures=%u\n",
+    if (hotplug != 0 && (context.monitor.diagnostics.warmup_windows != 64U ||
+        context.monitor.diagnostics.npu_inferences != samples + 1U))
+        failed = 1;
+    tm_printf((UB *)"[MON-DIAG] open=%u install=%u infer=%u close=%u windows=%u rule=%u warmup=%u ood=%u cpu-arb=%u cpu-fallback=%u failures=%u\n",
         context.monitor.diagnostics.open_calls,
         context.monitor.diagnostics.open_calls,
         context.monitor.diagnostics.npu_inferences,
         context.monitor.diagnostics.close_calls,
         context.monitor.diagnostics.windows,
         context.monitor.diagnostics.rule_decisions,
+        context.monitor.diagnostics.warmup_windows,
+        context.monitor.diagnostics.out_of_distribution,
         context.monitor.diagnostics.cpu_arbitrations,
         context.monitor.diagnostics.cpu_fallbacks,
         context.monitor.diagnostics.failures);
@@ -606,6 +699,7 @@ static int lab_command(void *context, const char *line)
             "pseudo-collect-hard-fault [samples] [seed]\r\n"
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
             "sentinel-monitor [samples]  acquire and classify each live window\r\n"
+            "sentinel-monitor-hotplug [samples]  remove/reinsert and verify baseline re-warmup\r\n"
             "pseudo-monitor-delay-ramp [samples-per-stage] [seed]  monitor injected delay stages\r\n"
             "sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
             "sentinel-infer-profile [iterations]  diagnostic timing, scheduler, and stack measurements\r\n"
@@ -655,7 +749,14 @@ static int lab_command(void *context, const char *line)
             &samples, &seed) && seed == 0U) {
         tm_printf((UB *)"# sentinel-monitor samples=%u\n", samples);
         tm_printf((UB *)"# sentinel_monitor_exit=%d\n",
-            run_monitor(samples, 0U, 0));
+            run_monitor(samples, 0U, 0, 0));
+        return 1;
+    }
+    if (parse_command(line, "sentinel-monitor-hotplug", 10U, 0U,
+            &samples, &seed) && samples != 0U && seed == 0U) {
+        tm_printf((UB *)"# sentinel-monitor-hotplug samples=%u\n", samples);
+        tm_printf((UB *)"# sentinel_monitor_hotplug_exit=%d\n",
+            run_monitor(samples, 0U, 0, 1));
         return 1;
     }
     if (parse_command(line, "pseudo-monitor-delay-ramp", 10U, 1U,
@@ -663,7 +764,7 @@ static int lab_command(void *context, const char *line)
         tm_printf((UB *)"# pseudo-monitor-delay-ramp samples_per_stage=%u seed=%u\n",
             samples, seed);
         tm_printf((UB *)"# pseudo_monitor_delay_ramp_exit=%d\n",
-            run_monitor(samples, seed, 1));
+            run_monitor(samples, seed, 1, 0));
         return 1;
     }
     if (parse_command(line, "sentinel-infer", 10U, 0U, &samples, &seed) &&
@@ -725,6 +826,11 @@ static void lab_task(INT start_code, void *context)
     tm_printf((UB *)"# target: STM32N6570-DK\n");
     tm_printf((UB *)"# transport: %s\n", (UB *)LAB_TRANSPORT_NAME);
     tm_printf((UB *)"# build: %s\n", (UB *)LAB_BUILD_TYPE);
+#if MTFS_SENTINEL_LAB_BUILD_RELEASE == 0
+    tm_printf((UB *)"# classification quality: Debug diagnostic/non-normative; Release-only reference profile\n");
+#elif MTFS_STM32_SD_USE_IDMA == 0
+    tm_printf((UB *)"# classification quality: polling diagnostic/non-normative; IDMA-only reference profile\n");
+#endif
 #if MTFS_ENABLE_STORAGE_SENTINEL
     tm_printf((UB *)"# feature schema: v%u\n", MTFS_SENTINEL_SCHEMA_VERSION);
     tm_printf((UB *)"# arithmetic: portable-u64-v3\n");

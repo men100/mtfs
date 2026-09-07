@@ -54,6 +54,12 @@ def _prepare(datasets: list, policy: dict) -> tuple[np.ndarray, list[dict], list
     diagnostics: list[dict] = []
     for dataset in datasets:
         session_inputs, session_rows, session_diagnostics = q4_dataset(dataset, policy)
+        for row, diagnostic in zip(session_rows, session_diagnostics):
+            diagnostic.update({
+                "session_id": dataset.session_id,
+                "card_id": dataset.card_id,
+                "sequence": int(row["sequence"]),
+            })
         inputs.extend(session_inputs)
         rows.extend(session_rows)
         diagnostics.extend(session_diagnostics)
@@ -90,17 +96,61 @@ def run(args: argparse.Namespace) -> dict:
     if not training_cards or len(validation_cards) != 1 or \
             training_cards & validation_cards:
         raise DatasetError("training and validation card split is invalid")
-    train_q4, _, train_diag = _prepare(training, policy)
-    validation_q4, _, validation_diag = _prepare(validation, policy)
+    train_q4, train_rows, train_diag = _prepare(training, policy)
+    validation_q4, validation_rows, validation_diag = _prepare(validation, policy)
     pseudo_q4, pseudo_rows, pseudo_diag = _prepare(validation_pseudo, policy)
-    if any(item["out_of_distribution"] for item in train_diag + validation_diag):
-        raise DatasetError("normal training/validation input saturated frozen scaling")
+    maximum_training_ood_rate = float(getattr(args,
+                                      "maximum_training_ood_rate", 0.0))
+    maximum_normal_ood_rate = float(getattr(args,
+                                    "maximum_normal_ood_rate", 0.0))
+    if not 0.0 <= maximum_training_ood_rate <= 1.0 or \
+            not 0.0 <= maximum_normal_ood_rate <= 1.0:
+        raise DatasetError("normal OOD rate limits must be in [0,1]")
+    saturated_training = [item for item in train_diag
+                          if item["out_of_distribution"]]
+    saturated_validation = [item for item in validation_diag
+                            if item["out_of_distribution"]]
+    training_ood_rate = len(saturated_training) / len(train_diag)
+    validation_ood_rate = len(saturated_validation) / len(validation_diag)
+    saturated_excess = []
+    if training_ood_rate > maximum_training_ood_rate:
+        saturated_excess.extend(saturated_training)
+    if validation_ood_rate > maximum_normal_ood_rate:
+        saturated_excess.extend(saturated_validation)
+    if saturated_excess:
+        by_session: dict[str, dict[str, int]] = {}
+        for item in saturated_excess:
+            summary = by_session.setdefault(str(item["session_id"]),
+                                            {"samples": 0, "mask": 0})
+            summary["samples"] += 1
+            summary["mask"] |= int(item["saturation_mask"])
+        detail = ", ".join(
+            f"{session}:samples={summary['samples']} mask=0x{summary['mask']:06x}"
+            for session, summary in sorted(by_session.items()))
+        raise DatasetError(
+            "normal training/validation input saturated frozen scaling: " + detail)
+    train_in_distribution = np.asarray(
+        [not item["out_of_distribution"] for item in train_diag], dtype=bool)
+    validation_in_distribution = np.asarray(
+        [not item["out_of_distribution"] for item in validation_diag], dtype=bool)
+    train_q4 = train_q4[train_in_distribution]
+    validation_q4 = validation_q4[validation_in_distribution]
+    train_rows = [row for row, keep in zip(train_rows, train_in_distribution)
+                  if keep]
+    validation_rows = [row for row, keep in
+                       zip(validation_rows, validation_in_distribution) if keep]
+    if train_q4.size == 0 or validation_q4.size == 0:
+        raise DatasetError("no in-distribution normal input remains")
     train_values = train_q4.astype(np.float64) / 16.0
     validation_values = validation_q4.astype(np.float64) / 16.0
     model, candidate_report = train_candidates(train_values, validation_values,
                                                 args.seed, args.epochs)
     validation_scores = model.scores(validation_values)
-    threshold = float(np.quantile(validation_scores, 0.95, method="higher"))
+    threshold_quantile = float(getattr(args, "threshold_quantile", 0.95))
+    if not 0.0 < threshold_quantile <= 1.0:
+        raise DatasetError("threshold quantile must be in (0,1]")
+    threshold = float(np.quantile(validation_scores, threshold_quantile,
+                                  method="higher"))
     pseudo_scores = model.scores(pseudo_q4.astype(np.float64) / 16.0)
     stage_metrics = {}
     for stage in ("baseline", "light", "medium", "strong", "recovery"):
@@ -126,18 +176,31 @@ def run(args: argparse.Namespace) -> dict:
         "format": "mtfs-sentinel-baseline-relative-validation-v2",
         "heldout_read": False,
         "normal": {
-            "samples": int(validation_scores.size),
+            "samples": len(validation_diag),
+            "in_distribution_samples": int(validation_scores.size),
             "false_warnings": normal_false,
-            "false_warning_rate": normal_false / int(validation_scores.size),
-            "ood": 0,
+            "false_warning_rate": normal_false / len(validation_diag),
+            "ood": len(saturated_validation),
+            "ood_rate": validation_ood_rate,
+        },
+        "training_normal": {
+            "samples": len(train_diag),
+            "in_distribution_samples": int(train_q4.shape[0]),
+            "excluded_ood": len(saturated_training),
+            "ood_rate": training_ood_rate,
         },
         "pseudo": stage_metrics,
         "candidate_limits_for_canonical_freeze": {
-            "maximum_normal_false_warning_rate": 0.05,
-            "maximum_normal_ood_rate": 0.0,
-            "minimum_medium_safe_detection_rate": 0.5,
-            "minimum_strong_safe_detection_rate": 0.7,
-            "minimum_recovery_normal_rate": 0.95,
+            "maximum_normal_false_warning_rate": float(getattr(
+                args, "maximum_normal_false_warning_rate", 0.05)),
+            "maximum_normal_ood_rate": maximum_normal_ood_rate,
+            "maximum_training_ood_rate": maximum_training_ood_rate,
+            "minimum_medium_safe_detection_rate": float(getattr(
+                args, "minimum_medium_safe_detection_rate", 0.5)),
+            "minimum_strong_safe_detection_rate": float(getattr(
+                args, "minimum_strong_safe_detection_rate", 0.7)),
+            "minimum_recovery_normal_rate": float(getattr(
+                args, "minimum_recovery_normal_rate", 0.95)),
         },
     }
     negative_index = int(np.argmin(validation_scores))
@@ -165,7 +228,7 @@ def run(args: argparse.Namespace) -> dict:
     threshold_document = {
         "format": "mtfs-sentinel-threshold-v2-provisional-float",
         "selection_data": "normal-validation-only",
-        "quantile": 0.95,
+        "quantile": threshold_quantile,
         "comparison": "score > anomaly_threshold",
         "anomaly_threshold": threshold,
         "canonical_integer_threshold_q8": None,
@@ -252,6 +315,17 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--output-dir", type=Path, required=True)
     result.add_argument("--seed", type=int, default=4303)
     result.add_argument("--epochs", type=int, default=200)
+    result.add_argument("--threshold-quantile", type=float, default=0.95)
+    result.add_argument("--maximum-training-ood-rate", type=float, default=0.0)
+    result.add_argument("--maximum-normal-ood-rate", type=float, default=0.0)
+    result.add_argument("--maximum-normal-false-warning-rate", type=float,
+                        default=0.05)
+    result.add_argument("--minimum-medium-safe-detection-rate", type=float,
+                        default=0.5)
+    result.add_argument("--minimum-strong-safe-detection-rate", type=float,
+                        default=0.7)
+    result.add_argument("--minimum-recovery-normal-rate", type=float,
+                        default=0.95)
     return result
 
 

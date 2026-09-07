@@ -509,6 +509,15 @@ def baseline_v2_deployment_evaluation(files: dict[str, dict], artifact: Path,
     if not isinstance(policy, dict) or \
             policy.get("preprocessing_contract_version") != 2:
         raise BundleError("baseline-relative preprocessing v2 is unavailable")
+    threshold_definition = files.get("threshold.json")
+    probability = threshold_definition.get("quantile") \
+        if isinstance(threshold_definition, dict) else None
+    if isinstance(probability, bool) or not isinstance(probability, (int, float)) or \
+            not 0.0 < float(probability) <= 1.0:
+        raise BundleError("baseline-relative threshold quantile is unavailable")
+    probability = float(probability)
+    percentile = format(probability * 100.0, ".12g")
+    threshold_selection = f"normal-validation-p{percentile}-higher"
 
     def load_entries(name: str, condition: str) -> list:
         datasets = []
@@ -560,7 +569,7 @@ def baseline_v2_deployment_evaluation(files: dict[str, dict], artifact: Path,
     normal_inferred = infer(normal_values)
     pseudo_inferred = infer(pseudo_values)
     normal_scores = [row["score_q8"] for row in normal_inferred]
-    threshold = int(_higher(normal_scores))
+    threshold = int(_higher(normal_scores, probability))
     stages = {}
     for stage in ("baseline", "light", "medium", "strong", "recovery"):
         indexes = [index for index, row in enumerate(pseudo_rows)
@@ -580,7 +589,8 @@ def baseline_v2_deployment_evaluation(files: dict[str, dict], artifact: Path,
     false_warnings = sum(score > threshold for score in normal_scores)
     report = {
         "format": "mtfs-sentinel-baseline-relative-canonical-evaluation-v2",
-        "threshold_selection": "normal-validation-p95-higher",
+        "threshold_selection": threshold_selection,
+        "threshold_quantile": probability,
         "integer_threshold_q8": threshold,
         "validation_normal_false_warning": {
             "count": false_warnings, "total": len(normal_scores)},
@@ -1142,6 +1152,206 @@ def _validate_npu_acceptance(acceptance: dict, canonical_hash: bytes,
     if not isinstance(held_out, dict) or held_out.get("violations") != 0:
         raise BundleError("NPU acceptance contract mismatch")
 
+    if acceptance.get("format") == \
+            "mtfs-sentinel-neural-art-acceptance-v3-compact":
+        summary = acceptance.get("contract_summary")
+        core_hash = acceptance.get("contract_core_sha256")
+        full_hash = acceptance.get("full_acceptance_file_sha256")
+        if not isinstance(summary, dict) or not isinstance(core_hash, str) or \
+                len(core_hash) != 64 or not isinstance(full_hash, str) or \
+                len(full_hash) != 64 or held_out.get("contract_core_sha256") != \
+                core_hash:
+            raise BundleError("NPU acceptance contract mismatch")
+        try:
+            bytes.fromhex(core_hash)
+            bytes.fromhex(full_hash)
+        except ValueError as error:
+            raise BundleError("NPU acceptance contract mismatch") from error
+        exact_limits = {
+            "decision_disagreements": 0,
+            "invoke_failures": 0,
+            "maximum_common_q4_output_error": 1,
+            "maximum_vendor_raw_int8_error": 2,
+            "repeatability_failures": 0,
+            "score_requirement": "sample-specific interval",
+            "target_airunner_mismatches": 0,
+        }
+        exact_boundary = {
+            "common_q4": "normative microT-FS Sentinel runtime output boundary",
+            "score_decision": "normative application-visible result",
+            "vendor_raw_int8": "Neural-ART backend-specific diagnostic guard",
+        }
+        exact_decision = {
+            "threshold_q8": threshold_q8,
+            "definitely_normal": "score_max_q8 <= threshold_q8",
+            "definitely_anomaly": "score_min_q8 > threshold_q8",
+            "ambiguous": "otherwise",
+            "ambiguous_action": "canonical CPU arbitration",
+        }
+        exact_score = {
+            "version": 1,
+            "candidate_component_interval":
+                "[max(-128,y_i-e),min(127,y_i+e)]",
+            "rounding": "(sum + 12) // 24",
+            "candidate_score_requirement":
+                "score_min_q8 <= score_q8 <= score_max_q8",
+        }
+        if summary.get("contract_version") != 3 or \
+                summary.get("fixed_limits") != exact_limits or \
+                summary.get("responsibility_boundary") != exact_boundary or \
+                summary.get("decision_policy") != exact_decision or \
+                summary.get("score_interval") != exact_score or \
+                summary.get("canonical_full_int8_tflite_sha256") != \
+                    canonical_hash.hex() or \
+                summary.get("npu_runtime_binary_sha256") != \
+                    npu_info["runtime_binary_sha256"] or \
+                summary.get("conversion_manifest_sha256") != \
+                    npu_info["conversion_manifest_sha256"]:
+            raise BundleError("NPU acceptance contract mismatch")
+        corpora = summary.get("corpora")
+        overlap = corpora.get("overlap") if isinstance(corpora, dict) else None
+        characterization_core = corpora.get("characterization") \
+            if isinstance(corpora, dict) else None
+        operational_core = corpora.get("operational") \
+            if isinstance(corpora, dict) else None
+        stress_core = corpora.get("stress") if isinstance(corpora, dict) else None
+        if not isinstance(overlap, dict) or not overlap or \
+                any(value != 0 for value in overlap.values()) or \
+                not isinstance(characterization_core, dict) or \
+                characterization_core.get("samples", 0) <= 0 or \
+                not isinstance(operational_core, dict) or \
+                operational_core.get("samples", 0) < 1000 or \
+                not isinstance(stress_core, dict) or \
+                stress_core.get("samples", 0) < 1000:
+            raise BundleError("NPU acceptance contract mismatch")
+
+        def valid_compact_result(result: object, samples: int) -> bool:
+            if not isinstance(result, dict):
+                return False
+            histogram = result.get("raw_error_elements")
+            maxima = result.get("maximum_raw_error_by_output_index")
+            return result.get("status") == "PASS" and \
+                result.get("vectors") == samples and \
+                result.get("raw_elements") == samples * 24 and \
+                isinstance(histogram, dict) and \
+                sum(histogram.get(name, -1) for name in
+                    ("0", "1", "2", "3_or_more")) == samples * 24 and \
+                histogram.get("3_or_more") == 0 and \
+                result.get("maximum_vendor_raw_int8_error", 3) <= 2 and \
+                isinstance(maxima, list) and len(maxima) == 24 and \
+                all(isinstance(value, int) and 0 <= value <= 2
+                    for value in maxima) and \
+                result.get("maximum_common_q4_output_error", 2) <= 1 and \
+                result.get("score_interval_violations") == 0 and \
+                result.get("decision_disagreements") == 0 and \
+                result.get("repeatability_failures") == 0 and \
+                result.get("invoke_failures") == 0 and \
+                result.get("target_airunner_mismatches") == 0
+
+        operational = held_out.get("operational")
+        stress = held_out.get("stress")
+        characterization = acceptance.get("characterization")
+        if held_out.get("vectors") != operational_core["samples"] + \
+                stress_core["samples"] or \
+                not valid_compact_result(operational,
+                                         operational_core["samples"]) or \
+                not valid_compact_result(stress, stress_core["samples"]) or \
+                not valid_compact_result(characterization,
+                                         characterization_core["samples"]):
+            raise BundleError("NPU acceptance contract mismatch")
+        return
+
+    if acceptance.get("format") == "mtfs-sentinel-neural-art-acceptance-v3":
+        core = acceptance.get("contract_core")
+        core_hash = acceptance.get("contract_core_sha256")
+        if not isinstance(core, dict) or not isinstance(core_hash, str) or \
+                hashlib.sha256(canonical_json_bytes(core)).hexdigest() != core_hash or \
+                held_out.get("contract_core_sha256") != core_hash or \
+                core.get("format") != "mtfs-sentinel-neural-art-acceptance-core-v3" or \
+                core.get("contract_version") != 3 or core.get("status") != "FROZEN":
+            raise BundleError("NPU acceptance contract mismatch")
+        specification = core.get("specification")
+        if not isinstance(specification, dict) or \
+                specification.get("canonical_full_int8_tflite_sha256") != \
+                    canonical_hash.hex() or \
+                specification.get("npu_runtime_binary_sha256") != \
+                    npu_info["runtime_binary_sha256"] or \
+                specification.get("conversion_manifest_sha256") != \
+                    npu_info["conversion_manifest_sha256"]:
+            raise BundleError("NPU acceptance contract mismatch")
+        exact_limits = {
+            "decision_disagreements": 0,
+            "invoke_failures": 0,
+            "maximum_common_q4_output_error": 1,
+            "maximum_vendor_raw_int8_error": 2,
+            "repeatability_failures": 0,
+            "score_requirement": "sample-specific interval",
+            "target_airunner_mismatches": 0,
+        }
+        exact_boundary = {
+            "common_q4": "normative microT-FS Sentinel runtime output boundary",
+            "score_decision": "normative application-visible result",
+            "vendor_raw_int8": "Neural-ART backend-specific diagnostic guard",
+        }
+        exact_decision = {
+            "threshold_q8": threshold_q8,
+            "definitely_normal": "score_max_q8 <= threshold_q8",
+            "definitely_anomaly": "score_min_q8 > threshold_q8",
+            "ambiguous": "otherwise",
+            "ambiguous_action": "canonical CPU arbitration",
+        }
+        score = core.get("score_interval")
+        if core.get("fixed_limits") != exact_limits or \
+                core.get("responsibility_boundary") != exact_boundary or \
+                core.get("decision_policy") != exact_decision or \
+                not isinstance(score, dict) or score.get("version") != 1 or \
+                score.get("candidate_component_interval") != \
+                    "[max(-128,y_i-e),min(127,y_i+e)]" or \
+                score.get("rounding") != "(sum + 12) // 24" or \
+                score.get("candidate_score_requirement") != \
+                    "score_min_q8 <= score_q8 <= score_max_q8":
+            raise BundleError("NPU acceptance contract mismatch")
+        corpora = core.get("corpora")
+        overlap = corpora.get("overlap") if isinstance(corpora, dict) else None
+        operational_core = corpora.get("operational") if isinstance(corpora, dict) else None
+        stress_core = corpora.get("stress") if isinstance(corpora, dict) else None
+        if not isinstance(overlap, dict) or any(value != 0 for value in overlap.values()) or \
+                not isinstance(operational_core, dict) or \
+                operational_core.get("samples", 0) < 1000 or \
+                not isinstance(stress_core, dict) or stress_core.get("samples", 0) < 1000:
+            raise BundleError("NPU acceptance contract mismatch")
+
+        def valid_result(result: object, samples: int) -> bool:
+            if not isinstance(result, dict):
+                return False
+            histogram = result.get("raw_error_elements")
+            return result.get("status") == "PASS" and \
+                result.get("vectors") == samples and \
+                result.get("raw_elements") == samples * 24 and \
+                isinstance(histogram, dict) and \
+                sum(histogram.get(name, -1) for name in
+                    ("0", "1", "2", "3_or_more")) == samples * 24 and \
+                histogram.get("3_or_more") == 0 and \
+                result.get("maximum_vendor_raw_int8_error", 3) <= 2 and \
+                result.get("maximum_common_q4_output_error", 2) <= 1 and \
+                result.get("score_interval_violations") == 0 and \
+                result.get("decision_disagreements") == 0 and \
+                result.get("repeatability_failures") == 0 and \
+                result.get("invoke_failures") == 0 and \
+                result.get("target_airunner_mismatches") == 0
+
+        operational = held_out.get("operational")
+        stress = held_out.get("stress")
+        characterization = acceptance.get("characterization")
+        if held_out.get("vectors") != operational_core["samples"] + \
+                stress_core["samples"] or \
+                not valid_result(operational, operational_core["samples"]) or \
+                not valid_result(stress, stress_core["samples"]) or \
+                not valid_result(characterization,
+                    core["corpora"]["characterization"]["samples"]):
+            raise BundleError("NPU acceptance contract mismatch")
+        return
+
     if acceptance.get("format") == "mtfs-sentinel-ra-ethosu-acceptance-v2":
         core = acceptance.get("contract_core")
         core_hash = acceptance.get("contract_core_sha256")
@@ -1320,7 +1530,8 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         "score_contract": "mean-squared-error-common-Q4-round-nearest",
         "threshold_provenance": {
             "source": manifest.get("threshold_source"),
-            "selection": "normal-validation-p95-higher", "threshold_q8": threshold,
+            "selection": evaluation["threshold_selection"],
+            "threshold_q8": threshold,
         },
     }
     conversion_hash = hashlib.sha256(canonical_json_bytes(conversion)).digest()
@@ -1852,7 +2063,13 @@ def verify_bundle(parsed: ParsedBundle) -> dict:
         if not isinstance(acceptance_hash, str) or \
                 hashlib.sha256(canonical_json_bytes(acceptance)).hexdigest() != acceptance_hash:
             raise BundleError("NPU offline acceptance provenance mismatch")
-        npu_semantic_equivalence = "offline-acceptance-verified; hardware-pending"
+        if acceptance.get("format") in {
+                "mtfs-sentinel-neural-art-acceptance-v3",
+                "mtfs-sentinel-neural-art-acceptance-v3-compact"}:
+            npu_semantic_equivalence = "official-target-acceptance-verified"
+        else:
+            npu_semantic_equivalence = \
+                "offline-acceptance-verified; hardware-pending"
     memory_plan = _memory_plan(len(parsed.raw), runtime_sections)
     return {
         "status": "verified", "bundle_sha256": hashlib.sha256(parsed.raw).hexdigest(),

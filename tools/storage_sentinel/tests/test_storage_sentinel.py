@@ -12,13 +12,17 @@ from pathlib import Path
 import numpy as np
 
 from collect import run as collect_run
-from baseline_v2 import (median_baseline, relative_vector, scale_relative)
+from baseline_v2 import (median_baseline, relative_vector, scale_relative,
+                         select_policy)
 from dataset import (Dataset, assert_same_profile, card_identity, load_dataset,
                      manifest_path, sha256_file, write_dataset)
+from evaluate_st_numerical_v3 import evaluate_corpus
 from model import train_autoencoder
 from schema import (HEADER, HISTOGRAM_FEATURE_GROUPS, RAW_HISTOGRAM_BUCKETS,
-                    DatasetError, _permille, canonical_json_sha256, encode_row,
-                    feature_schema, parse_lines, schema_canonical_hash)
+                     DatasetError, _permille, canonical_json_sha256, encode_row,
+                     feature_schema, parse_lines, schema_canonical_hash)
+from st_numerical_v3 import (HashStream, _unique_operational, _unique_stress,
+                             derive_seed)
 from train import (_matrix, _split_sessions, run as train_run)
 
 
@@ -209,7 +213,9 @@ class CollectorTests(unittest.TestCase):
                 fat_type="FAT32", allocation_unit=4096,
                 power_cycle_id="power-01", mount_session_id="mount-01",
                 condition="normal", dataset_role="training-candidate",
-                baseline_window_start=1, baseline_window_count=8)
+                baseline_window_start=1, baseline_window_count=8,
+                capture_profile="generic", card_manufacturer=None,
+                card_capacity=None)
             manifest = collect_run(args)
             self.assertEqual(manifest["format"],
                              "mtfs-sentinel-dataset-manifest-v2")
@@ -217,6 +223,55 @@ class CollectorTests(unittest.TestCase):
                              4096)
             self.assertEqual(manifest["capture_context"]["baseline_windows"],
                              {"first_sequence": 1, "count": 8})
+            self.assertNotIn("capture_profile", manifest["capture_context"])
+            self.assertNotIn("card_manufacturer", manifest["capture_context"])
+            self.assertNotIn("card_capacity", manifest["capture_context"])
+
+    def test_st_release_idma_capture_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "uart.log"
+            output = root / "session.csv"
+            rows = [valid_row(index) for index in range(1, 33)]
+            for row in rows:
+                row["target"] = 0x53544E36
+                row["transport"] = 0x49444D41
+                row["build_type"] = "Release"
+            source.write_text(csv_text(rows), encoding="utf-8")
+            args = argparse.Namespace(input=source, serial_port=None, baud=115200,
+                output=output, session_id="st-card-a-normal-01",
+                card_id="st-card-a", card_manufacturer="Lexar",
+                card_capacity="4GB", target_name="STM32N6570-DK",
+                transport_name="SDMMC-IDMA", firmware_commit="abc",
+                command="record", expected_rows=32, partial=False,
+                capture_contract="baseline-relative-v2", fat_type="FAT32",
+                allocation_unit=4096, power_cycle_id="power-01",
+                mount_session_id="mount-01", condition="normal",
+                dataset_role="training-candidate", baseline_window_start=1,
+                baseline_window_count=32, capture_profile="st-release-idma-v2")
+            manifest = collect_run(args)
+            context = manifest["capture_context"]
+            self.assertEqual(context["capture_profile"], "st-release-idma-v2")
+            self.assertEqual(context["card_manufacturer"], "Lexar")
+            self.assertEqual(context["card_capacity"], "4GB")
+            self.assertEqual(context["workload_status_audit"],
+                             {"observed": 0, "nonzero": 0})
+
+            args.output = root / "workload-error.csv"
+            source.write_text(
+                "# workload-perf marker=1 elapsed_us=1 mtfs=-3\n" +
+                csv_text(rows), encoding="utf-8")
+            with self.assertRaisesRegex(DatasetError,
+                                        "nonzero workload status: 1/1"):
+                collect_run(args)
+
+            args.output = root / "debug.csv"
+            args.capture_profile = "st-release-idma-v2"
+            for row in rows:
+                row["build_type"] = "Debug"
+            source.write_text(csv_text(rows), encoding="utf-8")
+            with self.assertRaisesRegex(DatasetError, "requires STM32N6570-DK"):
+                collect_run(args)
 
 
 class BaselineV2Tests(unittest.TestCase):
@@ -242,6 +297,178 @@ class BaselineV2Tests(unittest.TestCase):
         self.assertEqual(scaled[0], 127)
         self.assertEqual(mask, 1)
         self.assertTrue(ood)
+
+    def test_validation_only_policy_scope_and_training_card_gate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def save(name: str, card: str, role: str, condition: str,
+                     rows: list[dict]) -> Path:
+                path = root / f"{name}.csv"
+                write_dataset(path, rows)
+                manifest_path(path).write_text(json.dumps({
+                    "session_id": name, "card_id": card,
+                    "row_count": len(rows), "dataset_sha256": sha256_file(path),
+                    "command": rows[0]["command"],
+                    "capture_context": {
+                        "contract": "baseline-relative-v2",
+                        "operator_card_id": card,
+                        "dataset_role": role,
+                        "condition": condition,
+                    },
+                }), encoding="utf-8")
+                return path
+
+            training = []
+            for card in ("card-a", "card-b"):
+                rows = [valid_row(index) for index in range(1, 41)]
+                for row in rows:
+                    row["build_type"] = "Release"
+                    if row["sequence"] > 32:
+                        row["read_avg_us"] = 180
+                        row["read_total_us"] = 1800
+                training.append(save(f"{card}-normal", card,
+                                     "training-candidate", "normal", rows))
+
+            validation_rows = [valid_row(index) for index in range(1, 41)]
+            for row in validation_rows:
+                row["build_type"] = "Release"
+            validation = save("card-c-normal", "card-c",
+                              "validation-candidate", "normal", validation_rows)
+
+            pseudo_rows = [valid_row(index) for index in range(1, 41)]
+            for row in pseudo_rows:
+                row["build_type"] = "Release"
+                row["command"] = "pseudo-collect-delay-ramp"
+                row["scenario_origin"] = "injected"
+                row["stage"] = "baseline" if row["sequence"] <= 32 else "medium"
+                if row["sequence"] > 32:
+                    row["read_avg_us"] = 200
+                    row["read_total_us"] = 2000
+            pseudo = save("card-c-pseudo", "card-c",
+                          "validation-candidate", "pseudo", pseudo_rows)
+
+            validation_only = select_policy(
+                training, [validation], [], [pseudo], (32,),
+                "validation-only", 2)
+            combined = select_policy(training, [validation], [], [pseudo], (32,))
+            self.assertEqual(validation_only["policy"]["selection_scope"],
+                             "validation-only")
+            self.assertEqual(validation_only["policy"]["training_card_ids"],
+                             ["card-a", "card-b"])
+            self.assertEqual(validation_only["candidate_comparison"][0]
+                             ["selection_objective_sum_active_normal_p95_abs"], 0)
+            self.assertGreater(combined["candidate_comparison"][0]
+                               ["selection_objective_sum_active_normal_p95_abs"], 0)
+            with self.assertRaisesRegex(DatasetError,
+                                        "exactly 3 identified training cards"):
+                select_policy(training, [validation], [], [pseudo], (32,),
+                              "validation-only", 3)
+
+
+class StNumericalV3Tests(unittest.TestCase):
+    class FakeModel:
+        input_scale = 0.0625
+        input_zero_point = 0
+
+    def test_seed_derivation_and_stream_are_deterministic(self):
+        identity = "12" * 32
+        first = derive_seed(identity, "operational")
+        second = derive_seed(identity, "operational")
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, derive_seed(identity, "stress"))
+        left, right = HashStream(first), HashStream(first)
+        self.assertEqual(left.take(257), right.take(257))
+
+    def test_operational_and_stress_corpora_are_unique_and_disjoint(self):
+        model = self.FakeModel()
+        active = [0, 4, 5, 6, 7, 12, 13, 14]
+        natural = np.zeros(24, dtype=np.int8)
+        light = natural.copy(); light[4] = 8
+        medium = natural.copy(); medium[5] = 24
+        strong = natural.copy(); strong[6] = 48
+        threshold = natural.copy(); threshold[7] = 3
+        pools = {"natural": [natural], "light": [light],
+                 "medium": [medium], "strong": [strong],
+                 "threshold": [threshold]}
+        known = {bytes(24)}
+        seed = derive_seed("34" * 32, "operational")
+        first = _unique_operational(model, 140, seed, known, pools, active)
+        second = _unique_operational(model, 140, seed, known, pools, active)
+        for left, right in zip(first, second):
+            if isinstance(left, list):
+                self.assertEqual(left, right)
+            else:
+                np.testing.assert_array_equal(left, right)
+        operational, operational_q4, labels = first
+        self.assertEqual(len(set(map(bytes, operational))), 140)
+        self.assertFalse(set(map(bytes, operational)) & known)
+        self.assertEqual(set(labels), {"natural-near", "pseudo-light-near",
+            "pseudo-medium-near", "pseudo-strong-near", "threshold-near",
+            "saturation-preboundary", "ood-preboundary"})
+        inactive = [index for index in range(24) if index not in active]
+        np.testing.assert_array_equal(operational_q4[:, inactive], 0)
+
+        stress, _, stress_labels = _unique_stress(model, 160,
+            derive_seed("34" * 32, "stress"),
+            known | set(map(bytes, operational)), active)
+        self.assertEqual(len(set(map(bytes, stress))), 160)
+        self.assertFalse(set(map(bytes, stress)) & set(map(bytes, operational)))
+        self.assertIn("active-feature-min-max-zero-pm1", stress_labels)
+        self.assertIn("single-feature-perturbation", stress_labels)
+        self.assertIn("multiple-feature-combination", stress_labels)
+        self.assertIn("deterministic-pseudo-random", stress_labels)
+
+    def test_evaluator_requires_repeatable_target_identical_captures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            corpus, expected = root / "corpus", root / "expected"
+            corpus.mkdir(); expected.mkdir()
+            inputs = np.zeros((2, 24), dtype=np.int8)
+            q4 = np.zeros_like(inputs)
+            raw = np.zeros_like(inputs)
+            np.savez(corpus / "operational_inputs_int8.npz", m_inputs_1=inputs)
+            np.save(corpus / "operational_input_q4.npy", q4)
+            np.save(expected / "operational_expected_raw_int8.npy", raw)
+            np.save(expected / "operational_expected_q4.npy", q4)
+            np.save(expected / "operational_expected_score_q8.npy",
+                    np.zeros(2, dtype=np.uint64))
+            np.save(expected / "operational_score_interval_q8.npy",
+                    np.asarray([[0, 1], [0, 1]], dtype=np.uint64))
+            np.save(expected / "operational_expected_decision.npy",
+                    np.zeros(2, dtype=np.bool_))
+            np.save(root / "target.npy", raw)
+
+            def capture(path: Path, npu: np.ndarray) -> None:
+                np.savez(path, tflite_inputs_int8=inputs,
+                         common_q4_inputs=q4, tflite_outputs_int8=raw,
+                         npu_outputs_int8=npu)
+
+            capture(root / "run1.npz", raw)
+            capture(root / "run2.npz", raw)
+            core = {
+                "decision_policy": {"threshold_q8": 1},
+                "fixed_limits": {
+                    "maximum_vendor_raw_int8_error": 2,
+                    "maximum_common_q4_output_error": 1,
+                },
+            }
+            model = type("Model", (), {"output_scale": 0.0625,
+                                         "output_zero_point": 0})()
+            result = evaluate_corpus("operational", core, model, corpus,
+                expected, root / "target.npy", root / "run1.npz",
+                root / "run2.npz")
+            self.assertEqual(result["status"], "PASS")
+            self.assertEqual(result["repeatability_failures"], 0)
+            self.assertEqual(result["target_airunner_mismatches"], 0)
+
+            changed = raw.copy(); changed[0, 0] = 1
+            capture(root / "run3.npz", changed)
+            result = evaluate_corpus("operational", core, model, corpus,
+                expected, root / "target.npy", root / "run1.npz",
+                root / "run3.npz")
+            self.assertEqual(result["status"], "STOP")
+            self.assertEqual(result["repeatability_failures"], 1)
 
 
 class ModelTests(unittest.TestCase):

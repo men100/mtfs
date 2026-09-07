@@ -26,6 +26,7 @@ from bundle import (ACCELERATOR_CPU_REFERENCE, MODEL_FORMAT_CPU_INT8_V1,
 from schema import canonical_json_bytes
 from acceptance import (DECISION_AMBIGUOUS, DECISION_DEFINITELY_ANOMALY,
                         DECISION_DEFINITELY_NORMAL, score_interval_q8)
+from compact_st_numerical_v3 import compact_acceptance
 
 
 def fixture_bundle() -> bytes:
@@ -219,10 +220,127 @@ class NumericContractTests(unittest.TestCase):
         with self.assertRaises(BundleError):
             _validate_npu_acceptance(mutated, canonical_hash, npu_info, 6)
 
+    def test_v3_backend_boundary_and_corpus_contract_are_authenticated(self):
+        canonical_hash = bytes.fromhex("11" * 32)
+        npu_info = {"runtime_binary_sha256": "22" * 32,
+                    "conversion_manifest_sha256": "33" * 32}
+        limits = {
+            "decision_disagreements": 0, "invoke_failures": 0,
+            "maximum_common_q4_output_error": 1,
+            "maximum_vendor_raw_int8_error": 2,
+            "repeatability_failures": 0,
+            "score_requirement": "sample-specific interval",
+            "target_airunner_mismatches": 0}
+        result = {"status": "PASS", "vectors": 1000,
+                  "raw_elements": 24000,
+                  "raw_error_elements": {"0": 23900, "1": 99,
+                                           "2": 1, "3_or_more": 0},
+                  "maximum_vendor_raw_int8_error": 2,
+                  "maximum_raw_error_by_output_index": [2] + [1] * 23,
+                  "maximum_common_q4_output_error": 1,
+                  "maximum_score_error_q8": 1,
+                  "score_interval_violations": 0,
+                  "ambiguous_cpu_arbitrations": 0,
+                  "direct_npu_decision_disagreements": 0,
+                  "decision_disagreements": 0,
+                  "repeatability_failures": 0, "invoke_failures": 0,
+                  "target_airunner_mismatches": 0}
+        core = {
+            "format": "mtfs-sentinel-neural-art-acceptance-core-v3",
+            "contract_version": 3, "status": "FROZEN",
+            "specification": {
+                "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+                "npu_runtime_binary_sha256": npu_info["runtime_binary_sha256"],
+                "conversion_manifest_sha256": npu_info["conversion_manifest_sha256"]},
+            "fixed_limits": limits,
+            "responsibility_boundary": {
+                "common_q4": "normative microT-FS Sentinel runtime output boundary",
+                "score_decision": "normative application-visible result",
+                "vendor_raw_int8": "Neural-ART backend-specific diagnostic guard"},
+            "score_interval": {
+                "version": 1,
+                "candidate_component_interval":
+                    "[max(-128,y_i-e),min(127,y_i+e)]",
+                "rounding": "(sum + 12) // 24",
+                "candidate_score_requirement":
+                    "score_min_q8 <= score_q8 <= score_max_q8"},
+            "decision_policy": {
+                "threshold_q8": 1,
+                "definitely_normal": "score_max_q8 <= threshold_q8",
+                "definitely_anomaly": "score_min_q8 > threshold_q8",
+                "ambiguous": "otherwise",
+                "ambiguous_action": "canonical CPU arbitration"},
+            "corpora": {
+                "characterization": {"samples": 1000},
+                "operational": {"samples": 1000},
+                "stress": {"samples": 1000},
+                "overlap": {"within_operational": 0,
+                            "within_stress": 0,
+                            "operational_vs_characterization": 0,
+                            "stress_vs_characterization": 0,
+                            "operational_vs_stress": 0}}}
+        core_hash = hashlib.sha256(canonical_json_bytes(core)).hexdigest()
+        acceptance = {
+            "format": "mtfs-sentinel-neural-art-acceptance-v3",
+            "status": "PASS",
+            "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+            "npu_runtime_binary_sha256": npu_info["runtime_binary_sha256"],
+            "conversion_manifest_sha256": npu_info["conversion_manifest_sha256"],
+            "contract_core": core, "contract_core_sha256": core_hash,
+            "characterization": dict(result),
+            "held_out_test": {"vectors": 2000, "violations": 0,
+                              "contract_core_sha256": core_hash,
+                              "operational": dict(result),
+                              "stress": dict(result)}}
+        _validate_npu_acceptance(acceptance, canonical_hash, npu_info, 1)
+
+        mutations = []
+        changed = json.loads(json.dumps(acceptance))
+        changed["contract_core"]["fixed_limits"][
+            "maximum_vendor_raw_int8_error"] = 3
+        mutations.append(changed)
+        changed = json.loads(json.dumps(acceptance))
+        changed["held_out_test"]["stress"]["raw_error_elements"][
+            "3_or_more"] = 1
+        changed["held_out_test"]["stress"]["raw_error_elements"]["0"] -= 1
+        mutations.append(changed)
+        changed = json.loads(json.dumps(acceptance))
+        changed["contract_core"]["corpora"]["overlap"][
+            "operational_vs_stress"] = 1
+        mutations.append(changed)
+        changed = json.loads(json.dumps(acceptance))
+        changed["held_out_test"]["operational"][
+            "target_airunner_mismatches"] = 1
+        mutations.append(changed)
+        for changed in mutations:
+            with self.assertRaises(BundleError):
+                _validate_npu_acceptance(changed, canonical_hash, npu_info, 1)
+
         mutated = json.loads(json.dumps(acceptance))
         mutated["held_out_test"]["vectors"] = 299
         with self.assertRaises(BundleError):
             _validate_npu_acceptance(mutated, canonical_hash, npu_info, 6)
+
+        compact = compact_acceptance(acceptance, "44" * 32)
+        _validate_npu_acceptance(compact, canonical_hash, npu_info, 1)
+
+        compact_mutations = []
+        changed = json.loads(json.dumps(compact))
+        changed["full_acceptance_file_sha256"] = "not-a-sha256"
+        compact_mutations.append(changed)
+        changed = json.loads(json.dumps(compact))
+        changed["contract_summary"]["corpora"]["operational"]["samples"] = 999
+        compact_mutations.append(changed)
+        changed = json.loads(json.dumps(compact))
+        changed["held_out_test"]["stress"]["raw_error_elements"]["3_or_more"] = 1
+        changed["held_out_test"]["stress"]["raw_error_elements"]["0"] -= 1
+        compact_mutations.append(changed)
+        changed = json.loads(json.dumps(compact))
+        changed["contract_summary"]["decision_policy"]["threshold_q8"] = 2
+        compact_mutations.append(changed)
+        for changed in compact_mutations:
+            with self.assertRaises(BundleError):
+                _validate_npu_acceptance(changed, canonical_hash, npu_info, 1)
 
     def test_ra_ethosu_acceptance_requires_exact_frozen_heldout(self):
         canonical_hash = bytes.fromhex("11" * 32)

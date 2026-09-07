@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,23 @@ from dataset import manifest_path, sha256_file, write_dataset
 from schema import (HEADER, MAGIC, DatasetError, parse_lines,
                     schema_canonical_hash)
 from version import TOOL_VERSION
+
+
+_WORKLOAD_STATUS = re.compile(r"^# workload-perf .* mtfs=(-?\d+)\s*$")
+
+
+def _audit_workload_status(path: Path) -> tuple[int, int]:
+    observed = 0
+    failed = 0
+    with path.open("r", encoding="utf-8", newline="") as source:
+        for line in source:
+            match = _WORKLOAD_STATUS.match(line.rstrip("\r\n"))
+            if match is None:
+                continue
+            observed += 1
+            if int(match.group(1)) != 0:
+                failed += 1
+    return observed, failed
 
 
 def _serial_lines(port: str, baud: int, expected_rows: int | None) -> Iterable[str]:
@@ -50,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--session-id", required=True)
     parser.add_argument("--card-id", default="unspecified")
+    parser.add_argument("--card-manufacturer")
+    parser.add_argument("--card-capacity",
+                        help="operator-reported card capacity, for example 16GB")
     parser.add_argument("--target-name", required=True)
     parser.add_argument("--transport-name", required=True)
     parser.add_argument("--firmware-commit", required=True)
@@ -68,6 +89,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "validation-candidate", "heldout-locked"))
     parser.add_argument("--baseline-window-start", type=int, default=1)
     parser.add_argument("--baseline-window-count", type=int)
+    parser.add_argument("--capture-profile",
+                        choices=("generic", "st-release-idma-v2"),
+                        default="generic")
     return parser
 
 
@@ -98,7 +122,21 @@ def run(args: argparse.Namespace) -> dict:
     if commands != {args.command}:
         raise DatasetError(f"command mismatch: CSV has {sorted(commands)}")
     capture_contract = getattr(args, "capture_contract", "raw-v1")
+    capture_profile = getattr(args, "capture_profile", "generic")
+    if capture_profile == "st-release-idma-v2" and \
+            capture_contract != "baseline-relative-v2":
+        raise DatasetError(
+            "st-release-idma-v2 requires baseline-relative-v2 capture contract")
     capture_context = None
+    workload_status_observed = 0
+    workload_status_failed = 0
+    if capture_profile == "st-release-idma-v2" and args.input:
+        workload_status_observed, workload_status_failed = \
+            _audit_workload_status(args.input)
+        if workload_status_failed:
+            raise DatasetError(
+                "st-release-idma-v2 source contains nonzero workload status: "
+                f"{workload_status_failed}/{workload_status_observed}")
     if capture_contract == "baseline-relative-v2":
         required = {
             "fat_type": getattr(args, "fat_type", None),
@@ -113,6 +151,11 @@ def run(args: argparse.Namespace) -> dict:
                          if value is None or value == "")
         if args.card_id == "unspecified":
             missing.append("card_id")
+        if capture_profile == "st-release-idma-v2":
+            if not getattr(args, "card_manufacturer", None):
+                missing.append("card_manufacturer")
+            if not getattr(args, "card_capacity", None):
+                missing.append("card_capacity")
         if missing:
             raise DatasetError("baseline-relative-v2 capture metadata missing: " +
                                ",".join(missing))
@@ -124,6 +167,14 @@ def run(args: argparse.Namespace) -> dict:
         if baseline_start <= 0 or baseline_count <= 0 or \
                 baseline_start + baseline_count - 1 > len(rows):
             raise DatasetError("baseline window range is outside captured rows")
+        if capture_profile == "st-release-idma-v2":
+            if args.target_name != "STM32N6570-DK" or \
+                    args.transport_name != "SDMMC-IDMA" or \
+                    int(rows[0]["target"]) != 0x53544E36 or \
+                    int(rows[0]["transport"]) != 0x49444D41 or \
+                    str(rows[0]["build_type"]) != "Release":
+                raise DatasetError(
+                    "st-release-idma-v2 requires STM32N6570-DK Release SDMMC-IDMA rows")
         capture_context = {
             "contract": "baseline-relative-v2",
             "operator_card_id": args.card_id,
@@ -139,6 +190,16 @@ def run(args: argparse.Namespace) -> dict:
                 "count": baseline_count,
             },
         }
+        if capture_profile == "st-release-idma-v2":
+            capture_context.update({
+                "capture_profile": capture_profile,
+                "card_manufacturer": args.card_manufacturer,
+                "card_capacity": args.card_capacity,
+                "workload_status_audit": {
+                    "observed": workload_status_observed,
+                    "nonzero": workload_status_failed,
+                },
+            })
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_dataset(args.output, rows)
     manifest = {
