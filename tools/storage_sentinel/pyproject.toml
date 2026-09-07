@@ -24,9 +24,15 @@ mtfs-sentinel-convert-ra-ethosu = "convert_ra_ethosu:main"
 mtfs-sentinel-build-canonical-int8 = "build_canonical_int8:main"
 mtfs-sentinel-build-ra-validation = "build_ra_validation_corpus:main"
 mtfs-sentinel-evaluate-neural-art = "evaluate_neural_art_offline:main"
+mtfs-sentinel-baseline-audit = "baseline_v2:main"
+mtfs-sentinel-train-baseline-v2 = "train_baseline_v2:main"
+mtfs-sentinel-export-baseline-v2 = "export_baseline_v2_tflite:main"
+mtfs-sentinel-evaluate-baseline-v2 = "evaluate_baseline_v2_canonical:main"
+mtfs-sentinel-freeze-baseline-v2 = "freeze_baseline_v2:main"
+mtfs-sentinel-heldout-baseline-v2 = "evaluate_baseline_v2_heldout:main"
 
 [tool.setuptools]
-py-modules = ["build_canonical_int8", "build_ra_validation_corpus", "bundle", "canonical_int8", "collect", "convert_ra_ethosu", "convert_st_neural_art", "dataset", "evaluate", "evaluate_neural_art_offline", "inspect_bundle_cli", "model", "pack", "schema", "train", "verify", "version"]
+py-modules = ["baseline_v2", "build_canonical_int8", "build_ra_validation_corpus", "bundle", "canonical_int8", "collect", "convert_ra_ethosu", "convert_st_neural_art", "dataset", "evaluate", "evaluate_baseline_v2_canonical", "evaluate_baseline_v2_heldout", "evaluate_neural_art_offline", "export_baseline_v2_tflite", "freeze_baseline_v2", "inspect_bundle_cli", "model", "pack", "schema", "train", "train_baseline_v2", "verify", "version"]
 
 [tool.setuptools.data-files]
 "share/mtfs-storage-sentinel" = ["feature_schema_v1.json"]

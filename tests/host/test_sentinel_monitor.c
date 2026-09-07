@@ -13,8 +13,13 @@ typedef struct fake_provider
     mtfs_error_t open_status;
     mtfs_error_t npu_status;
     mtfs_error_t cpu_status;
+    mtfs_error_t normalize_status;
     int8_t output_value;
     uint8_t cpu_anomaly;
+    uint16_t baseline_progress;
+    uint16_t baseline_required;
+    uint32_t saturation_mask;
+    uint32_t warmup_remaining;
 } fake_provider_t;
 
 typedef struct fake_run
@@ -24,6 +29,7 @@ typedef struct fake_run
     uint32_t fail_at;
     uint32_t writes;
     uint32_t saw_stage_ambiguous;
+    uint32_t saw_warmup_summary;
 } fake_run_t;
 
 static mtfs_error_t fake_open(void *opaque, uint64_t *threshold_q8)
@@ -41,7 +47,13 @@ static mtfs_error_t fake_normalize(void *opaque,
     (void)feature;
     ++fake->normalizes;
     (void)memset(input_q4, 0, 24U);
-    return MTFS_OK;
+    if (fake->warmup_remaining != 0U) {
+        --fake->warmup_remaining;
+        fake->baseline_progress = (uint16_t)(fake->baseline_required -
+            fake->warmup_remaining);
+        return MTFS_ERROR_NOT_READY;
+    }
+    return fake->normalize_status;
 }
 
 static mtfs_error_t fake_npu(void *opaque, const int8_t input_q4[24],
@@ -77,8 +89,18 @@ static mtfs_error_t fake_close(void *opaque)
     return MTFS_OK;
 }
 
+static void fake_preprocessing_status(void *opaque,
+    mtfs_sentinel_monitor_preprocessing_status_t *status)
+{
+    fake_provider_t *fake = opaque;
+    status->baseline_progress = fake->baseline_progress;
+    status->baseline_required = fake->baseline_required;
+    status->saturation_mask = fake->saturation_mask;
+}
+
 static const mtfs_sentinel_monitor_provider_ops_t fake_ops = {
-    fake_open, fake_normalize, fake_npu, fake_cpu, fake_close
+    fake_open, fake_normalize, fake_npu, fake_cpu, fake_close,
+    fake_preprocessing_status
 };
 
 static void valid_input(mtfs_sentinel_monitor_input_t *input,
@@ -154,8 +176,25 @@ static int test_evaluation(void)
     if (mtfs_sentinel_monitor_evaluate(&monitor, &input, &result) != MTFS_OK ||
         result.state != MTFS_SENTINEL_MONITOR_STATE_BLOCK_ERROR)
         return 1;
+    valid_input(&input, 8U);
+    input.window.feature.media_generation = 2U;
+    fake.normalize_status = MTFS_ERROR_NOT_READY;
+    fake.baseline_progress = 5U;
+    fake.baseline_required = 32U;
+    if (mtfs_sentinel_monitor_evaluate(&monitor, &input, &result) != MTFS_OK ||
+        result.state != MTFS_SENTINEL_MONITOR_STATE_WARMUP ||
+        result.baseline_progress != 5U || result.baseline_required != 32U)
+        return 1;
+    fake.normalize_status = MTFS_ERROR_OUT_OF_RANGE;
+    fake.saturation_mask = UINT32_C(0x81);
+    if (mtfs_sentinel_monitor_evaluate(&monitor, &input, &result) != MTFS_OK ||
+        result.state != MTFS_SENTINEL_MONITOR_STATE_OUT_OF_DISTRIBUTION ||
+        result.saturation_mask != UINT32_C(0x81) ||
+        monitor.diagnostics.warmup_windows != 1U ||
+        monitor.diagnostics.out_of_distribution != 1U)
+        return 1;
     if (mtfs_sentinel_monitor_format_line(line, sizeof(line), &input,
-            &result) != MTFS_OK || strstr(line, "[MON] seq=7") == NULL ||
+            &result) != MTFS_OK || strstr(line, "[MON] seq=8") == NULL ||
         strstr(line, "source=RULE") == NULL ||
         mtfs_sentinel_monitor_format_line(small, sizeof(small), &input,
             &result) != MTFS_ERROR_BUFFER_TOO_SMALL ||
@@ -187,6 +226,9 @@ static void run_write(void *opaque, const char *text)
         if (strstr(text, "[MON-STAGE]") != NULL &&
             strstr(text, " ambiguous=") != NULL)
             run->saw_stage_ambiguous = 1U;
+        if (strstr(text, "[MON-WARMUP]") != NULL &&
+            strstr(text, "status=READY") != NULL)
+            run->saw_warmup_summary = 1U;
     }
 }
 
@@ -204,14 +246,19 @@ static int test_runner(void)
     config.write = run_write;
     config.stage_count = 1U;
     config.samples_per_stage = 3U;
+    config.warmup_samples = 2U;
     config.maximum_q4_error = 1U;
+    run.provider.warmup_remaining = 2U;
+    run.provider.baseline_required = 2U;
     if (mtfs_sentinel_monitor_run(&monitor, &config) != 0 ||
         run.provider.opens != 1U || run.provider.npu_calls != 3U ||
         run.provider.cpu_calls != 0U || run.provider.closes != 1U ||
-        run.writes != 4U || run.saw_stage_ambiguous == 0U)
+        run.writes != 7U || run.saw_stage_ambiguous == 0U ||
+        run.saw_warmup_summary == 0U)
         return 1;
     (void)memset(&run, 0, sizeof(run));
     run.fail_at = 2U;
+    config.warmup_samples = 0U;
     config.context = &run;
     config.provider_context = &run.provider;
     if (mtfs_sentinel_monitor_run(&monitor, &config) == 0 ||

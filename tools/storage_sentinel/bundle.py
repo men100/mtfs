@@ -12,6 +12,7 @@ from typing import Iterable
 
 import numpy as np
 
+from baseline_v2 import q4_dataset
 from canonical_int8 import (CPU_FORMAT_VERSION, CPU_HEADER_SIZE,
     CPU_LAYER_DESCRIPTOR_SIZE, QUANTIZATION_CONTRACT_VERSION,
     CanonicalInt8Error, CanonicalInt8Model, deserialize_cpu_model,
@@ -34,6 +35,7 @@ SECTION_COMPATIBILITY = 1
 SECTION_NORMALIZATION = 2
 SECTION_DECISION = 3
 SECTION_PROVENANCE = 4
+SECTION_PREPROCESSING = 5
 SECTION_CPU = 0x0100
 SECTION_NPU = 0x0101
 MODEL_FORMAT_SENTINEL_BUNDLE_V1 = 0x534E5431
@@ -103,6 +105,7 @@ MAX_REQUIRED_RAM = (1 << 32) - 1
 CPU_MODEL_BINARY_SIZE = 912
 CPU_WORK_SIZE = 48
 CPU_PERSISTENT_SIZE_32 = 32
+PREPROCESSING_SIZE = 128
 
 
 class BundleError(ValueError):
@@ -126,9 +129,11 @@ def _json(path: Path) -> dict:
 
 
 def _artifact_files(artifact: Path) -> dict[str, dict]:
-    names = ("feature_schema_v1.json", "model.json", "normalization.json",
+    names = ["feature_schema_v1.json", "model.json", "normalization.json",
              "threshold.json", "training_manifest.json", "test_vectors.json",
-             "artifact_index.json")
+             "artifact_index.json"]
+    if (artifact / "preprocessing.json").is_file():
+        names.append("preprocessing.json")
     values = {name: _json(artifact / name) for name in names}
     index = values["artifact_index.json"]
     expected = index.get("files_sha256")
@@ -496,6 +501,112 @@ def canonical_deployment_evaluation(files: dict[str, dict], artifact: Path,
     return report, threshold, clear_vectors
 
 
+def baseline_v2_deployment_evaluation(files: dict[str, dict], artifact: Path,
+                                      model: CanonicalInt8Model) -> tuple[
+                                          dict, int, dict]:
+    manifest = files["training_manifest.json"]
+    policy = files.get("preprocessing.json")
+    if not isinstance(policy, dict) or \
+            policy.get("preprocessing_contract_version") != 2:
+        raise BundleError("baseline-relative preprocessing v2 is unavailable")
+
+    def load_entries(name: str, condition: str) -> list:
+        datasets = []
+        entries = manifest.get(name)
+        if not isinstance(entries, list) or not entries:
+            raise BundleError(f"missing baseline-relative {name}")
+        for entry in entries:
+            path = Path(entry.get("path", ""))
+            if not path.is_file() or sha256_file(path) != entry.get("dataset_sha256"):
+                raise BundleError(f"baseline-relative dataset identity mismatch: {path}")
+            dataset = load_dataset(path)
+            context = dataset.manifest.get("capture_context", {})
+            if context.get("dataset_role") != "validation-candidate" or \
+                    context.get("condition") != condition:
+                raise BundleError(f"baseline-relative split mismatch: {path}")
+            datasets.append(dataset)
+        return datasets
+
+    def prepare(datasets: list) -> tuple[list[np.ndarray], list[dict], list[dict]]:
+        values, rows, diagnostics = [], [], []
+        for dataset in datasets:
+            current, current_rows, current_diagnostics = q4_dataset(dataset, policy)
+            values.extend(np.asarray(row, dtype=np.int8) for row in current)
+            rows.extend(current_rows)
+            diagnostics.extend(current_diagnostics)
+        return values, rows, diagnostics
+
+    normal_values, _, normal_diagnostics = prepare(load_entries(
+        "validation_sessions", "normal"))
+    pseudo_values, pseudo_rows, pseudo_diagnostics = prepare(load_entries(
+        "validation_pseudo_sessions", "pseudo"))
+    if any(item["out_of_distribution"] for item in normal_diagnostics):
+        raise BundleError("normal validation contains OOD input")
+
+    def infer(values: list[np.ndarray]) -> list[dict]:
+        results = []
+        for input_q4 in values:
+            raw_output, output_q4 = infer_q4(model, input_q4)
+            difference = output_q4.astype(np.int16) - input_q4.astype(np.int16)
+            score = (sum(int(value) * int(value) for value in difference) + 12) // 24
+            results.append({
+                "input_q4": input_q4.astype(int).tolist(),
+                "raw_output_int8": raw_output.astype(int).tolist(),
+                "output_q4": output_q4.astype(int).tolist(),
+                "score_q8": score,
+            })
+        return results
+
+    normal_inferred = infer(normal_values)
+    pseudo_inferred = infer(pseudo_values)
+    normal_scores = [row["score_q8"] for row in normal_inferred]
+    threshold = int(_higher(normal_scores))
+    stages = {}
+    for stage in ("baseline", "light", "medium", "strong", "recovery"):
+        indexes = [index for index, row in enumerate(pseudo_rows)
+                   if str(row["stage"]) == stage]
+        if not indexes:
+            continue
+        ood = sum(bool(pseudo_diagnostics[index]["out_of_distribution"])
+                  for index in indexes)
+        anomaly = sum(not pseudo_diagnostics[index]["out_of_distribution"] and
+                      pseudo_inferred[index]["score_q8"] > threshold
+                      for index in indexes)
+        stages[stage] = {
+            "samples": len(indexes), "ood": int(ood),
+            "ai_anomaly": int(anomaly),
+            "safe_detection": int(ood + anomaly),
+        }
+    false_warnings = sum(score > threshold for score in normal_scores)
+    report = {
+        "format": "mtfs-sentinel-baseline-relative-canonical-evaluation-v2",
+        "threshold_selection": "normal-validation-p95-higher",
+        "integer_threshold_q8": threshold,
+        "validation_normal_false_warning": {
+            "count": false_warnings, "total": len(normal_scores)},
+        "validation_pseudo": stages,
+        "normal_ood": 0,
+        "preprocessing_policy_sha256": policy.get("canonical_sha256"),
+    }
+    clear_vectors = {}
+    for name, source in files["test_vectors.json"].items():
+        if not isinstance(source, dict) or "input_q4" not in source:
+            continue
+        input_q4 = np.asarray(source["input_q4"], dtype=np.int8)
+        raw_output, output_q4 = infer_q4(model, input_q4)
+        difference = output_q4.astype(np.int16) - input_q4.astype(np.int16)
+        score = (sum(int(value) * int(value) for value in difference) + 12) // 24
+        clear_vectors[name] = {
+            "origin": source.get("origin", "validation"),
+            "input_q4": input_q4.astype(int).tolist(),
+            "raw_output_int8": raw_output.astype(int).tolist(),
+            "output_q4": output_q4.astype(int).tolist(),
+            "score_q8": score,
+            "anomaly": score > threshold,
+        }
+    return report, threshold, clear_vectors
+
+
 def _compatibility(target: int, transport: int, profile: int, accelerator: int) -> bytes:
     data = bytearray(128)
     struct.pack_into("<HHHH", data, 0, 1, 1, len(SCHEMA_ID), 0)
@@ -522,6 +633,43 @@ def _normalization(normalization: dict) -> bytes:
         data.extend(struct.pack("<i", int(value)))
     if len(data) != 304:
         raise AssertionError("normalization layout")
+    return bytes(data)
+
+
+def _preprocessing(policy: dict) -> bytes:
+    if policy.get("format") != "mtfs-sentinel-baseline-relative-policy-v2" or \
+            policy.get("preprocessing_contract_version") != 2 or \
+            policy.get("baseline_estimator") != \
+                "per-feature-even-median-midpoint-round-up" or \
+            policy.get("latency_relative_transform") != \
+                "round-away((raw-baseline)*1000/max(baseline,floor))" or \
+            policy.get("share_relative_transform") != \
+                "signed-raw-permille-difference" or \
+            policy.get("inactive_feature_encoding") != 0 or \
+            policy.get("saturation_action") != "OOD-RULE-safe-anomaly":
+        raise BundleError("unsupported baseline-relative preprocessing contract")
+    warmup = int(policy.get("warmup_windows", 0))
+    active = int(policy.get("active_feature_mask", 0))
+    maximum = int(policy.get("maximum_saturated_features", -1))
+    latency = policy.get("latency_baseline_floor")
+    scales = policy.get("relative_scale_floor")
+    if warmup not in {8, 16, 32} or not 0 < active < (1 << 24) or \
+            not 0 <= maximum <= 24 or not isinstance(latency, list) or \
+            len(latency) != 3 or any(not isinstance(value, int) or value <= 0
+                                     for value in latency) or \
+            not isinstance(scales, list) or len(scales) != 24:
+        raise BundleError("invalid baseline-relative preprocessing policy")
+    for index, value in enumerate(scales):
+        if not isinstance(value, int) or value < 0 or value > 0xffffffff or \
+                ((active >> index) & 1 and value == 0):
+            raise BundleError("invalid baseline-relative feature scale")
+    data = bytearray(struct.pack("<HHHHIBBH", 2, 24, warmup, 1, active,
+                                 maximum, 1, 0))
+    data.extend(struct.pack("<3I", *latency))
+    data.extend(struct.pack("<24I", *scales))
+    data.extend(bytes(4))
+    if len(data) != PREPROCESSING_SIZE:
+        raise AssertionError("preprocessing layout")
     return bytes(data)
 
 
@@ -1129,8 +1277,15 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
     except CanonicalInt8Error as error:
         raise BundleError(str(error)) from error
     canonical_hash = canonical_model.canonical_sha256
-    evaluation, threshold, clear_vectors = canonical_deployment_evaluation(
-        files, artifact, canonical_model, normalization)
+    preprocessing = files.get("preprocessing.json")
+    baseline_relative = isinstance(preprocessing, dict) and \
+        preprocessing.get("preprocessing_contract_version") == 2
+    if baseline_relative:
+        evaluation, threshold, clear_vectors = baseline_v2_deployment_evaluation(
+            files, artifact, canonical_model)
+    else:
+        evaluation, threshold, clear_vectors = canonical_deployment_evaluation(
+            files, artifact, canonical_model, normalization)
     if profile_id is None:
         profile_id = int.from_bytes(canonical_hash[:4], "little") or 1
     profile_id = _u32(profile_id, "profile_id")
@@ -1215,6 +1370,9 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
                 _compatibility(target, transport, profile_id, accelerator), "compatibility"),
         Section(SECTION_NORMALIZATION, SECTION_REQUIRED, 8, 0,
                 _normalization(normalization), "normalization"),
+        *([Section(SECTION_PREPROCESSING, SECTION_REQUIRED, 4, 0,
+                   _preprocessing(preprocessing), "preprocessing")]
+          if baseline_relative else []),
         Section(SECTION_DECISION, SECTION_REQUIRED, 8, 0,
                 _decision(threshold), "decision"),
         *runtime_sections,
@@ -1227,6 +1385,7 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         "source_artifact": {name: sha256_file(artifact / name)
                             for name in sorted(files) if (artifact / name).is_file()},
         "canonical_full_int8_tflite_sha256": canonical_hash.hex(),
+        "preprocessing_contract": preprocessing if baseline_relative else None,
         "canonical_full_int8_tflite_bytes": canonical_tflite.stat().st_size,
         "cpu_runtime_binary_sha256": hashlib.sha256(cpu_binary).hexdigest(),
         "cpu_conversion_manifest": conversion,
@@ -1239,8 +1398,8 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         "test_vectors": clear_vectors,
         "arithmetic_vectors": {
             "score_boundary": {
-                "below": {**_score_boundary_vector(max(0, threshold - 1)),
-                          "anomaly": False},
+                **({"below": {**_score_boundary_vector(threshold - 1),
+                               "anomaly": False}} if threshold > 0 else {}),
                 "equal": {**_score_boundary_vector(threshold), "anomaly": False},
                 "above": {**_score_boundary_vector(threshold + 1), "anomaly": True},
             },
@@ -1335,6 +1494,7 @@ class ParsedBundle:
     accelerator: int
     model_format: int
     normalization: dict
+    preprocessing: dict | None
     threshold: int
     sections: list[ParsedSection]
     provenance: dict
@@ -1360,6 +1520,7 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
     previous_end = header_size
     names = {SECTION_COMPATIBILITY: "compatibility", SECTION_NORMALIZATION: "normalization",
              SECTION_DECISION: "decision", SECTION_PROVENANCE: "provenance",
+             SECTION_PREPROCESSING: "preprocessing",
              SECTION_CPU: "cpu_runtime", SECTION_NPU: "npu_runtime"}
     known = set(names)
     singleton_seen = set()
@@ -1383,7 +1544,8 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
         else:
             name = names[section_type]
             if section_type in {SECTION_COMPATIBILITY, SECTION_NORMALIZATION,
-                                SECTION_DECISION, SECTION_PROVENANCE, SECTION_CPU}:
+                                SECTION_DECISION, SECTION_PROVENANCE,
+                                SECTION_PREPROCESSING, SECTION_CPU}:
                 if section_type in singleton_seen:
                     raise BundleError("duplicate singleton section")
                 singleton_seen.add(section_type)
@@ -1431,6 +1593,32 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
     inverses = list(struct.unpack_from("<24i", norm, 208))
     if any(value <= 0 for value in inverses):
         raise BundleError("invalid normalization scale")
+    preprocessing = None
+    if SECTION_PREPROCESSING in by_type:
+        preprocessing_section = by_type[SECTION_PREPROCESSING]
+        if not preprocessing_section.flags & SECTION_REQUIRED:
+            raise BundleError("preprocessing descriptor is marked optional")
+        payload = preprocessing_section.payload
+        if len(payload) != PREPROCESSING_SIZE:
+            raise BundleError("preprocessing descriptor size mismatch")
+        version, dimension, warmup, estimator, active, maximum, action, reserved = \
+            struct.unpack_from("<HHHHIBBH", payload)
+        latency = list(struct.unpack_from("<3I", payload, 16))
+        scales = list(struct.unpack_from("<24I", payload, 28))
+        if version != 2 or dimension != 24 or warmup not in {8, 16, 32} or \
+                estimator != 1 or not 0 < active < (1 << 24) or \
+                maximum > 24 or action != 1 or reserved != 0 or \
+                any(value == 0 for value in latency) or any(payload[124:128]) or \
+                any(((active >> index) & 1) and value == 0
+                    for index, value in enumerate(scales)):
+            raise BundleError("invalid preprocessing descriptor")
+        preprocessing = {
+            "version": version, "warmup_windows": warmup,
+            "active_feature_mask": active,
+            "maximum_saturated_features": maximum,
+            "latency_baseline_floor": latency,
+            "relative_scale_floor": scales,
+        }
     decision = by_type[SECTION_DECISION].payload
     if len(decision) != 32:
         raise BundleError("decision descriptor size mismatch")
@@ -1513,6 +1701,8 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
             provenance.get("format") != "mtfs-sentinel-provenance-v1" or \
             provenance.get("schema_canonical_sha256") != SCHEMA_HASH.hex():
         raise BundleError("provenance identity mismatch")
+    if (preprocessing is None) != (provenance.get("preprocessing_contract") is None):
+        raise BundleError("preprocessing provenance mismatch")
     canonical_digest = provenance.get("canonical_full_int8_tflite_sha256",
                                       provenance.get("canonical_float32_sha256"))
     if canonical_digest is not None and (
@@ -1532,7 +1722,8 @@ def parse_bundle(raw: bytes, expected_target: int | None = None,
         for section in runtime_sections])
     return ParsedBundle(raw, target, transport, topology, profile, accelerator,
                         model_format, {"mean_q16": means,
-                        "inverse_std_q20": inverses}, dvalues[8], sections, provenance)
+                        "inverse_std_q20": inverses}, preprocessing,
+                        dvalues[8], sections, provenance)
 
 
 @dataclass(frozen=True)
@@ -1616,7 +1807,9 @@ def verify_bundle(parsed: ParsedBundle) -> dict:
     arithmetic = parsed.provenance.get("arithmetic_vectors")
     if arithmetic is not None:
         boundary = arithmetic.get("score_boundary") if isinstance(arithmetic, dict) else None
-        if not isinstance(boundary, dict) or set(boundary) != {"below", "equal", "above"}:
+        expected_boundaries = ({"below", "equal", "above"}
+                               if parsed.threshold > 0 else {"equal", "above"})
+        if not isinstance(boundary, dict) or set(boundary) != expected_boundaries:
             raise BundleError("malformed score boundary registry")
         for name, vector in boundary.items():
             if not isinstance(vector, dict) or not isinstance(vector.get("input_q4"), list) or \
@@ -1721,7 +1914,9 @@ def inspect_bundle(parsed: ParsedBundle) -> dict:
         "transport_id": parsed.transport, "topology": list(DIMENSIONS),
         "profile_id": parsed.profile, "outer_accelerator_id": parsed.accelerator,
         "outer_model_format": parsed.model_format, "score_format": "Q8-MSE",
-        "threshold_q8": parsed.threshold, "runtimes": runtimes,
+        "threshold_q8": parsed.threshold,
+        "preprocessing": parsed.preprocessing,
+        "runtimes": runtimes,
         "required_ram": memory_plan["required_ram"],
         "required_alignment": memory_plan["required_alignment"],
         "memory_plan": memory_plan,

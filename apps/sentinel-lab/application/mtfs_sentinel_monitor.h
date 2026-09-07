@@ -37,8 +37,17 @@ typedef enum mtfs_sentinel_monitor_state
     MTFS_SENTINEL_MONITOR_STATE_INSUFFICIENT = 5,
     MTFS_SENTINEL_MONITOR_STATE_INVALID = 6,
     MTFS_SENTINEL_MONITOR_STATE_BLOCK_ERROR = 7,
-    MTFS_SENTINEL_MONITOR_STATE_INFERENCE_ERROR = 8
+    MTFS_SENTINEL_MONITOR_STATE_INFERENCE_ERROR = 8,
+    MTFS_SENTINEL_MONITOR_STATE_WARMUP = 9,
+    MTFS_SENTINEL_MONITOR_STATE_OUT_OF_DISTRIBUTION = 10
 } mtfs_sentinel_monitor_state_t;
+
+typedef struct mtfs_sentinel_monitor_preprocessing_status
+{
+    uint32_t saturation_mask;
+    uint16_t baseline_progress;
+    uint16_t baseline_required;
+} mtfs_sentinel_monitor_preprocessing_status_t;
 
 typedef struct mtfs_sentinel_monitor_provider_ops
 {
@@ -54,6 +63,8 @@ typedef struct mtfs_sentinel_monitor_provider_ops
         const int8_t input_q4[MTFS_SENTINEL_FEATURE_DIMENSION],
         mtfs_sentinel_inference_result_t *result, uint32_t *latency_us);
     mtfs_error_t (*close)(void *context);
+    void (*preprocessing_status)(void *context,
+        mtfs_sentinel_monitor_preprocessing_status_t *status);
 } mtfs_sentinel_monitor_provider_ops_t;
 
 typedef struct mtfs_sentinel_monitor_input
@@ -78,6 +89,9 @@ typedef struct mtfs_sentinel_monitor_result
     mtfs_sentinel_monitor_source_t source;
     mtfs_sentinel_monitor_state_t state;
     uint8_t cpu_arbitrated;
+    uint16_t baseline_progress;
+    uint16_t baseline_required;
+    uint32_t saturation_mask;
 } mtfs_sentinel_monitor_result_t;
 
 typedef struct mtfs_sentinel_monitor_diagnostics
@@ -89,6 +103,8 @@ typedef struct mtfs_sentinel_monitor_diagnostics
     uint32_t cpu_arbitrations;
     uint32_t cpu_fallbacks;
     uint32_t rule_decisions;
+    uint32_t warmup_windows;
+    uint32_t out_of_distribution;
     uint32_t failures;
 } mtfs_sentinel_monitor_diagnostics_t;
 
@@ -125,6 +141,7 @@ typedef struct mtfs_sentinel_monitor_run_config
     mtfs_sentinel_monitor_write_fn write;
     uint32_t stage_count;
     uint32_t samples_per_stage;
+    uint32_t warmup_samples;
     uint32_t maximum_q4_error;
 } mtfs_sentinel_monitor_run_config_t;
 

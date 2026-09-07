@@ -236,7 +236,19 @@ typedef struct target_monitor_context
     uint8_t mounted;
     uint8_t inject_npu_failure;
     uint8_t npu_failure_injected;
+    uint8_t injection_active;
+    uint8_t hotplug;
 } target_monitor_context_t;
+
+static int monitor_wait_media(int present)
+{
+    uint32_t count;
+    for (count = 0U; count < 12000U; ++count) {
+        if (!!mtfs_media_is_present(&media_context) == !!present) return 0;
+        (void)tk_dly_tsk(10U);
+    }
+    return 1;
+}
 
 static void monitor_injected_delay(void *opaque, uint32_t delay_us)
 {
@@ -285,12 +297,16 @@ static mtfs_error_t monitor_stage_begin(void *opaque, uint32_t stage)
         context->pseudo != 0U ? MTFS_SENTINEL_LAB_MODE_DELAY_RAMP :
             MTFS_SENTINEL_LAB_MODE_RECORD,
         stage, context->seed, &metadata);
+    context->injection_active = context->pseudo != 0U && stage >= 1U &&
+        stage <= 3U ? 1U : 0U;
     return MTFS_OK;
 }
 
 static mtfs_error_t monitor_stage_end(void *opaque, uint32_t stage)
 {
-    (void)opaque; (void)stage;
+    target_monitor_context_t *context = opaque;
+    (void)stage;
+    context->injection_active = 0U;
     mtfs_sentinel_lab_injector_disable(&lab_runtime.injector);
     return MTFS_OK;
 }
@@ -301,6 +317,7 @@ static const char *monitor_stage_name(void *opaque, uint32_t stage)
         "baseline", "light", "medium", "strong", "recovery"
     };
     target_monitor_context_t *context = opaque;
+    if (context->hotplug != 0U) return "hotplug-lifecycle";
     return context->pseudo != 0U && stage < 5U ? names[stage] : "natural";
 }
 
@@ -308,7 +325,14 @@ static mtfs_error_t monitor_acquire(void *opaque, uint32_t stage,
     uint32_t index, mtfs_sentinel_monitor_input_t *input)
 {
     target_monitor_context_t *context = opaque;
-    (void)stage; (void)index;
+    (void)stage;
+    if (context->hotplug != 0U && stage == 0U && index == 1U) {
+        tm_printf((UB *)"[sentinel-monitor-hotplug] ACTION REQUIRED: REMOVE card; resident model retained\n");
+        if (monitor_wait_media(0) != 0) return MTFS_ERROR_NOT_READY;
+    } else if (context->hotplug != 0U && stage == 0U && index == 2U) {
+        tm_printf((UB *)"[sentinel-monitor-hotplug] ACTION REQUIRED: REINSERT card\n");
+        if (monitor_wait_media(1) != 0) return MTFS_ERROR_NOT_READY;
+    }
     ++context->marker;
     (void)mtfs_sentinel_lab_window_step(&lab_runtime.window,
         &context->window_config, context->marker, NULL, NULL,
@@ -329,9 +353,16 @@ static mtfs_error_t monitor_provider_open(void *opaque,
 static mtfs_error_t monitor_provider_normalize(void *opaque,
     const mtfs_sentinel_feature_v1_t *feature, int8_t input_q4[24])
 {
-    (void)opaque;
+    target_monitor_context_t *context = opaque;
     return mtfs_ra8p1_sentinel_monitor_normalize(&media_context, feature,
-        input_q4);
+        context != NULL ? context->injection_active : 0U, input_q4);
+}
+
+static void monitor_provider_preprocessing_status(void *opaque,
+    mtfs_sentinel_monitor_preprocessing_status_t *status)
+{
+    (void)opaque;
+    mtfs_ra8p1_sentinel_monitor_preprocessing_status(&media_context, status);
 }
 
 static mtfs_error_t monitor_provider_npu_infer(void *opaque,
@@ -371,11 +402,12 @@ static const mtfs_sentinel_monitor_provider_ops_t monitor_provider_ops = {
     monitor_provider_normalize,
     monitor_provider_npu_infer,
     monitor_provider_cpu_infer,
-    monitor_provider_close
+    monitor_provider_close,
+    monitor_provider_preprocessing_status
 };
 
 static int run_monitor(uint32_t samples, uint32_t seed, int pseudo,
-    int inject_npu_failure)
+    int inject_npu_failure, int hotplug)
 {
     target_monitor_context_t context;
     mtfs_sentinel_monitor_run_config_t run_config;
@@ -387,12 +419,15 @@ static int run_monitor(uint32_t samples, uint32_t seed, int pseudo,
     int prepared = 0, observer_ready = 0, registered = 0;
     int failed = 1;
 
+    if (hotplug != 0 && samples > UINT32_MAX - 35U) return 1;
+
     (void)memset(&context, 0, sizeof(context));
     (void)memset(&run_config, 0, sizeof(run_config));
     (void)memset(&lab_runtime, 0, sizeof(lab_runtime));
     context.seed = seed;
     context.pseudo = pseudo != 0 ? 1U : 0U;
     context.inject_npu_failure = inject_npu_failure != 0 ? 1U : 0U;
+    context.hotplug = hotplug != 0 ? 1U : 0U;
     context.lab_config.platform_context = NULL;
     context.lab_config.clock_us = mtfs_ra8p1_benchmark_clock_us;
     context.lab_config.sentinel_clock = mtfs_ra8p1_sentinel_clock_us;
@@ -464,16 +499,22 @@ static int run_monitor(uint32_t samples, uint32_t seed, int pseudo,
     run_config.stage_name = monitor_stage_name;
     run_config.write = platform_write;
     run_config.stage_count = pseudo != 0 ? 5U : 1U;
-    run_config.samples_per_stage = samples;
+    run_config.samples_per_stage = hotplug != 0 ? samples + 35U : samples;
+    run_config.warmup_samples = 32U;
     run_config.maximum_q4_error = 0U;
     failed = mtfs_sentinel_monitor_run(&context.monitor, &run_config);
-    tm_printf((UB *)"[MON-DIAG] open=%u install=%u infer=%u close=%u windows=%u rule=%u cpu-arb=%u cpu-fallback=%u injected-safe-failure=%u failures=%u\n",
+    if (hotplug != 0 && (context.monitor.diagnostics.warmup_windows != 64U ||
+        context.monitor.diagnostics.npu_inferences != samples + 1U))
+        failed = 1;
+    tm_printf((UB *)"[MON-DIAG] open=%u install=%u infer=%u close=%u windows=%u rule=%u warmup=%u ood=%u cpu-arb=%u cpu-fallback=%u injected-safe-failure=%u failures=%u\n",
         context.monitor.diagnostics.open_calls,
         context.monitor.diagnostics.open_calls,
         context.monitor.diagnostics.npu_inferences,
         context.monitor.diagnostics.close_calls,
         context.monitor.diagnostics.windows,
         context.monitor.diagnostics.rule_decisions,
+        context.monitor.diagnostics.warmup_windows,
+        context.monitor.diagnostics.out_of_distribution,
         context.monitor.diagnostics.cpu_arbitrations,
         context.monitor.diagnostics.cpu_fallbacks,
         context.npu_failure_injected,
@@ -613,12 +654,7 @@ static int run_inference(const mtfs_sentinel_feature_v1_t *feature,
     int fairness_ok = 1;
     inference_mount_transition_context_t transition_context;
 
-    if (feature == NULL || feature->version != MTFS_SENTINEL_SCHEMA_VERSION ||
-        feature->struct_size != sizeof(*feature)) {
-        lab_console_write(NULL,
-            "# no sampled feature; run record 1 or pseudo-collect-delay-ramp first\r\n");
-        return 1;
-    }
+    if (feature == NULL) return 1;
     if (diagnostics) {
         (void)memset(&heartbeat_task, 0, sizeof(heartbeat_task));
         (void)memset(heartbeat_task_stack, STACK_PATTERN,
@@ -843,10 +879,10 @@ static int lab_command(void *context, const char *line)
             "sentinel-monitor [samples]  acquire and classify each live window\r\n"
             "sentinel-monitor-fallback-test [samples]  inject one safe NPU not-ready result\r\n"
             "pseudo-monitor-delay-ramp [samples-per-stage] [seed]  monitor injected delay stages\r\n"
-            "sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
+            "sentinel-infer [iterations]  authenticate and compare CPU/NPU on baseline-neutral input\r\n"
             "sentinel-infer-profile [iterations]  timing, scheduler, stack, and Ethos-U diagnostics\r\n"
-            "sentinel-infer-pseudo-slow [iterations]  compare retained strong-delay frame\r\n"
-            "sentinel-infer-hotplug [iterations]  pause on remove and resume resident inference\r\n"
+            "sentinel-infer-pseudo-slow [iterations]  deprecated; use pseudo-monitor-delay-ramp\r\n"
+            "sentinel-infer-hotplug [iterations]  resident monitor remove/reinsert/re-warmup\r\n"
             "sentinel-infer-vector HEX48 [iterations]  compare an exact common-Q4 vector\r\n"
             "siv HEX48 [iterations]  short alias for sentinel-infer-vector\r\n"
             "sivb BASE64URL32 [iterations]  compact exact common-Q4 vector\r\n"
@@ -892,7 +928,7 @@ static int lab_command(void *context, const char *line)
             &samples, &seed) && samples != 0U && seed == 0U) {
         tm_printf((UB *)"# sentinel-monitor samples=%u\n", samples);
         tm_printf((UB *)"# sentinel_monitor_exit=%d\n",
-            run_monitor(samples, 0U, 0, 0));
+            run_monitor(samples, 0U, 0, 0, 0));
         return 1;
     }
     if (parse_command(line, "sentinel-monitor-fallback-test", 1U, 0U,
@@ -900,7 +936,7 @@ static int lab_command(void *context, const char *line)
         tm_printf((UB *)"# sentinel-monitor-fallback-test samples=%u\n",
             samples);
         tm_printf((UB *)"# sentinel_monitor_fallback_test_exit=%d\n",
-            run_monitor(samples, 0U, 0, 1));
+            run_monitor(samples, 0U, 0, 1, 0));
         return 1;
     }
     if (parse_command(line, "pseudo-monitor-delay-ramp", 10U, 1U,
@@ -908,7 +944,7 @@ static int lab_command(void *context, const char *line)
         tm_printf((UB *)"# pseudo-monitor-delay-ramp samples_per_stage=%u seed=%u\n",
             samples, seed);
         tm_printf((UB *)"# pseudo_monitor_delay_ramp_exit=%d\n",
-            run_monitor(samples, seed, 1, 0));
+            run_monitor(samples, seed, 1, 0, 0));
         return 1;
     }
     if (parse_command(line, "sentinel-infer", 10U, 0U,
@@ -927,19 +963,15 @@ static int lab_command(void *context, const char *line)
     }
     if (parse_command(line, "sentinel-infer-pseudo-slow", 10U, 0U,
             &samples, &seed) && samples != 0U && seed == 0U) {
-        if (lab_runtime.evaluation_frame_valid == 0U)
-            lab_console_write(NULL,
-                "# no strong-delay frame; run pseudo-collect-delay-ramp first\r\n");
-        else
-            tm_printf((UB *)"# sentinel-infer-pseudo-slow iterations=%u exit=%d\n",
-                samples, run_inference(&lab_runtime.evaluation_frame, samples,
-                    0, 0));
+        lab_console_write(NULL,
+            "# baseline-relative-v2 does not classify a retained raw frame; use pseudo-monitor-delay-ramp\r\n"
+            "# sentinel-infer-pseudo-slow exit=1\r\n");
         return 1;
     }
     if (parse_command(line, "sentinel-infer-hotplug", 10U, 0U,
             &samples, &seed) && samples != 0U && seed == 0U) {
         tm_printf((UB *)"# sentinel-infer-hotplug iterations=%u exit=%d\n",
-            samples, run_inference(&lab_runtime.frame, samples, 1, 0));
+            samples, run_monitor(samples, 0U, 0, 0, 1));
         return 1;
     }
     if (parse_inference_vector(line, input_q4, &samples)) {

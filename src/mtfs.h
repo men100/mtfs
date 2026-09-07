@@ -22,6 +22,7 @@
 #include "block/mtfs_block_registry.h"
 #if MTFS_ENABLE_STORAGE_SENTINEL
 #include "sentinel/mtfs_sentinel.h"
+#include "sentinel/mtfs_sentinel_baseline.h"
 #include "sentinel/mtfs_sentinel_observer.h"
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
 #include "sentinel/mtfs_sentinel_inference.h"

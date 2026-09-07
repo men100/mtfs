@@ -56,6 +56,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--command", required=True)
     parser.add_argument("--expected-rows", type=int)
     parser.add_argument("--partial", action="store_true")
+    parser.add_argument("--capture-contract", choices=("raw-v1", "baseline-relative-v2"),
+                        default="raw-v1")
+    parser.add_argument("--fat-type")
+    parser.add_argument("--allocation-unit", type=int,
+                        help="filesystem allocation unit in bytes")
+    parser.add_argument("--power-cycle-id")
+    parser.add_argument("--mount-session-id")
+    parser.add_argument("--condition", choices=("normal", "pseudo"))
+    parser.add_argument("--dataset-role", choices=("training-candidate",
+                        "validation-candidate", "heldout-locked"))
+    parser.add_argument("--baseline-window-start", type=int, default=1)
+    parser.add_argument("--baseline-window-count", type=int)
     return parser
 
 
@@ -85,10 +97,54 @@ def run(args: argparse.Namespace) -> dict:
     commands = {str(row["command"]) for row in rows}
     if commands != {args.command}:
         raise DatasetError(f"command mismatch: CSV has {sorted(commands)}")
+    capture_contract = getattr(args, "capture_contract", "raw-v1")
+    capture_context = None
+    if capture_contract == "baseline-relative-v2":
+        required = {
+            "fat_type": getattr(args, "fat_type", None),
+            "allocation_unit": getattr(args, "allocation_unit", None),
+            "power_cycle_id": getattr(args, "power_cycle_id", None),
+            "mount_session_id": getattr(args, "mount_session_id", None),
+            "condition": getattr(args, "condition", None),
+            "dataset_role": getattr(args, "dataset_role", None),
+            "baseline_window_count": getattr(args, "baseline_window_count", None),
+        }
+        missing = sorted(name for name, value in required.items()
+                         if value is None or value == "")
+        if args.card_id == "unspecified":
+            missing.append("card_id")
+        if missing:
+            raise DatasetError("baseline-relative-v2 capture metadata missing: " +
+                               ",".join(missing))
+        allocation_unit = int(required["allocation_unit"])
+        baseline_start = int(getattr(args, "baseline_window_start", 1))
+        baseline_count = int(required["baseline_window_count"])
+        if allocation_unit <= 0 or allocation_unit & (allocation_unit - 1):
+            raise DatasetError("allocation_unit must be a positive power of two")
+        if baseline_start <= 0 or baseline_count <= 0 or \
+                baseline_start + baseline_count - 1 > len(rows):
+            raise DatasetError("baseline window range is outside captured rows")
+        capture_context = {
+            "contract": "baseline-relative-v2",
+            "operator_card_id": args.card_id,
+            "capture_session_id": args.session_id,
+            "fat_type": str(required["fat_type"]),
+            "allocation_unit_bytes": allocation_unit,
+            "power_cycle_id": str(required["power_cycle_id"]),
+            "mount_session_id": str(required["mount_session_id"]),
+            "condition": str(required["condition"]),
+            "dataset_role": str(required["dataset_role"]),
+            "baseline_windows": {
+                "first_sequence": baseline_start,
+                "count": baseline_count,
+            },
+        }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_dataset(args.output, rows)
     manifest = {
-        "format": "mtfs-sentinel-dataset-manifest-v1",
+        "format": ("mtfs-sentinel-dataset-manifest-v2"
+                   if capture_context is not None else
+                   "mtfs-sentinel-dataset-manifest-v1"),
         "tool_version": TOOL_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "session_id": args.session_id,
@@ -107,6 +163,8 @@ def run(args: argparse.Namespace) -> dict:
         "dataset_sha256": sha256_file(args.output),
         "feature_schema_canonical_sha256": schema_canonical_hash(),
     }
+    if capture_context is not None:
+        manifest["capture_context"] = capture_context
     with manifest_path(args.output).open("x", encoding="utf-8") as output:
         output.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest

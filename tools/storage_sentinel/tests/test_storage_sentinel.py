@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from collect import run as collect_run
+from baseline_v2 import (median_baseline, relative_vector, scale_relative)
 from dataset import (Dataset, assert_same_profile, card_identity, load_dataset,
                      manifest_path, sha256_file, write_dataset)
 from model import train_autoencoder
@@ -192,6 +193,55 @@ class CollectorTests(unittest.TestCase):
             self.assertTrue(manifest_path(output).exists())
             with self.assertRaisesRegex(DatasetError, "refusing overwrite"):
                 collect_run(args)
+
+    def test_baseline_v2_capture_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "uart.log"
+            output = root / "session.csv"
+            rows = [valid_row(index) for index in range(1, 9)]
+            source.write_text(csv_text(rows), encoding="utf-8")
+            args = argparse.Namespace(input=source, serial_port=None, baud=115200,
+                output=output, session_id="ra-card-a-normal-01", card_id="card-a",
+                target_name="EK-RA8P1", transport_name="SPI",
+                firmware_commit="abc", command="record", expected_rows=8,
+                partial=False, capture_contract="baseline-relative-v2",
+                fat_type="FAT32", allocation_unit=4096,
+                power_cycle_id="power-01", mount_session_id="mount-01",
+                condition="normal", dataset_role="training-candidate",
+                baseline_window_start=1, baseline_window_count=8)
+            manifest = collect_run(args)
+            self.assertEqual(manifest["format"],
+                             "mtfs-sentinel-dataset-manifest-v2")
+            self.assertEqual(manifest["capture_context"]["allocation_unit_bytes"],
+                             4096)
+            self.assertEqual(manifest["capture_context"]["baseline_windows"],
+                             {"first_sequence": 1, "count": 8})
+
+
+class BaselineV2Tests(unittest.TestCase):
+    def test_median_relative_scaling_and_ood(self):
+        vectors = [[100 + sample] * 24 for sample in range(8)]
+        vectors[0] = [10000] * 24
+        baseline = median_baseline(vectors, 8)
+        self.assertEqual(baseline, [105] * 24)
+        raw = baseline.copy()
+        raw[0] = 116
+        raw[1] = 97
+        relative = relative_vector(raw, baseline, (1, 1, 1))
+        self.assertEqual(relative[0], 105)
+        self.assertEqual(relative[1], -8)
+        scaled, mask, ood = scale_relative(relative, [16] * 24,
+                                            (1 << 24) - 1, 0)
+        self.assertEqual(scaled[:2], [105, -8])
+        self.assertEqual(mask, 0)
+        self.assertFalse(ood)
+        relative[0] = 1000000
+        scaled, mask, ood = scale_relative(relative, [16] * 24,
+                                            (1 << 24) - 1, 0)
+        self.assertEqual(scaled[0], 127)
+        self.assertEqual(mask, 1)
+        self.assertTrue(ood)
 
 
 class ModelTests(unittest.TestCase):

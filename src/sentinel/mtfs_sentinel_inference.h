@@ -10,12 +10,13 @@
 #include <stdint.h>
 #include "../mtfs_error.h"
 #include "mtfs_sentinel.h"
+#include "mtfs_sentinel_baseline.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define MTFS_SENTINEL_INFERENCE_API_VERSION (UINT16_C(2))
+#define MTFS_SENTINEL_INFERENCE_API_VERSION (UINT16_C(3))
 #define MTFS_SENTINEL_BUNDLE_VERSION (UINT16_C(1))
 #define MTFS_SENTINEL_BUNDLE_HEADER_SIZE (32U)
 #define MTFS_SENTINEL_BUNDLE_DIRECTORY_ENTRY_SIZE (32U)
@@ -44,6 +45,7 @@ extern "C" {
 #define MTFS_SENTINEL_SECTION_NORMALIZATION (UINT16_C(2))
 #define MTFS_SENTINEL_SECTION_DECISION (UINT16_C(3))
 #define MTFS_SENTINEL_SECTION_PROVENANCE (UINT16_C(4))
+#define MTFS_SENTINEL_SECTION_PREPROCESSING (UINT16_C(5))
 #define MTFS_SENTINEL_SECTION_CPU_INT8_RUNTIME (UINT16_C(0x0100))
 #define MTFS_SENTINEL_SECTION_NPU_RUNTIME (UINT16_C(0x0101))
 
@@ -140,6 +142,9 @@ typedef struct mtfs_sentinel_bundle
     uint32_t runtime_count;
     uint64_t threshold_q8;
     mtfs_sentinel_normalization_t normalization;
+    mtfs_sentinel_baseline_policy_t preprocessing;
+    uint8_t preprocessing_present;
+    uint8_t reserved[3];
     const uint8_t *cpu_runtime;
     uint32_t cpu_runtime_size;
     /* Opaque metadata. Embedded code does not parse JSON or recompute SHA-256. */

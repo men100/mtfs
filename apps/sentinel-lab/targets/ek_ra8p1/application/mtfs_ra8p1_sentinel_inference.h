@@ -7,6 +7,7 @@
 #include "mtfs_sentinel.h"
 #if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
 #include "mtfs_sentinel_inference.h"
+#include "../../../application/mtfs_sentinel_monitor.h"
 #endif
 
 #ifdef __cplusplus
@@ -34,7 +35,10 @@ int mtfs_ra8p1_sentinel_inference_vector_run(
 mtfs_error_t mtfs_ra8p1_sentinel_monitor_open(void *media,
     uint64_t *threshold_q8);
 mtfs_error_t mtfs_ra8p1_sentinel_monitor_normalize(void *media,
-    const mtfs_sentinel_feature_v1_t *feature, int8_t input_q4[24]);
+    const mtfs_sentinel_feature_v1_t *feature, uint8_t injection_active,
+    int8_t input_q4[24]);
+void mtfs_ra8p1_sentinel_monitor_preprocessing_status(void *media,
+    mtfs_sentinel_monitor_preprocessing_status_t *status);
 mtfs_error_t mtfs_ra8p1_sentinel_monitor_npu_infer(void *media,
     const int8_t input_q4[24], int8_t output_q4[24],
     mtfs_sentinel_inference_result_t *result, uint32_t *latency_us);

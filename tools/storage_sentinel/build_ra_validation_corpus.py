@@ -7,10 +7,16 @@ import json
 import struct
 from pathlib import Path
 
+import numpy as np
+
+from baseline_v2 import q4_dataset
 from build_canonical_int8 import golden_rows, write_new
 from bundle import _artifact_files, _higher
 from canonical_int8 import (deserialize_cpu_model, extract_tflite,
-                            rational_scale, serialize_cpu_model)
+                            rational_scale, requantize_int8_to_q4,
+                            requantize_q4_to_int8, serialize_cpu_model,
+                            tflite_reference)
+from dataset import load_dataset, sha256_file
 from schema import canonical_json_bytes
 
 
@@ -19,6 +25,103 @@ VERSION = 1
 HEADER_SIZE = 192
 RECORD_SIZE = 128
 FEATURE_COUNT = 24
+CORPUS_RECORDS = 200
+
+
+def _score(input_q4: np.ndarray, output_q4: np.ndarray) -> int:
+    difference = input_q4.astype(np.int16) - output_q4.astype(np.int16)
+    return (sum(int(value) * int(value) for value in difference) + 12) // 24
+
+
+def _select_evenly(rows: list[dict], count: int = CORPUS_RECORDS) -> list[dict]:
+    if len(rows) < count:
+        raise ValueError(f"baseline-relative corpus needs at least {count} vectors")
+    if count == 1:
+        return [rows[0]]
+    return [rows[(index * (len(rows) - 1)) // (count - 1)]
+            for index in range(count)]
+
+
+def _baseline_v2_rows(artifact: Path, files: dict[str, dict],
+                      canonical_path: Path, split: str,
+                      supplied_paths: list[Path] | None) -> tuple[
+                          list[dict], str, str, int, list[dict]]:
+    manifest = files["training_manifest.json"]
+    policy = files.get("preprocessing.json")
+    if not isinstance(policy, dict) or policy.get("preprocessing_contract_version") != 2:
+        raise ValueError("baseline-relative preprocessing v2 artifact required")
+    if split == "validation":
+        entries = list(manifest.get("validation_sessions", [])) + list(
+            manifest.get("validation_pseudo_sessions", []))
+        paths = [Path(entry["path"]) for entry in entries]
+        expected_role = "validation-candidate"
+    else:
+        if not supplied_paths:
+            raise ValueError("baseline-relative held-out build requires --dataset")
+        paths = list(supplied_paths)
+        entries = []
+        expected_role = "heldout-locked"
+    datasets = []
+    identities = []
+    q4_values: list[np.ndarray] = []
+    source_rows: list[dict] = []
+    conditions: list[str] = []
+    for index, path in enumerate(paths):
+        dataset = load_dataset(path.resolve())
+        context = dataset.manifest.get("capture_context", {})
+        condition = str(context.get("condition", ""))
+        if context.get("dataset_role") != expected_role or condition not in {
+                "normal", "pseudo"}:
+            raise ValueError(f"dataset split mismatch: {path}")
+        if split == "validation":
+            expected = entries[index]
+            if dataset.session_id != expected.get("session_id") or \
+                    sha256_file(path) != expected.get("dataset_sha256"):
+                raise ValueError(f"validation dataset identity mismatch: {path}")
+        values, rows, _ = q4_dataset(dataset, policy)
+        q4_values.extend(np.asarray(row, dtype=np.int8) for row in values)
+        source_rows.extend(rows)
+        conditions.extend([condition] * len(values))
+        identities.append({
+            "session_id": dataset.session_id,
+            "condition": condition,
+            "dataset_sha256": sha256_file(path),
+            "source_sha256": dataset.manifest.get("source_sha256"),
+        })
+        datasets.append(dataset)
+    card_ids = {dataset.card_id for dataset in datasets}
+    if len(card_ids) != 1:
+        raise ValueError("corpus split must contain exactly one physical card")
+    canonical = extract_tflite(canonical_path)
+    cpu = deserialize_cpu_model(serialize_cpu_model(canonical))
+    vendor_inputs = np.asarray([[requantize_q4_to_int8(
+        int(value), canonical.input_scale, canonical.input_zero_point)
+        for value in row] for row in q4_values], dtype=np.int8)
+    reference = tflite_reference(canonical_path, vendor_inputs)
+    rows = []
+    normal_scores = []
+    for input_q4, vendor_input, expected_raw, source, condition in zip(
+            q4_values, vendor_inputs, reference, source_rows, conditions):
+        actual_raw = cpu.infer_raw(vendor_input)
+        if not np.array_equal(actual_raw, expected_raw):
+            raise ValueError("canonical CPU/TFLite raw int8 mismatch")
+        output_q4 = np.asarray([requantize_int8_to_q4(
+            int(value), canonical.output_scale, canonical.output_zero_point)
+            for value in expected_raw], dtype=np.int8)
+        score = _score(input_q4, output_q4)
+        if condition == "normal":
+            normal_scores.append(score)
+        rows.append({
+            "sequence": int(source["sequence"]),
+            "common_q4_input": input_q4.astype(int).tolist(),
+            "tflite_int8_input": vendor_input.astype(int).tolist(),
+            "tflite_raw_int8_output": expected_raw.astype(int).tolist(),
+            "common_q4_reconstruction": output_q4.astype(int).tolist(),
+            "score_q8": score,
+        })
+    identity_hash = hashlib.sha256(canonical_json_bytes(identities)).hexdigest()
+    return (_select_evenly(rows), identity_hash, f"set:{identity_hash}",
+            int(_higher(normal_scores)), identities)
 
 
 def _dataset_path(artifact: Path, files: dict[str, dict],
@@ -58,22 +161,33 @@ def _dataset_path(artifact: Path, files: dict[str, dict],
 
 def build(artifact: Path, canonical_path: Path,
           optimized_path: Path, split: str = "validation",
-          frozen_threshold_q8: int | None = None) -> tuple[bytes, dict]:
+          frozen_threshold_q8: int | None = None,
+          dataset_paths: list[Path] | None = None) -> tuple[bytes, dict]:
     if split not in {"validation", "held-out"}:
         raise ValueError("split must be validation or held-out")
     files = _artifact_files(artifact)
-    dataset_path, dataset_hash, session_id = _dataset_path(artifact, files,
-                                                           split)
     canonical = extract_tflite(canonical_path)
     cpu = deserialize_cpu_model(serialize_cpu_model(canonical))
-    row_role = "validation" if split == "validation" else "held-out-test"
-    rows = golden_rows(dataset_path, row_role,
-                       files["normalization.json"], canonical_path,
-                       canonical, cpu)
+    is_baseline_v2 = files.get("preprocessing.json", {}).get(
+        "preprocessing_contract_version") == 2
+    dataset_identities = None
+    computed_threshold = None
+    if is_baseline_v2:
+        rows, dataset_hash, session_id, computed_threshold, dataset_identities = \
+            _baseline_v2_rows(artifact, files, canonical_path, split,
+                              dataset_paths)
+    else:
+        dataset_path, dataset_hash, session_id = _dataset_path(artifact, files,
+                                                               split)
+        row_role = "validation" if split == "validation" else "held-out-test"
+        rows = golden_rows(dataset_path, row_role,
+                           files["normalization.json"], canonical_path,
+                           canonical, cpu)
     if not rows or len(rows) > 0xffffffff:
         raise ValueError(f"{split} corpus is empty or too large")
     if split == "validation":
-        threshold = int(_higher([row["score_q8"] for row in rows]))
+        threshold = (computed_threshold if computed_threshold is not None else
+                     int(_higher([row["score_q8"] for row in rows])))
         if frozen_threshold_q8 is not None and threshold != frozen_threshold_q8:
             raise ValueError("validation threshold does not match frozen value")
     else:
@@ -129,6 +243,9 @@ def build(artifact: Path, canonical_path: Path,
         "corpus_sha256": hashlib.sha256(corpus).hexdigest(),
         "cpu_canonical_tflite_bit_exact": True,
     }
+    if dataset_identities is not None:
+        report["dataset_identity_kind"] = "canonical-session-set-sha256"
+        report["datasets"] = dataset_identities
     if split == "validation":
         report["validation_session"] = session_id
         report["validation_dataset_sha256"] = dataset_hash
@@ -156,11 +273,13 @@ def main() -> int:
     parser.add_argument("--split", choices=("validation", "held-out"),
                         default="validation")
     parser.add_argument("--frozen-threshold-q8", type=int)
+    parser.add_argument("--dataset", action="append", type=Path,
+                        help="held-out baseline-relative dataset (repeatable)")
     args = parser.parse_args()
     corpus, report = build(args.artifact.resolve(),
                            args.canonical_tflite.resolve(),
                            args.optimized_tflite.resolve(), args.split,
-                           args.frozen_threshold_q8)
+                           args.frozen_threshold_q8, args.dataset)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_new(args.output.resolve(), corpus)
     write_new(args.output.with_suffix(args.output.suffix + ".json").resolve(),

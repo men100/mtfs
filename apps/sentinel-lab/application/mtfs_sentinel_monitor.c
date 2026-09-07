@@ -99,10 +99,23 @@ static const char *state_name(mtfs_sentinel_monitor_state_t state)
 {
     static const char *const names[] = {
         "NORMAL", "ANOMALY", "NO_MEDIA", "NOT_READY", "DISCONTINUITY",
-        "INSUFFICIENT", "INVALID", "BLOCK_ERROR", "INFERENCE_ERROR"
+        "INSUFFICIENT", "INVALID", "BLOCK_ERROR", "INFERENCE_ERROR",
+        "WARMUP", "OOD"
     };
-    return state <= MTFS_SENTINEL_MONITOR_STATE_INFERENCE_ERROR ?
+    return state <= MTFS_SENTINEL_MONITOR_STATE_OUT_OF_DISTRIBUTION ?
         names[state] : "INVALID";
+}
+
+static void read_preprocessing_status(mtfs_sentinel_monitor_t *monitor,
+    mtfs_sentinel_monitor_result_t *result)
+{
+    mtfs_sentinel_monitor_preprocessing_status_t status;
+    (void)memset(&status, 0, sizeof(status));
+    if (monitor->ops->preprocessing_status != NULL)
+        monitor->ops->preprocessing_status(monitor->provider_context, &status);
+    result->baseline_progress = status.baseline_progress;
+    result->baseline_required = status.baseline_required;
+    result->saturation_mask = status.saturation_mask;
 }
 
 static int has_storage_error(const mtfs_sentinel_feature_v1_t *feature)
@@ -227,6 +240,23 @@ mtfs_error_t mtfs_sentinel_monitor_evaluate(mtfs_sentinel_monitor_t *monitor,
 
     status = monitor->ops->normalize(monitor->provider_context,
         &input->window.feature, normalized);
+    read_preprocessing_status(monitor, result);
+    if (status == MTFS_ERROR_NOT_READY) {
+        result->state = MTFS_SENTINEL_MONITOR_STATE_WARMUP;
+        result->source = MTFS_SENTINEL_MONITOR_SOURCE_RULE;
+        result->inference_status = status;
+        ++monitor->diagnostics.rule_decisions;
+        ++monitor->diagnostics.warmup_windows;
+        goto complete;
+    }
+    if (status == MTFS_ERROR_OUT_OF_RANGE) {
+        result->state = MTFS_SENTINEL_MONITOR_STATE_OUT_OF_DISTRIBUTION;
+        result->source = MTFS_SENTINEL_MONITOR_SOURCE_RULE;
+        result->inference_status = status;
+        ++monitor->diagnostics.rule_decisions;
+        ++monitor->diagnostics.out_of_distribution;
+        goto complete;
+    }
     if (status != MTFS_OK) {
         result->state = MTFS_SENTINEL_MONITOR_STATE_INFERENCE_ERROR;
         result->source = MTFS_SENTINEL_MONITOR_SOURCE_RULE;
@@ -347,6 +377,11 @@ mtfs_error_t mtfs_sentinel_monitor_format_line(char *buffer, size_t capacity,
         source_name(result->source));
     writer_text(&writer, " cpu-arb="); writer_u64(&writer,
         result->cpu_arbitrated);
+    writer_text(&writer, " baseline="); writer_u64(&writer,
+        result->baseline_progress); writer_char(&writer, '/');
+    writer_u64(&writer, result->baseline_required);
+    writer_text(&writer, " saturation-mask="); writer_hex64(&writer,
+        result->saturation_mask);
     writer_text(&writer, " infer="); writer_i32(&writer,
         result->inference_status);
     writer_text(&writer, " latency-us="); writer_u64(&writer,
@@ -366,7 +401,7 @@ mtfs_error_t mtfs_sentinel_monitor_format_line(char *buffer, size_t capacity,
 static void write_stage_summary(const mtfs_sentinel_monitor_run_config_t *c,
     uint32_t stage, uint32_t count, uint64_t representative,
     const uint32_t sources[4], uint32_t anomaly, uint32_t normal,
-    uint32_t ambiguous, uint32_t failed)
+    uint32_t ambiguous, uint32_t ood, uint32_t failed)
 {
     char line[320];
     monitor_writer_t writer;
@@ -380,6 +415,7 @@ static void write_stage_summary(const mtfs_sentinel_monitor_run_config_t *c,
     writer_text(&writer, " normal="); writer_u64(&writer, normal);
     writer_text(&writer, " anomaly="); writer_u64(&writer, anomaly);
     writer_text(&writer, " ambiguous="); writer_u64(&writer, ambiguous);
+    writer_text(&writer, " ood="); writer_u64(&writer, ood);
     writer_text(&writer, " rule="); writer_u64(&writer,
         sources[MTFS_SENTINEL_MONITOR_SOURCE_RULE]);
     writer_text(&writer, " npu="); writer_u64(&writer,
@@ -400,6 +436,7 @@ int mtfs_sentinel_monitor_run(mtfs_sentinel_monitor_t *monitor,
     mtfs_sentinel_monitor_result_t result;
     uint32_t stage;
     uint32_t index;
+    uint32_t warmup_complete = 0U;
     int failed = 0;
     char line[512];
     mtfs_error_t status;
@@ -407,6 +444,7 @@ int mtfs_sentinel_monitor_run(mtfs_sentinel_monitor_t *monitor,
     if (monitor == NULL || config == NULL || config->provider_ops == NULL ||
         config->acquire == NULL || config->write == NULL ||
         config->stage_count == 0U || config->maximum_q4_error > 255U ||
+        config->warmup_samples > 1024U ||
         (config->samples_per_stage == 0U && config->stage_count != 1U))
         return 1;
     status = mtfs_sentinel_monitor_open(monitor, config->provider_ops,
@@ -420,9 +458,40 @@ int mtfs_sentinel_monitor_run(mtfs_sentinel_monitor_t *monitor,
         if (writer.overflow == 0U) config->write(config->context, open_line);
         return 1;
     }
+    for (index = 0U; !failed && warmup_complete == 0U &&
+            index < config->warmup_samples * 4U; ++index) {
+        (void)memset(&input, 0, sizeof(input));
+        status = config->acquire(config->context, UINT32_MAX, index, &input);
+        if (status != MTFS_OK) { failed = 1; break; }
+        status = mtfs_sentinel_monitor_evaluate(monitor, &input, &result);
+        if (status != MTFS_OK ||
+            result.state == MTFS_SENTINEL_MONITOR_STATE_INFERENCE_ERROR)
+            failed = 1;
+        if (result.state == MTFS_SENTINEL_MONITOR_STATE_WARMUP &&
+            result.baseline_required == config->warmup_samples &&
+            result.baseline_progress == result.baseline_required)
+            warmup_complete = 1U;
+        if (mtfs_sentinel_monitor_format_line(line, sizeof(line), &input,
+                &result) != MTFS_OK) failed = 1;
+        else config->write(config->context, line);
+    }
+    if (config->warmup_samples != 0U) {
+        monitor_writer_t writer;
+        if (warmup_complete == 0U) failed = 1;
+        writer_init(&writer, line, sizeof(line));
+        writer_text(&writer, "[MON-WARMUP] attempts=");
+        writer_u64(&writer, index);
+        writer_text(&writer, " required=");
+        writer_u64(&writer, config->warmup_samples);
+        writer_text(&writer, " status=");
+        writer_text(&writer, failed == 0 && warmup_complete != 0U ?
+            "READY" : "FAIL");
+        writer_text(&writer, "\r\n");
+        if (writer.overflow == 0U) config->write(config->context, line);
+    }
     for (stage = 0U; !failed && stage < config->stage_count; ++stage) {
         uint32_t sources[4] = {0U, 0U, 0U, 0U};
-        uint32_t anomaly = 0U, normal = 0U, ambiguous = 0U;
+        uint32_t anomaly = 0U, normal = 0U, ambiguous = 0U, ood = 0U;
         uint32_t stage_failed = 0U;
         uint64_t representative = 0U;
         uint32_t count = 0U;
@@ -444,6 +513,8 @@ int mtfs_sentinel_monitor_run(mtfs_sentinel_monitor_t *monitor,
                 ++sources[result.source];
             if (result.state == MTFS_SENTINEL_MONITOR_STATE_ANOMALY) ++anomaly;
             if (result.state == MTFS_SENTINEL_MONITOR_STATE_NORMAL) ++normal;
+            if (result.state ==
+                    MTFS_SENTINEL_MONITOR_STATE_OUT_OF_DISTRIBUTION) ++ood;
             if (result.cpu_arbitrated != 0U) ++ambiguous;
             if (result.state == MTFS_SENTINEL_MONITOR_STATE_INFERENCE_ERROR) {
                 ++stage_failed;
@@ -456,7 +527,7 @@ int mtfs_sentinel_monitor_run(mtfs_sentinel_monitor_t *monitor,
         if (config->stage_end != NULL &&
             config->stage_end(config->context, stage) != MTFS_OK) failed = 1;
         write_stage_summary(config, stage, count, representative, sources,
-            anomaly, normal, ambiguous, stage_failed);
+            anomaly, normal, ambiguous, ood, stage_failed);
     }
     if (mtfs_sentinel_monitor_close(monitor) != MTFS_OK) failed = 1;
     return failed;

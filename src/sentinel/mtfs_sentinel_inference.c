@@ -8,6 +8,7 @@
 #define COMPATIBILITY_SIZE (128U)
 #define NORMALIZATION_SIZE (304U)
 #define DECISION_SIZE (32U)
+#define PREPROCESSING_SIZE (128U)
 #define BUNDLE_MODEL_FORMAT (UINT32_C(0x534e5431))
 #define BUNDLE_ACCELERATOR_CPU (UINT32_C(0x43505520))
 #define SCHEMA_ID_SIZE (33U)
@@ -160,6 +161,7 @@ static int known_section(uint16_t type)
         type == MTFS_SENTINEL_SECTION_NORMALIZATION ||
         type == MTFS_SENTINEL_SECTION_DECISION ||
         type == MTFS_SENTINEL_SECTION_PROVENANCE ||
+        type == MTFS_SENTINEL_SECTION_PREPROCESSING ||
         type == MTFS_SENTINEL_SECTION_CPU_INT8_RUNTIME ||
         type == MTFS_SENTINEL_SECTION_NPU_RUNTIME;
 }
@@ -338,6 +340,7 @@ mtfs_error_t mtfs_sentinel_bundle_parse(const void *input, size_t input_size,
     uint16_t count, i;
     unsigned compatibility_count = 0U, normalization_count = 0U;
     unsigned decision_count = 0U, provenance_count = 0U, cpu_count = 0U;
+    unsigned preprocessing_count = 0U;
     unsigned npu_count = 0U;
     uint32_t runtime_providers[MTFS_SENTINEL_BUNDLE_MAX_RUNTIMES] = {0U, 0U};
     const uint8_t *canonical_model_hash = NULL;
@@ -401,7 +404,8 @@ mtfs_error_t mtfs_sentinel_bundle_parse(const void *input, size_t input_size,
         if ((type == MTFS_SENTINEL_SECTION_COMPATIBILITY ||
              type == MTFS_SENTINEL_SECTION_NORMALIZATION ||
              type == MTFS_SENTINEL_SECTION_DECISION ||
-             type == MTFS_SENTINEL_SECTION_PROVENANCE) &&
+             type == MTFS_SENTINEL_SECTION_PROVENANCE ||
+             type == MTFS_SENTINEL_SECTION_PREPROCESSING) &&
             (flags & MTFS_SENTINEL_SECTION_FLAG_REQUIRED) == 0U)
             return MTFS_ERROR_MALFORMED_FORMAT;
         if (type == MTFS_SENTINEL_SECTION_COMPATIBILITY) {
@@ -460,6 +464,46 @@ mtfs_error_t mtfs_sentinel_bundle_parse(const void *input, size_t input_size,
             ++provenance_count;
             parsed.provenance = bytes + offset;
             parsed.provenance_size = length;
+        } else if (type == MTFS_SENTINEL_SECTION_PREPROCESSING) {
+            uint32_t n;
+            ++preprocessing_count;
+            if (preprocessing_count != 1U || provider != 0U ||
+                length != PREPROCESSING_SIZE || le16(bytes + offset) != 2U ||
+                le16(bytes + offset + 2U) != 24U ||
+                (le16(bytes + offset + 4U) != 8U &&
+                 le16(bytes + offset + 4U) != 16U &&
+                 le16(bytes + offset + 4U) != 32U) ||
+                le16(bytes + offset + 6U) != 1U ||
+                le32(bytes + offset + 8U) == 0U ||
+                (le32(bytes + offset + 8U) & UINT32_C(0xff000000)) != 0U ||
+                bytes[offset + 12U] > 24U || bytes[offset + 13U] != 1U ||
+                le16(bytes + offset + 14U) != 0U ||
+                !all_zero(bytes + offset + 124U, 4U))
+                return MTFS_ERROR_UNSUPPORTED_FORMAT;
+            parsed.preprocessing.api_version =
+                MTFS_SENTINEL_BASELINE_API_VERSION;
+            parsed.preprocessing.struct_size =
+                (uint16_t)sizeof(parsed.preprocessing);
+            parsed.preprocessing.preprocessing_version = 2U;
+            parsed.preprocessing.warmup_windows = le16(bytes + offset + 4U);
+            parsed.preprocessing.active_feature_mask = le32(bytes + offset + 8U);
+            parsed.preprocessing.maximum_saturated_features =
+                bytes[offset + 12U];
+            for (n = 0U; n < 3U; ++n) {
+                parsed.preprocessing.latency_baseline_floor[n] =
+                    le32(bytes + offset + 16U + n * 4U);
+                if (parsed.preprocessing.latency_baseline_floor[n] == 0U)
+                    return MTFS_ERROR_MALFORMED_FORMAT;
+            }
+            for (n = 0U; n < MTFS_SENTINEL_FEATURE_DIMENSION; ++n) {
+                parsed.preprocessing.relative_scale_floor[n] =
+                    le32(bytes + offset + 28U + n * 4U);
+                if ((parsed.preprocessing.active_feature_mask &
+                        (UINT32_C(1) << n)) != 0U &&
+                    parsed.preprocessing.relative_scale_floor[n] == 0U)
+                    return MTFS_ERROR_MALFORMED_FORMAT;
+            }
+            parsed.preprocessing_present = 1U;
         } else {
             uint32_t runtime_index;
             ++parsed.runtime_count;

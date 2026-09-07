@@ -12,10 +12,11 @@ import numpy as np
 from bundle import (ACCELERATOR_CPU_REFERENCE, MODEL_FORMAT_CPU_INT8_V1,
                     PROVIDER_CPU_REFERENCE, SECTION_COMPATIBILITY, SECTION_CPU,
                     SECTION_DECISION, SECTION_NORMALIZATION, SECTION_NPU,
-                    SECTION_PROVENANCE,
+                    SECTION_PREPROCESSING, SECTION_PROVENANCE,
                     SECTION_REQUIRED, BundleError, QuantizedModel, Section,
                     _assemble, _compatibility, _cpu_binary, _decision,
-                    _memory_plan, _normalization, _runtime_descriptor, atomic_write,
+                    _memory_plan, _normalization, _preprocessing,
+                    _runtime_descriptor, atomic_write,
                     fixed_normalize, inspect_bundle, parse_bundle, verify_bundle, _npu_runtime,
                     _npu_runtime_descriptor_v2, _validate_npu_acceptance,
                     REGION_EXECUTABLE_COPY,
@@ -329,6 +330,52 @@ class NumericContractTests(unittest.TestCase):
 
 
 class BundleParserTests(unittest.TestCase):
+    def test_baseline_relative_preprocessing_section(self):
+        parsed = parse_bundle(fixture_bundle())
+        fixed = [Section(section.type, section.flags, section.alignment,
+                         section.provider, section.payload, section.name)
+                 for section in parsed.sections
+                 if section.type != SECTION_PROVENANCE]
+        policy = {
+            "format": "mtfs-sentinel-baseline-relative-policy-v2",
+            "preprocessing_contract_version": 2,
+            "baseline_estimator": "per-feature-even-median-midpoint-round-up",
+            "latency_relative_transform":
+                "round-away((raw-baseline)*1000/max(baseline,floor))",
+            "share_relative_transform": "signed-raw-permille-difference",
+            "inactive_feature_encoding": 0,
+            "saturation_action": "OOD-RULE-safe-anomaly",
+            "warmup_windows": 32,
+            "active_feature_mask": 0x30d1,
+            "maximum_saturated_features": 0,
+            "latency_baseline_floor": [1, 1, 1],
+            "relative_scale_floor": [246, 0, 0, 0, 16, 0, 167, 8372] +
+                [0] * 4 + [900, 900] + [0] * 10,
+        }
+        fixed.insert(2, Section(SECTION_PREPROCESSING, SECTION_REQUIRED, 4, 0,
+                                _preprocessing(policy), "preprocessing"))
+        _, hashes = _assemble(fixed)
+        provenance = canonical_json_bytes({
+            "format": "mtfs-sentinel-provenance-v1",
+            "schema_canonical_sha256":
+                "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+            "section_sha256": hashes,
+            "preprocessing_contract": policy,
+            "test_vectors": {},
+        })
+        raw, _ = _assemble(fixed + [Section(SECTION_PROVENANCE,
+            SECTION_REQUIRED, 4, 0, provenance, "provenance")])
+        result = parse_bundle(raw)
+        self.assertEqual(result.preprocessing["warmup_windows"], 32)
+        self.assertEqual(result.preprocessing["active_feature_mask"], 0x30d1)
+
+        changed = bytearray(raw)
+        section = next(item for item in result.sections
+                       if item.type == SECTION_PREPROCESSING)
+        changed[section.offset + 127] = 1
+        with self.assertRaisesRegex(BundleError, "preprocessing"):
+            parse_bundle(bytes(changed))
+
     def test_valid_and_outer_identity(self):
         raw = fixture_bundle()
         parsed = parse_bundle(raw, 0x52413850, 0x53504920,

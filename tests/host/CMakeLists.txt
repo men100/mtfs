@@ -26,6 +26,7 @@ add_executable(mtfs_host_tests
     test_ra_sd_spi_deadline.c
     test_stm32_sdmmc_wait_policy.c
     test_sentinel.c
+    test_sentinel_baseline.c
     test_sentinel_inference.c
     test_sealed_reader_fatfs.c
     test_console.c
@@ -56,6 +57,7 @@ add_executable(mtfs_host_tests
     ../../src/ports/ra_fsp/sd_spi/mtfs_ra_sd_spi_deadline.c
     ../../src/ports/stm32_cube/crypto/mtfs_stm32_nor_key_store.c
     ../../src/sentinel/mtfs_sentinel.c
+    ../../src/sentinel/mtfs_sentinel_baseline.c
     ../../src/sentinel/mtfs_sentinel_inference.c
     ../../src/sentinel/mtfs_sentinel_npu_provider.c
     ../../src/sentinel/mtfs_sentinel_sha256.c
@@ -157,6 +159,7 @@ target_compile_options(mtfs_diagnostics_disabled_compile PRIVATE
 
 add_library(mtfs_sentinel_disabled_compile OBJECT
     ../../src/sentinel/mtfs_sentinel.c
+    ../../src/sentinel/mtfs_sentinel_baseline.c
     ../../src/sentinel/mtfs_sentinel_observer.c
     ../../src/sentinel/mtfs_sentinel_inference.c
 )

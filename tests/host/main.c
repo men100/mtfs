@@ -20,6 +20,7 @@
 #include "test_sealed_reader_fatfs.h"
 #include "test_sentinel.h"
 #include "test_sentinel_inference.h"
+#include "test_sentinel_baseline.h"
 #include "test_benchmark.h"
 #include "test_block_diagnostics.h"
 #include "test_console.h"
@@ -185,6 +186,9 @@ int main(void)
         goto cleanup;
     }
     if (test_sentinel_inference(&test) != 0) {
+        goto cleanup;
+    }
+    if (test_sentinel_baseline(&test) != 0) {
         goto cleanup;
     }
     if (!MTFS_TEST_CHECK(&test,
