@@ -421,6 +421,13 @@ static int run_monitor(uint32_t samples, uint32_t seed, int pseudo,
 
     if (hotplug != 0 && samples > UINT32_MAX - 35U) return 1;
 
+#if MTFS_SENTINEL_LAB_BUILD_RELEASE == 0
+    lab_console_write(NULL,
+        "# Debug classification is diagnostic/non-normative; "
+        "no classification PASS is asserted\r\n"
+        "# monitor exit status covers execution integrity only\r\n");
+#endif
+
     (void)memset(&context, 0, sizeof(context));
     (void)memset(&run_config, 0, sizeof(run_config));
     (void)memset(&lab_runtime, 0, sizeof(lab_runtime));
@@ -1021,6 +1028,9 @@ static void lab_task(INT start_code, void *context)
     tm_printf((UB *)"# target: EK-RA8P1\n");
     tm_printf((UB *)"# transport: SPI\n");
     tm_printf((UB *)"# build: %s\n", (UB *)LAB_BUILD_TYPE);
+#if MTFS_SENTINEL_LAB_BUILD_RELEASE == 0
+    tm_printf((UB *)"# classification quality: Debug diagnostic/non-normative; Release-only reference profile\n");
+#endif
 #if MTFS_ENABLE_STORAGE_SENTINEL
     tm_printf((UB *)"# feature schema: v%u\n", MTFS_SENTINEL_SCHEMA_VERSION);
     tm_printf((UB *)"# arithmetic: portable-u64-v3\n");
