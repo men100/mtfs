@@ -10,12 +10,27 @@ import make_no_key_trusted_header
 
 class DeploymentToolTests(unittest.TestCase):
     def test_no_key_wording_and_command(self) -> None:
-        args = argparse.Namespace(signing_tool=Path("vendor-tool"), overwrite=False,
-            input=Path("input.bin"), output=Path("output.bin"),
-            load_address="0x80000000", header_type="fsbl", header_version="2.3")
+        args = make_no_key_trusted_header.parser().parse_args([
+            "--signing-tool", "vendor-tool",
+            "--input", "input.bin",
+            "--output", "output.bin",
+        ])
         built = make_no_key_trusted_header.command(args)
         self.assertIn("-nk", built)
+        self.assertEqual(built[built.index("-of") + 1], "0x80000000")
+        self.assertNotIn("-la", built)
         self.assertNotIn("sign", make_no_key_trusted_header.__doc__.lower())
+
+    def test_explicit_load_address_uses_la(self) -> None:
+        args = make_no_key_trusted_header.parser().parse_args([
+            "--signing-tool", "vendor-tool",
+            "--input", "input.bin",
+            "--output", "output.bin",
+            "--load-address", "0x34180000",
+        ])
+        built = make_no_key_trusted_header.command(args)
+        self.assertEqual(built[built.index("-of") + 1], "0x80000000")
+        self.assertEqual(built[built.index("-la") + 1], "0x34180000")
 
     def test_flash_uses_caller_binary_and_address(self) -> None:
         args = argparse.Namespace(programmer=Path("programmer"),

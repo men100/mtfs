@@ -13,8 +13,10 @@ def command(args: argparse.Namespace) -> list[str]:
     result = [str(args.signing_tool)]
     if args.overwrite:
         result.append("-s")
-    result.extend(["-bin", str(args.input), "-nk", "-of", args.load_address,
-                   "-t", args.header_type, "-hv", args.header_version, "-align",
+    result.extend(["-bin", str(args.input), "-nk", "-of", args.option_flags])
+    if args.load_address is not None:
+        result.extend(["-la", args.load_address])
+    result.extend(["-t", args.header_type, "-hv", args.header_version, "-align",
                    "-o", str(args.output), "-dump", str(args.output)])
     return result
 
@@ -26,7 +28,10 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--input", required=True, type=Path,
                         help="caller-supplied FSBL or application binary")
     result.add_argument("--output", required=True, type=Path)
-    result.add_argument("--load-address", default="0x80000000")
+    result.add_argument("--option-flags", default="0x80000000",
+                        help="trusted-header option flags passed to -of")
+    result.add_argument("--load-address",
+                        help="optional explicit image load address passed to -la")
     result.add_argument("--header-type", default="fsbl")
     result.add_argument("--header-version", default="2.3")
     result.add_argument("--overwrite", action="store_true")
