@@ -26,8 +26,12 @@
     "origin": "generated from the project canonical TFLite"
   },
   "st_generated_material": {
+    "anonymous_public_distribution": "compliance_not_demonstrated",
+    "license": "SLA0104 Rev.1 (June 2024)",
+    "public_commit_decision": "do_not_commit_st_binaries",
     "public_files": false,
-    "reason": "ST SLA0104 redistribution permission is unresolved",
+    "reason": "SLA0104 permits conditional redistribution and STM32N6570-DK-only use satisfies Clause 4, but anonymous public GitHub distribution does not provide sufficient evidence of the Clause 10 customer-screening, contractual-flow-down, and redistribution-record requirements",
+    "redistribution": "conditionally_permitted",
     "scope": [
       "Neural-ART runtime",
       "bundle or SENTINEL.MTF containing the runtime",
