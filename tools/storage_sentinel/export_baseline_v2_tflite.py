@@ -52,6 +52,8 @@ def _verify_artifact(artifact: Path) -> dict:
 
 
 def run(args: argparse.Namespace) -> dict:
+    # Pin TensorFlow's host-side conversion behavior before importing it.
+    os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
     try:
         import tensorflow as tf
     except ImportError as error:
@@ -75,6 +77,7 @@ def run(args: argparse.Namespace) -> dict:
         raise DatasetError("invalid calibration q4 matrix")
     representative = (q4.astype(np.float32) / np.float32(16.0))
     tf.keras.utils.set_random_seed(int(training["seed"]))
+    tf.config.experimental.enable_op_determinism()
     inputs = tf.keras.Input(shape=(24,), batch_size=1, dtype=tf.float32,
                             name="sentinel_baseline_relative_input")
     value = inputs

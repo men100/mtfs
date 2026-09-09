@@ -1,6 +1,6 @@
 param(
-    [Parameter(Mandatory = $false)]
-    [string]$STEdgeAIRoot = 'C:\ST\STEdgeAI\4.0'
+    [Parameter(Mandatory = $true)]
+    [string]$STEdgeAIRoot
 )
 
 $ErrorActionPreference = 'Stop'

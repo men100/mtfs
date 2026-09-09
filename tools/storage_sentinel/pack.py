@@ -23,6 +23,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--profile-id", type=lambda value: int(value, 0))
     result.add_argument("--accelerator-id", type=lambda value: int(value, 0),
                         help="assert outer accelerator policy ID")
+    result.add_argument("--provenance-root", type=Path,
+                        help="source root used to neutralize legacy absolute dataset paths")
     return result
 
 
@@ -31,7 +33,8 @@ def main(argv: list[str] | None = None) -> int:
         args = parser().parse_args(argv)
         bundle, summary = build_bundle(args.artifact, not args.no_cpu,
             args.npu_binary, args.npu_manifest, args.profile_id,
-            args.accelerator_id, args.canonical_tflite, args.npu_acceptance)
+            args.accelerator_id, args.canonical_tflite, args.npu_acceptance,
+            args.provenance_root)
         parsed = parse_bundle(bundle, summary["target_id"], summary["transport_id"],
                               summary["accelerator_id"])
         verify_bundle(parsed)

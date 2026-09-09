@@ -502,7 +502,8 @@ def canonical_deployment_evaluation(files: dict[str, dict], artifact: Path,
 
 
 def baseline_v2_deployment_evaluation(files: dict[str, dict], artifact: Path,
-                                      model: CanonicalInt8Model) -> tuple[
+                                      model: CanonicalInt8Model,
+                                      provenance_root: Path | None = None) -> tuple[
                                           dict, int, dict]:
     manifest = files["training_manifest.json"]
     policy = files.get("preprocessing.json")
@@ -526,6 +527,8 @@ def baseline_v2_deployment_evaluation(files: dict[str, dict], artifact: Path,
             raise BundleError(f"missing baseline-relative {name}")
         for entry in entries:
             path = Path(entry.get("path", ""))
+            if not path.is_absolute() and provenance_root is not None:
+                path = provenance_root / path
             if not path.is_file() or sha256_file(path) != entry.get("dataset_sha256"):
                 raise BundleError(f"baseline-relative dataset identity mismatch: {path}")
             dataset = load_dataset(path)
@@ -1463,10 +1466,14 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
                  profile_id: int | None = None,
                  expected_accelerator: int | None = None,
                  canonical_tflite: Path | None = None,
-                 npu_acceptance: Path | None = None) -> tuple[bytes, dict]:
+                 npu_acceptance: Path | None = None,
+                 provenance_root: Path | None = None) -> tuple[bytes, dict]:
+    from provenance import assert_path_neutral_tree, neutralize_training_paths
     artifact = artifact.resolve()
     files = _artifact_files(artifact)
-    manifest = files["training_manifest.json"]
+    manifest = neutralize_training_paths(files["training_manifest.json"],
+                                         provenance_root)
+    files["training_manifest.json"] = manifest
     normalization = files["normalization.json"]
     target = _u32(int(manifest.get("target_id", 0)), "target_id")
     transport = _u32(int(manifest.get("transport_id", 0)), "transport_id")
@@ -1492,7 +1499,8 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
         preprocessing.get("preprocessing_contract_version") == 2
     if baseline_relative:
         evaluation, threshold, clear_vectors = baseline_v2_deployment_evaluation(
-            files, artifact, canonical_model)
+            files, artifact, canonical_model,
+            provenance_root.resolve() if provenance_root is not None else None)
     else:
         evaluation, threshold, clear_vectors = canonical_deployment_evaluation(
             files, artifact, canonical_model, normalization)
@@ -1631,6 +1639,7 @@ def build_bundle(artifact: Path, include_cpu: bool = True,
             "Secure deletion of the plaintext bundle is not guaranteed or automatic.",
         ],
     }
+    assert_path_neutral_tree(provenance)
     provenance_bytes = canonical_json_bytes(provenance)
     sections = fixed_sections + [Section(SECTION_PROVENANCE, SECTION_REQUIRED, 4,
                                          0, provenance_bytes, "provenance")]

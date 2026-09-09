@@ -11,6 +11,7 @@ import numpy as np
 from baseline_v2 import q4_dataset
 from dataset import load_dataset, sha256_file
 from model import train_candidates
+from provenance import relative_provenance_path
 from schema import DatasetError, feature_schema, schema_canonical_hash
 from version import TOOL_VERSION
 
@@ -69,10 +70,10 @@ def _prepare(datasets: list, policy: dict) -> tuple[np.ndarray, list[dict], list
     return matrix, rows, diagnostics
 
 
-def _entry(dataset) -> dict:
+def _entry(dataset, provenance_root: Path) -> dict:
     context = dataset.manifest["capture_context"]
     return {
-        "path": str(dataset.path.resolve()),
+        "path": relative_provenance_path(dataset.path, provenance_root),
         "session_id": dataset.session_id,
         "card_id": dataset.card_id,
         "condition": context["condition"],
@@ -91,6 +92,10 @@ def run(args: argparse.Namespace) -> dict:
     validation = _datasets(args.validation_normal, "validation-candidate", "normal")
     validation_pseudo = _datasets(args.validation_pseudo,
                                   "validation-candidate", "pseudo")
+    provenance_root = getattr(args, "provenance_root", None)
+    if provenance_root is None:
+        raise DatasetError(
+            "--provenance-root is required for path-neutral release artifacts")
     training_cards = {dataset.card_id for dataset in training}
     validation_cards = {dataset.card_id for dataset in validation + validation_pseudo}
     if not training_cards or len(validation_cards) != 1 or \
@@ -243,9 +248,9 @@ def run(args: argparse.Namespace) -> dict:
         "preprocessing_policy_sha256": policy["canonical_sha256"],
         "topology_policy": "common-fixed-24-12-4-12-24",
         "split_unit": "physical-card-and-session",
-        "train_sessions": [_entry(dataset) for dataset in training],
-        "validation_sessions": [_entry(dataset) for dataset in validation],
-        "validation_pseudo_sessions": [_entry(dataset)
+        "train_sessions": [_entry(dataset, provenance_root) for dataset in training],
+        "validation_sessions": [_entry(dataset, provenance_root) for dataset in validation],
+        "validation_pseudo_sessions": [_entry(dataset, provenance_root)
                                        for dataset in validation_pseudo],
         "heldout_sessions": [],
         "heldout_read": False,
@@ -313,6 +318,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--validation-pseudo", type=Path, action="append",
                         required=True)
     result.add_argument("--output-dir", type=Path, required=True)
+    result.add_argument("--provenance-root", type=Path, required=True,
+                        help="source root used for authenticated relative paths")
     result.add_argument("--seed", type=int, default=4303)
     result.add_argument("--epochs", type=int, default=200)
     result.add_argument("--threshold-quantile", type=float, default=0.95)

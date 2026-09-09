@@ -165,6 +165,8 @@ def main() -> None:
             for path in args.tool_path) + os.pathsep + environment.get("PATH", "")
     version = subprocess.run([str(args.stedgeai), "--version"], check=True,
         capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+    if re.search(r"ST Edge AI Core v4\.0\.1-", version) is None:
+        raise RuntimeError("ST Edge AI Core 4.0.1 is required")
     subprocess.run(command, check=True, env=environment)
     binary = generated / "network_rel.bin"
     reloc_json = generated / "network_generate_rel.json"
@@ -187,6 +189,10 @@ def main() -> None:
             binary_bytes.find(raw_bytes, params_offset + 1) >= 0:
         raise RuntimeError("cannot uniquely locate parameters in runtime binary")
     generated_info = json.loads(reloc_json.read_text(encoding="utf-8"))
+    compiler_version = generated_info.get("compiler", {}).get("version")
+    if not isinstance(compiler_version, dict) or tuple(compiler_version.get(key)
+            for key in ("major", "minor", "patch")) != (1, 1, 3):
+        raise RuntimeError("atonn 1.1.3 is required")
     descriptors = generated_info["reloc_binary_image"]["mempool_c_descriptors"]
     parameter_pools = [pool for pool in descriptors
         if pool["flags_desc"].startswith("COPY.PARAM.")]
