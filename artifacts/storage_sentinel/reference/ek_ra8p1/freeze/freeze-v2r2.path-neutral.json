@@ -1,0 +1,198 @@
+{
+  "acceptance_limits": {
+    "maximum_normal_false_warning_rate": 0.05,
+    "maximum_normal_ood_rate": 0.0,
+    "minimum_medium_safe_detection_rate": 0.5,
+    "minimum_recovery_normal_rate": 0.95,
+    "minimum_strong_safe_detection_rate": 0.7
+  },
+  "build_type": "Release",
+  "canonical_cpu_runtime_sha256": "8806205b82bf9421fb1a21914bd9424034da605effdcea9980c57d73799ce877",
+  "canonical_full_int8_tflite_sha256": "bfa7ec20dc2056707ffaea572cd3353a4287a6cec4aa44b24e6057379e2541a8",
+  "canonical_manifest_sha256": "2974505f86740abd53d0cfc6aabd26f40eddd0b0e18df1997df0e38806da8d83",
+  "canonical_validation_sha256": "25dc697fa02278f558e56ae717dc9135afca34c0b479c1034f3bd8dca715f964",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "format": "mtfs-sentinel-ra-baseline-relative-freeze-v2",
+  "heldout_gate": {
+    "card_id": "RA-CardD-SanDisk-16GB",
+    "permitted_use": "one evaluation under this exact freeze",
+    "policy_reselection": "forbidden"
+  },
+  "heldout_read": false,
+  "limitation": "A card already slow when its baseline is established cannot be classified as degraded from absolute speed alone.",
+  "numeric_contract": {
+    "maximum_common_q4_error": 0,
+    "maximum_cpu_npu_raw_int8_error": 0,
+    "maximum_cpu_tflite_raw_int8_error": 0,
+    "maximum_score_q8_error": 0,
+    "threshold_or_limit_changes_after_heldout": "forbidden"
+  },
+  "preprocessing_artifact_sha256": "9754e40557b95fce25387ccd8f84e423e3e0aab0caad6b1a9ae72c26a8624d10",
+  "preprocessing_contract_version": 2,
+  "preprocessing_policy_sha256": "0dddfc4756d600bccd3bd2706ab62313eff1778db563feb401c821f6dd14185d",
+  "source_float_model_sha256": "be3274a243dd29b48095edc078bba55d3b9e08c2483ed9bbba8a4b4e1040136f",
+  "status": "FROZEN-BEFORE-HELDOUT",
+  "target": "EK-RA8P1",
+  "threshold_q8": 0,
+  "threshold_selection": "normal-validation-p95-higher",
+  "training_artifact_index_sha256": "779aa59432da6ee643d717aeb24dd17b9ae45008c7f3089347a3ae327f44cd11",
+  "training_sessions": [
+    {
+      "card_id": "RA-CardA-Lexar-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "8eab5ba9fa3e8a54e2b35a283dd542b0882110bcc79867d1ef3e5a80338e46b4",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-01.csv",
+      "session_id": "ra-carda-normal-20260902-01",
+      "source_sha256": "1377d60fd076e3d20bf663da456f95a8c00bd41ca111c9bad636d3ed080ec1f3",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardA-Lexar-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "450209dbdd1086cf80a16b72129de8f9955b585a3e4f8e87aaa225673c2db21a",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-02.csv",
+      "session_id": "ra-carda-normal-20260902-02",
+      "source_sha256": "3671b1c1047d4edd5e598046d80fb181d6ce465427e0eff26941416bc500dc72",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardA-Lexar-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "10c6eb13d2df9b1d8d36d34dd84e496ff8a4c208d8b8f89b18a32a3d4bc69ffd",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-03.csv",
+      "session_id": "ra-carda-normal-20260902-03",
+      "source_sha256": "e343eac4981b4dc99957c02ef7bfc82e07b412d1407d1d0c29d0eab04c8fb0cb",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardB-Toshiba-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "675e6045c3199d98caa27a4d191be7d9971afc9471d67c92ef887b364bac03e4",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-b/ra-cardb-normal-01.csv",
+      "session_id": "ra-cardb-normal-20260906-01-r2",
+      "source_sha256": "af31639c16f85f0dcf41e69bbd02211294623f4a4612515522925242008edebe",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardB-Toshiba-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "376b914fa91d742469b06f97c59bb40a61e5487e4912df20a52535f82d983c7e",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-b/ra-cardb-normal-02.csv",
+      "session_id": "ra-cardb-normal-20260906-02-r2",
+      "source_sha256": "b73ed6065d0de20d1bbd03a146eaa27750ecebedd16d8862fbf74ef9816d7de0",
+      "usable_frames": 200
+    }
+  ],
+  "transport": "SPI",
+  "validation_pseudo_sessions": [
+    {
+      "card_id": "RA-CardC-Transcend-16GB",
+      "condition": "pseudo",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "270450ae697c2c905f954538cda015e82a6e5681452a432d3e4c6043baa477c3",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-pseudo-01.csv",
+      "session_id": "ra-cardc-pseudo-20260906-01-r2",
+      "source_sha256": "063d6de96a2278b09494447dc5d973b54d294684f03f8cc560929c40e116d94b",
+      "usable_frames": 200
+    }
+  ],
+  "validation_result": {
+    "normal": {
+      "false_warning_rate": 0.011904761904761904,
+      "false_warnings": 4,
+      "ood": 0,
+      "samples": 336,
+      "score_histogram": {
+        "0": 332,
+        "10": 1,
+        "22": 1,
+        "6": 1,
+        "9": 1
+      }
+    },
+    "pseudo": {
+      "baseline": {
+        "ai_anomaly": 0,
+        "ood": 0,
+        "safe_detection": 0,
+        "safe_detection_rate": 0.0,
+        "samples": 8,
+        "score_median_q8": 0.0,
+        "score_p95_q8": 0
+      },
+      "light": {
+        "ai_anomaly": 7,
+        "ood": 2,
+        "safe_detection": 9,
+        "safe_detection_rate": 0.225,
+        "samples": 40,
+        "score_median_q8": 0.0,
+        "score_p95_q8": 720
+      },
+      "medium": {
+        "ai_anomaly": 19,
+        "ood": 4,
+        "safe_detection": 23,
+        "safe_detection_rate": 0.575,
+        "samples": 40,
+        "score_median_q8": 40.0,
+        "score_p95_q8": 1039
+      },
+      "recovery": {
+        "ai_anomaly": 0,
+        "ood": 0,
+        "safe_detection": 0,
+        "safe_detection_rate": 0.0,
+        "samples": 40,
+        "score_median_q8": 0.0,
+        "score_p95_q8": 0
+      },
+      "strong": {
+        "ai_anomaly": 15,
+        "ood": 14,
+        "safe_detection": 29,
+        "safe_detection_rate": 0.725,
+        "samples": 40,
+        "score_median_q8": 231.0,
+        "score_p95_q8": 1444
+      }
+    },
+    "recovery_normal_rate": 1.0
+  },
+  "validation_sessions": [
+    {
+      "card_id": "RA-CardC-Transcend-16GB",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "4fdd65e4feecfa0b23dd9b533641b9216de9955223abcaf3d4ca17c65a61e6b6",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-normal-01.csv",
+      "session_id": "ra-cardc-normal-20260906-01-r2",
+      "source_sha256": "872920b2b0461c9c9f4d9fd292cca1bc581389317307a1475b9addf464b70997",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardC-Transcend-16GB",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "9fa1e8122d68442877b3ad0cfab59be254e92a205e2d57e4d47bb2a11920c507",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-normal-02.csv",
+      "session_id": "ra-cardc-normal-20260906-02-r2",
+      "source_sha256": "96bef3446788d2632847505626d2739e8b67b31c793eef948fecdaf533faa9ea",
+      "usable_frames": 200
+    }
+  ],
+  "vela_configuration": {
+    "accelerator_config": "ethos-u55-256",
+    "memory_mode": "Shared_Sram",
+    "optimise": "Performance",
+    "system_config": "Ethos_U55_High_End_Embedded"
+  },
+  "vela_manifest_sha256": "d588d1ec4f52ee7d84b257760d74d703710251f14adcb5c373bd9b3e8eaf343e",
+  "vela_optimized_tflite_sha256": "cacc6a87cb737dac257547dfb4f04db4fc74e61cd2190fb89c1688885ccd04a4",
+  "vela_version": "5.1.0"
+}

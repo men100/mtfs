@@ -1,0 +1,16 @@
+{
+  "build_type": "Release",
+  "epochs": 200,
+  "maximum_normal_false_warning_rate": 0.05,
+  "maximum_normal_ood_rate": 0.0,
+  "maximum_training_ood_rate": 0.0,
+  "minimum_medium_safe_detection_rate": 0.5,
+  "minimum_recovery_normal_rate": 0.95,
+  "minimum_strong_safe_detection_rate": 0.7,
+  "seed": 4303,
+  "target": "EK-RA8P1",
+  "target_id": 1380005968,
+  "threshold_quantile": 0.95,
+  "transport": "SPI",
+  "transport_id": 1397770528
+}

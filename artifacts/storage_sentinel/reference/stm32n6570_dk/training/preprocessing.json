@@ -1,0 +1,60 @@
+{
+  "active_feature_mask": 28913,
+  "baseline_estimator": "per-feature-even-median-midpoint-round-up",
+  "canonical_sha256": "ee7e2b1f3534f84a353d4bb7ed35276d7ca00baa9e85a2cf7bb61f3663035386",
+  "feature_schema_identity": "mtfs-storage-sentinel-model-input",
+  "format": "mtfs-sentinel-baseline-relative-policy-v2",
+  "inactive_feature_encoding": 0,
+  "latency_baseline_floor": [
+    1,
+    1,
+    1
+  ],
+  "latency_relative_transform": "round-away((raw-baseline)*1000/max(baseline,floor))",
+  "maximum_saturated_features": 0,
+  "preprocessing_contract_version": 2,
+  "ready_update_policy": "frozen-until-reset-or-generation-change",
+  "relative_scale_floor": [
+    64,
+    0,
+    0,
+    0,
+    16,
+    16,
+    16,
+    9098,
+    0,
+    0,
+    0,
+    0,
+    900,
+    900,
+    200,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "saturation_action": "OOD-RULE-safe-anomaly",
+  "selection_rule": {
+    "active": "validation pseudo medium-or-strong median absolute signal >= 16",
+    "ood": "any int8 saturation",
+    "scale": "max(16, maximum absolute validation-normal relative value)",
+    "warmup": "minimum sum of active-feature validation-normal p95 absolute relative values; largest wins tie"
+  },
+  "selection_scope": "validation-only",
+  "share_relative_transform": "signed-raw-permille-difference",
+  "training_card_ids": [
+    "st-card-a-lexarb-4gb",
+    "st-card-b-toshiba-4gb"
+  ],
+  "validation_card_ids": [
+    "st-card-c-lexara-4gb"
+  ],
+  "warmup_windows": 32
+}

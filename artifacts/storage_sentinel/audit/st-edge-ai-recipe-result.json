@@ -1,0 +1,12 @@
+{
+  "atonn_version": "1.1.3-275",
+  "canonical_tflite_sha256": "6f49ab9572c4c160e9b00da8f679144263417124929424dbd65d1269a43344b2",
+  "classification": "external proprietary tool required",
+  "generated_binary_publication": false,
+  "generated_runtime_sha256": "dfbe8918b53f6570b81d73b468a1ba6d78d9a250e4fb0c005e705d8f80140c6e",
+  "generated_runtime_size": 8760,
+  "matches_evaluated_runtime": true,
+  "relocation_profile": "test-int2",
+  "status": "PASS in private temporary output",
+  "stedgeai_version": "ST Edge AI Core 4.0.1-20581"
+}

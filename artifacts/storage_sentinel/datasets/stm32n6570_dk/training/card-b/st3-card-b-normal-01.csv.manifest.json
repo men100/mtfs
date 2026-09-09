@@ -1,0 +1,42 @@
+{
+  "build_type": "Release",
+  "capture_context": {
+    "allocation_unit_bytes": 4096,
+    "baseline_windows": {
+      "count": 32,
+      "first_sequence": 1
+    },
+    "capture_profile": "st-release-idma-v2",
+    "capture_session_id": "st3-card-b-normal-01",
+    "card_capacity": "4GB",
+    "card_manufacturer": "Toshiba",
+    "condition": "normal",
+    "contract": "baseline-relative-v2",
+    "dataset_role": "training-candidate",
+    "fat_type": "FAT32",
+    "mount_session_id": "st3-b-mount-01",
+    "operator_card_id": "st-card-b-toshiba-4gb",
+    "power_cycle_id": "st3-b-power-01",
+    "workload_status_audit": {
+      "nonzero": 0,
+      "observed": 332
+    }
+  },
+  "card_id": "st-card-b-toshiba-4gb",
+  "command": "record",
+  "created_utc": "2026-09-07T07:18:46.455058+00:00",
+  "dataset_sha256": "4c3846df6e7d87552a490b752a79be888fa4f4917dc92e2fdba41a7d098f7bc6",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "firmware_commit": "96a10d8639acc43673944e5280ed97cc7fc9f0bc",
+  "format": "mtfs-sentinel-dataset-manifest-v2",
+  "partial": false,
+  "row_count": 332,
+  "session_id": "st3-card-b-normal-01",
+  "source": "source-captures/st3-card-b-normal-01.log",
+  "source_sha256": "cc0e6dd17ef7f7fc9c30089bc25ad6ce488b0f7a3ddc4c7db7dda0285193a843",
+  "target_id": 1398033974,
+  "target_name": "STM32N6570-DK",
+  "tool_version": "1.0.0",
+  "transport_id": 1229212993,
+  "transport_name": "SDMMC-IDMA"
+}

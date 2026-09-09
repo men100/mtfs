@@ -1,0 +1,68 @@
+{
+  "canonical_json_sha256": {
+    "evaluated": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+    "public": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8"
+  },
+  "conclusion": "serialization-only difference; no semantic difference",
+  "evaluated_schema": {
+    "byte_sha256": "b5f6ffb42f5ca2a5aebd14e1becb4153253bf143b0e115594bae0078a2523ef0",
+    "bytes": 5397,
+    "line_endings": "CRLF",
+    "path": "artifacts/storage_sentinel/reference/common/feature_schema_v1.evaluated.json",
+    "provenance": {
+      "artifact_index_sha256": "779aa59432da6ee643d717aeb24dd17b9ae45008c7f3089347a3ae327f44cd11",
+      "phase": "Phase 4.3C RA final Release reference profile",
+      "source_model_sha256": "be3274a243dd29b48095edc078bba55d3b9e08c2483ed9bbba8a4b4e1040136f"
+    },
+    "recovery": "complete byte-for-byte recovery"
+  },
+  "object_key_order": {
+    "evaluated_top_level": [
+      "dimension",
+      "excluded",
+      "features",
+      "integer_encoder",
+      "missing_policy",
+      "normalization",
+      "quantization",
+      "raw_histogram",
+      "schema_id",
+      "validity",
+      "version"
+    ],
+    "public_top_level": [
+      "schema_id",
+      "version",
+      "dimension",
+      "integer_encoder",
+      "raw_histogram",
+      "missing_policy",
+      "normalization",
+      "quantization",
+      "validity",
+      "features",
+      "excluded"
+    ]
+  },
+  "public_schema": {
+    "byte_sha256": "44364cce177dc69ae8f02d1002383884d85f6ab1f5c590604175a547444610a8",
+    "bytes": 3858,
+    "git_history": [
+      "9d3ec: initial public schema",
+      "7ba1: schema update",
+      "f57004: schema update"
+    ],
+    "line_endings": "LF",
+    "path": "tools/storage_sentinel/feature_schema_v1.json"
+  },
+  "semantic_comparison": {
+    "array_order_equal": true,
+    "feature_fields_equal": true,
+    "feature_order_equal": true,
+    "field_types_equal": true,
+    "json_values_recursively_equal": true,
+    "scales_equal": true,
+    "units_equal": true
+  },
+  "transform_or_manual_hash_matching": "none"
+}

@@ -1,0 +1,6 @@
+# Exact Arm Vela environment used for the RA reproduction.
+ethos-u-vela==5.1.0
+flatbuffers==25.2.10
+numpy==1.26.4
+pip==22.2.1
+setuptools==63.2.0

@@ -1,0 +1,59 @@
+{
+  "active_feature_mask": 12497,
+  "baseline_estimator": "per-feature-even-median-midpoint-round-up",
+  "canonical_sha256": "0dddfc4756d600bccd3bd2706ab62313eff1778db563feb401c821f6dd14185d",
+  "feature_schema_identity": "mtfs-storage-sentinel-model-input",
+  "format": "mtfs-sentinel-baseline-relative-policy-v2",
+  "inactive_feature_encoding": 0,
+  "latency_baseline_floor": [
+    1,
+    1,
+    1
+  ],
+  "latency_relative_transform": "round-away((raw-baseline)*1000/max(baseline,floor))",
+  "maximum_saturated_features": 0,
+  "preprocessing_contract_version": 2,
+  "ready_update_policy": "frozen-until-reset-or-generation-change",
+  "relative_scale_floor": [
+    246,
+    0,
+    0,
+    0,
+    16,
+    0,
+    167,
+    8372,
+    0,
+    0,
+    0,
+    0,
+    900,
+    900,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "saturation_action": "OOD-RULE-safe-anomaly",
+  "selection_rule": {
+    "active": "validation/training pseudo medium-or-strong median absolute signal >= 16",
+    "ood": "any int8 saturation",
+    "scale": "max(16, maximum absolute normal relative value across training+validation)",
+    "warmup": "minimum sum of active-feature normal p95 absolute relative values; largest wins tie"
+  },
+  "share_relative_transform": "signed-raw-permille-difference",
+  "training_card_ids": [
+    "RA-CardA-Lexar-4GB",
+    "RA-CardB-Toshiba-4GB"
+  ],
+  "validation_card_ids": [
+    "RA-CardC-Transcend-16GB"
+  ],
+  "warmup_windows": 32
+}

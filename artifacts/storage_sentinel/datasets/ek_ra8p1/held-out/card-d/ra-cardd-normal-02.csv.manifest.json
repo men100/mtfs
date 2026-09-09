@@ -1,0 +1,35 @@
+{
+  "build_type": "Release",
+  "capture_context": {
+    "allocation_unit_bytes": 4096,
+    "baseline_windows": {
+      "count": 32,
+      "first_sequence": 1
+    },
+    "capture_session_id": "ra-cardd-normal-20260906-02-r2",
+    "condition": "normal",
+    "contract": "baseline-relative-v2",
+    "dataset_role": "heldout-locked",
+    "fat_type": "FAT32",
+    "mount_session_id": "ra-cardd-mount-02",
+    "operator_card_id": "RA-CardD-SanDisk-16GB",
+    "power_cycle_id": "ra-cardd-power-02"
+  },
+  "card_id": "RA-CardD-SanDisk-16GB",
+  "command": "record",
+  "created_utc": "2026-09-06T14:35:31.998042+00:00",
+  "dataset_sha256": "b4a59028201067d83a059210e01c757e6d4c5c74d3889296e293489b3ff59613",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "firmware_commit": "46ee05a8fc5b0c83f71c9cbd6d7e1f08451d50ce",
+  "format": "mtfs-sentinel-dataset-manifest-v2",
+  "partial": false,
+  "row_count": 200,
+  "session_id": "ra-cardd-normal-20260906-02-r2",
+  "source": "source-captures/ra-cardd-normal-02.log",
+  "source_sha256": "e882eb69500dad598a45776d336edceeea6e3f93d4577c74b0bf86630eae0cb9",
+  "target_id": 1380005968,
+  "target_name": "EK-RA8P1",
+  "tool_version": "1.0.0",
+  "transport_id": 1397770528,
+  "transport_name": "SPI"
+}

@@ -1,0 +1,10 @@
+{
+  "dataset_payloads_byte_identical_to_sources": true,
+  "feature_schema_byte_sha256": "b5f6ffb42f5ca2a5aebd14e1becb4153253bf143b0e115594bae0078a2523ef0",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "feature_schema_semantically_equal_to_public_schema": true,
+  "forbidden_path_or_identity_tokens": 0,
+  "public_st_generated_binaries": 0,
+  "session_count": 23,
+  "status": "PASS"
+}

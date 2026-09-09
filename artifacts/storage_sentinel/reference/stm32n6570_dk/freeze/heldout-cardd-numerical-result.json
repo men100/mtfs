@@ -1,0 +1,59 @@
+{
+  "capture_sha256": "a6f1bc8a4653434d3fa646ce7603c287614fb1908153cb89928e97117f04b22b",
+  "contract_core_canonical_sha256": "de0f3cd090ee4b38bb30ca1be3bd0623b1500bfa9ed131df71ca5275ebbac037",
+  "contract_core_file_sha256": "0ef896d587aad213ce8083578a76fe899261a37c8496c0cf59894e5982fc80e7",
+  "corpus_index_sha256": "bb9422b15b893d9b9139df1021d9eac7661865f13fa465560ee7131b15fa3fb1",
+  "format": "mtfs-stm32n6-st3-heldout-numerical-result-v2",
+  "frozen_limits": {
+    "maximum_common_q4_output_error": 1,
+    "maximum_raw_output_error_int8": 1
+  },
+  "observed": {
+    "ambiguous_intervals": 5,
+    "decision_disagreements": 0,
+    "maximum_common_q4_output_error": 0,
+    "maximum_raw_output_error_int8": 2,
+    "maximum_score_error_q8": 0,
+    "raw_error_elements_0": 7142,
+    "raw_error_elements_1": 56,
+    "raw_error_elements_2_or_more": 2,
+    "samples_with_raw_error": 52,
+    "score_interval_violations": 0
+  },
+  "offending_elements": [
+    {
+      "canonical_common_q4": -1,
+      "canonical_decision": false,
+      "canonical_raw_int8": -67,
+      "canonical_score_q8": 1,
+      "npu_common_q4": -1,
+      "npu_decision": false,
+      "npu_raw_int8": -65,
+      "npu_score_q8": 1,
+      "output_index": 0,
+      "raw_error_int8": 2,
+      "sample": 166
+    },
+    {
+      "canonical_common_q4": -1,
+      "canonical_decision": false,
+      "canonical_raw_int8": -67,
+      "canonical_score_q8": 1,
+      "npu_common_q4": -1,
+      "npu_decision": false,
+      "npu_raw_int8": -65,
+      "npu_score_q8": 1,
+      "output_index": 0,
+      "raw_error_int8": 2,
+      "sample": 167
+    }
+  ],
+  "post_heldout_limit_or_policy_change": "forbidden",
+  "retest_performed": false,
+  "samples": 300,
+  "status": "STOP",
+  "stedgeai_reference_output_sha256": "0fa645ee88aa6d44d7fe3515f06e41a4af74c7f39939d52169f3f3d10a5b739f",
+  "stedgeai_target_matches_airunner": true,
+  "stedgeai_target_output_sha256": "b187142db9a414c5d265a3fd37331e92035fddcfd9e843580302e508775010fa",
+  "terminal_reason": "post-freeze held-out raw int8 error exceeds frozen limit; limit changes forbidden"
+}

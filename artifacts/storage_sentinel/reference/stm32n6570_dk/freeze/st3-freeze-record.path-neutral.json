@@ -1,0 +1,185 @@
+{
+  "active_feature_mask": 28913,
+  "build_type": "Release",
+  "canonical_cpu_runtime_sha256": "a6a2ff1def67fb6c7b0418ec22eee850f3985dbd05def575c4464712e5483ded",
+  "canonical_full_int8_tflite_sha256": "6f49ab9572c4c160e9b00da8f679144263417124929424dbd65d1269a43344b2",
+  "canonical_validation_sha256": "5df583da0eebe0462481903b2fdfb5a3f97b33211964c4ab0d7bc9d31b6d26c5",
+  "classification_acceptance_limits": {
+    "maximum_normal_false_warning_rate": 0.01,
+    "maximum_normal_ood_rate": 0.01,
+    "maximum_training_ood_rate": 0.01,
+    "minimum_medium_safe_detection_rate": 0.5,
+    "minimum_recovery_normal_rate": 0.95,
+    "minimum_strong_safe_detection_rate": 0.75
+  },
+  "classification_support": "optimized-Release-IDMA-only",
+  "format": "mtfs-sentinel-st-baseline-relative-freeze-v2",
+  "frozen_at_utc": "2026-09-07T10:19:51Z",
+  "heldout_gate": {
+    "card_id": "st-card-d-sandisk-16gb",
+    "contract_changes_after_open": "forbidden",
+    "required_samples": 300,
+    "required_violations": 0,
+    "status": "UNOPENED"
+  },
+  "heldout_read": false,
+  "neural_art_conversion_identity_sha256": "a037c2365228fd7bca2d9d2d2deb37788c26bcde283aa944a6b98569446ac09b",
+  "neural_art_conversion_manifest_sha256": "f6a5875339da22c9dac24d78d719ca4e3018590dc1ca2e04ac5033285161c4c0",
+  "neural_art_runtime_binary_sha256": "dfbe8918b53f6570b81d73b468a1ba6d78d9a250e4fb0c005e705d8f80140c6e",
+  "npu_characterization_sha256": "832180e70877645ad73af9c234259670288f317ff81176ce7c0f114a9de68942",
+  "numerical_contract_core_sha256": "de0f3cd090ee4b38bb30ca1be3bd0623b1500bfa9ed131df71ca5275ebbac037",
+  "numerical_limits": {
+    "maximum_common_q4_output_error": 1,
+    "maximum_raw_output_error_int8": 1
+  },
+  "post_heldout_change_policy": "threshold/mask/scale/floor/OOD/numerical limits are immutable",
+  "preprocessing_artifact_sha256": "bfffa356aafb0c9f2d2dee4b9d811db00589b642916de618dfca4f3566673f01",
+  "preprocessing_contract_version": 2,
+  "preprocessing_policy_sha256": "ee7e2b1f3534f84a353d4bb7ed35276d7ca00baa9e85a2cf7bb61f3663035386",
+  "source_float_model_sha256": "10033d658be9efa8c62a8f9fcac37a5f9502f701197f42979e2fdf4dcc14d246",
+  "status": "FROZEN-BEFORE-HELDOUT",
+  "target": "STM32N6570-DK",
+  "threshold_q8": 1,
+  "threshold_selection": "normal-validation-p99-higher",
+  "training_artifact_index_sha256": "b27f6bde9199ea3cf9271c1533d0ee0e67a87c02860a2a186c0c353419fc19c9",
+  "training_sessions": [
+    {
+      "card_id": "st-card-a-lexarb-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "e7d53d8657455713461fbee9444d7576580010cceb91095076314ff12559d18b",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-a/st3-card-a-normal-01.csv",
+      "session_id": "st3-card-a-normal-01",
+      "source_sha256": "ad2923b78df733a73160ae41de98e601f47c3b6cd6c2e13d30dfeee47d6cf18c",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-a-lexarb-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "ffb96ba25d6d6100cf37de12d2b1034e3b25f0353d8d7799bad8745c0103b0b4",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-a/st3-card-a-normal-02.csv",
+      "session_id": "st3-card-a-normal-02",
+      "source_sha256": "e4c7c8327dc1874f9e6452b97d7c337da5e491cbaf8b09c13deabdc529891935",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-b-toshiba-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "4c3846df6e7d87552a490b752a79be888fa4f4917dc92e2fdba41a7d098f7bc6",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-b/st3-card-b-normal-01.csv",
+      "session_id": "st3-card-b-normal-01",
+      "source_sha256": "cc0e6dd17ef7f7fc9c30089bc25ad6ce488b0f7a3ddc4c7db7dda0285193a843",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-b-toshiba-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "f5c7772df4aa82e8206e6259e78ed7a99840729c91748cee07fac0f48258a0e4",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-b/st3-card-b-normal-02.csv",
+      "session_id": "st3-card-b-normal-02",
+      "source_sha256": "bcfd4ed611eb74bcbceda9532b65f1bfcf741362372821e5cf154bddf9066d79",
+      "usable_frames": 332
+    }
+  ],
+  "transport": "SDMMC2-4BIT-IDMA-IRQ",
+  "validation_pseudo_sessions": [
+    {
+      "card_id": "st-card-c-lexara-4gb",
+      "condition": "pseudo",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "76521e2a9912564f8da843f044b53cc58bbefaa2d737761b6013fca5263e55df",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-pseudo-01.csv",
+      "session_id": "st3-card-c-pseudo-01",
+      "source_sha256": "45070f7ba016a7c49e430e14f608c96a3ddc349c8ed2823df8ace67865073690",
+      "usable_frames": 200
+    }
+  ],
+  "validation_result": {
+    "normal": {
+      "false_warning_rate": 0.0033333333333333335,
+      "false_warnings": 2,
+      "ood": 0,
+      "samples": 600,
+      "score_histogram": {
+        "0": 589,
+        "1": 9,
+        "21": 1,
+        "40": 1
+      }
+    },
+    "pseudo": {
+      "baseline": {
+        "ai_anomaly": 0,
+        "ood": 0,
+        "safe_detection": 0,
+        "safe_detection_rate": 0.0,
+        "samples": 8,
+        "score_median_q8": 0.0,
+        "score_p95_q8": 0
+      },
+      "light": {
+        "ai_anomaly": 0,
+        "ood": 18,
+        "safe_detection": 18,
+        "safe_detection_rate": 0.45,
+        "samples": 40,
+        "score_median_q8": 0.0,
+        "score_p95_q8": 1894
+      },
+      "medium": {
+        "ai_anomaly": 0,
+        "ood": 31,
+        "safe_detection": 31,
+        "safe_detection_rate": 0.775,
+        "samples": 40,
+        "score_median_q8": 1326.0,
+        "score_p95_q8": 2511
+      },
+      "recovery": {
+        "ai_anomaly": 0,
+        "ood": 0,
+        "safe_detection": 0,
+        "safe_detection_rate": 0.0,
+        "samples": 40,
+        "score_median_q8": 0.0,
+        "score_p95_q8": 0
+      },
+      "strong": {
+        "ai_anomaly": 1,
+        "ood": 38,
+        "safe_detection": 39,
+        "safe_detection_rate": 0.975,
+        "samples": 40,
+        "score_median_q8": 1828.0,
+        "score_p95_q8": 2771
+      }
+    },
+    "recovery_normal_rate": 1.0
+  },
+  "validation_sessions": [
+    {
+      "card_id": "st-card-c-lexara-4gb",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "f14437c5ce5031807f46d24bbaf9560f9f0aa1f8c04b1f4a8494e714055b8af7",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-normal-01.csv",
+      "session_id": "st3-card-c-normal-01",
+      "source_sha256": "6a5b4935c4a24a095cd0528ff16d812852644dfcb811f7f09f39a7aa93ab8e25",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-c-lexara-4gb",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "ce94b90c65f5d1e1285c79cf9002c4347f5dce15be9659fa816d761603364ed2",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-normal-02.csv",
+      "session_id": "st3-card-c-normal-02",
+      "source_sha256": "69f28596789a7247706f71ebf493bd92e7333aeaa49158041323defafdb0ec47",
+      "usable_frames": 332
+    }
+  ],
+  "warmup_windows": 32
+}

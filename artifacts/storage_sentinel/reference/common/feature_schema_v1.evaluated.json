@@ -1,0 +1,238 @@
+{
+  "dimension": 24,
+  "excluded": [
+    "target",
+    "transport",
+    "timestamp_us",
+    "media_generation",
+    "sequence",
+    "label",
+    "marker",
+    "build_type",
+    "command",
+    "scenario_origin",
+    "stage",
+    "severity",
+    "injection_kind",
+    "injection_operation_mask",
+    "injection_rate_permille",
+    "requested_delay_us",
+    "actual_injection_count",
+    "random_seed",
+    "cumulative_or_hard_fault_counters"
+  ],
+  "features": [
+    {
+      "max": 1000000,
+      "min": 0,
+      "name": "read_avg_latency_us",
+      "reason": "central read latency",
+      "unit": "us"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "read_timing_invalid_permille",
+      "reason": "read timing quality",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "read_hist_0_3_permille",
+      "reason": "fast read distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "read_hist_4_7_permille",
+      "reason": "lower read distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "read_hist_8_11_permille",
+      "reason": "middle read distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "read_hist_12_14_permille",
+      "reason": "read tail mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "read_hist_15_21_permille",
+      "reason": "extreme read tail mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000000,
+      "min": 0,
+      "name": "write_avg_latency_us",
+      "reason": "central write latency",
+      "unit": "us"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "write_timing_invalid_permille",
+      "reason": "write timing quality",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "write_hist_0_3_permille",
+      "reason": "fast write distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "write_hist_4_7_permille",
+      "reason": "lower write distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "write_hist_8_11_permille",
+      "reason": "middle write distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "write_hist_12_14_permille",
+      "reason": "write tail mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "write_hist_15_21_permille",
+      "reason": "extreme write tail mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000000,
+      "min": 0,
+      "name": "sync_avg_latency_us",
+      "reason": "central sync latency",
+      "unit": "us"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "sync_timing_invalid_permille",
+      "reason": "sync timing quality",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "sync_hist_0_3_permille",
+      "reason": "fast sync distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "sync_hist_4_7_permille",
+      "reason": "lower sync distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "sync_hist_8_11_permille",
+      "reason": "middle sync distribution mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "sync_hist_12_14_permille",
+      "reason": "sync tail mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "sync_hist_15_21_permille",
+      "reason": "extreme sync tail mass",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "read_timing_share_permille",
+      "reason": "read/write/sync relationship",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "write_timing_share_permille",
+      "reason": "read/write/sync relationship",
+      "unit": "permille"
+    },
+    {
+      "max": 1000,
+      "min": 0,
+      "name": "sync_timing_share_permille",
+      "reason": "read/write/sync relationship",
+      "unit": "permille"
+    }
+  ],
+  "integer_encoder": "portable-u64-v1",
+  "missing_policy": "reject_frame",
+  "normalization": "target_specific_zscore_clamped_to_8",
+  "quantization": {
+    "model_input": "signed_int8_zscore_times_16",
+    "normalization_inverse_std": "Q12.20",
+    "normalization_mean": "Q16.16"
+  },
+  "raw_histogram": {
+    "buckets_per_operation": 22,
+    "feature_group_bounds": "inclusive",
+    "feature_groups": [
+      [
+        0,
+        3
+      ],
+      [
+        4,
+        7
+      ],
+      [
+        8,
+        11
+      ],
+      [
+        12,
+        14
+      ],
+      [
+        15,
+        21
+      ]
+    ],
+    "operations": 3,
+    "serialized_buckets": 66
+  },
+  "schema_id": "mtfs-storage-sentinel-model-input",
+  "validity": {
+    "hard_fault_columns_must_be_zero": true,
+    "minimum_timing_samples_per_operation": 1,
+    "rejected_flag_mask": 31,
+    "required_mask": 255
+  },
+  "version": 1
+}

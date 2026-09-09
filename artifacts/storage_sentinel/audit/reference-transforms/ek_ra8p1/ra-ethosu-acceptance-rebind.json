@@ -1,0 +1,12 @@
+{
+  "canonical_model_sha256": "bfa7ec20dc2056707ffaea572cd3353a4287a6cec4aa44b24e6057379e2541a8",
+  "evaluated_acceptance_sha256": "ae319a4c431c61cc97053ddfd4c1d56bb67be4678e61b5bf93ec9c86caee94ab",
+  "evaluated_conversion_manifest_file_sha256": "d588d1ec4f52ee7d84b257760d74d703710251f14adcb5c373bd9b3e8eaf343e",
+  "evaluated_conversion_manifest_identity_sha256": "bbf41718317e14ac1d29df8da473ccbac49f365f972ce61e7ddaf9fb05dad261",
+  "npu_runtime_binary_sha256": "cacc6a87cb737dac257547dfb4f04db4fc74e61cd2190fb89c1688885ccd04a4",
+  "numerical_acceptance_rerun": false,
+  "operation": "path-only conversion-manifest identity rebinding",
+  "published_acceptance_sha256": "e87199c64a3f46ba0369e7eeded04ee3cf91b5560cb2091c139b8ed595625685",
+  "published_conversion_manifest_file_sha256": "80d6c3b5765bdeb851e2d6b7890ec2381c8ef2197059efd58ba13aa8c9a7435f",
+  "published_conversion_manifest_identity_sha256": "d2183cc4a8e5e5d05b630f6b63134103c6d3665d2b828cf7e2498c9bba496f17"
+}

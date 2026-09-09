@@ -1,0 +1,8 @@
+{
+  "anomaly_threshold": 5.0249492504389486e-08,
+  "canonical_integer_threshold_q8": null,
+  "comparison": "score > anomaly_threshold",
+  "format": "mtfs-sentinel-threshold-v2-provisional-float",
+  "quantile": 0.95,
+  "selection_data": "normal-validation-only"
+}

@@ -1,0 +1,15 @@
+{
+  "destination_name": "ra-cardd-normal-01.csv",
+  "payload": {
+    "operation": "byte-for-byte copy",
+    "published_sha256": "9b2e08b50569f04728f6dc406b51ffdc87a95223f05de849c003944b6b75e55c",
+    "source_sha256": "9b2e08b50569f04728f6dc406b51ffdc87a95223f05de849c003944b6b75e55c"
+  },
+  "sidecar": {
+    "operation": "replace source path only; canonical JSON serialization",
+    "original_source_value_sha256": "c4e776aafbf24798680563fd07ec0accbe815babe5b5b747a3f7f6bd8c7a6fa6",
+    "published_sha256": "a73eb3be7adc13e6b89cd966a21c356916d2ecee1e6ad99af191db496dfa1dac",
+    "published_source": "source-captures/ra-cardd-normal-01.log",
+    "source_sha256": "eef632a6ee3be72bc9a2f97222ebb14021c9d433f3c0893926d0bb4549987f75"
+  }
+}

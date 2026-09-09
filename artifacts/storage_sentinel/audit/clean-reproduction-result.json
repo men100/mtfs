@@ -1,0 +1,26 @@
+{
+  "byte_identical_canonical_between_workspaces": true,
+  "format": "mtfs-storage-sentinel-clean-reproduction-v1",
+  "workspace_1": {
+    "ek_ra8p1": {
+      "bundle_sha256": "c5847706e211b0f231f3a346505652dda6122b201ef60480cdb7b38023eae830",
+      "canonical_tflite_sha256": "bfa7ec20dc2056707ffaea572cd3353a4287a6cec4aa44b24e6057379e2541a8",
+      "model_sha256": "be3274a243dd29b48095edc078bba55d3b9e08c2483ed9bbba8a4b4e1040136f",
+      "vela_tflite_sha256": "cacc6a87cb737dac257547dfb4f04db4fc74e61cd2190fb89c1688885ccd04a4"
+    },
+    "stm32n6570_dk": {
+      "canonical_tflite_sha256": "6f49ab9572c4c160e9b00da8f679144263417124929424dbd65d1269a43344b2",
+      "model_sha256": "10033d658be9efa8c62a8f9fcac37a5f9502f701197f42979e2fdf4dcc14d246"
+    }
+  },
+  "workspace_2": {
+    "ek_ra8p1": {
+      "canonical_tflite_sha256": "bfa7ec20dc2056707ffaea572cd3353a4287a6cec4aa44b24e6057379e2541a8",
+      "model_sha256": "be3274a243dd29b48095edc078bba55d3b9e08c2483ed9bbba8a4b4e1040136f"
+    },
+    "stm32n6570_dk": {
+      "canonical_tflite_sha256": "6f49ab9572c4c160e9b00da8f679144263417124929424dbd65d1269a43344b2",
+      "model_sha256": "10033d658be9efa8c62a8f9fcac37a5f9502f701197f42979e2fdf4dcc14d246"
+    }
+  }
+}

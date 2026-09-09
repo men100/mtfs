@@ -1,0 +1,49 @@
+{
+  "operation": "replace absolute dataset paths; canonical JSON serialization",
+  "published_name": "freeze-v2r2.path-neutral.json",
+  "published_sha256": "0cfaefb7bc5eaf46be46fee9018da7bf2823957dc6223481316b4ffd4f6c6cdc",
+  "replacements": [
+    {
+      "location": "root.training_sessions[0].path",
+      "original_value_sha256": "ee5f6f1d9d23e26b2d96700f69cf1ad67c640bddcce0950cdc698ee8e5af3e14",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-01.csv"
+    },
+    {
+      "location": "root.training_sessions[1].path",
+      "original_value_sha256": "b2420bd72d743d567082cc208522b529034cedfd354ccfbb942b357746bd7373",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-02.csv"
+    },
+    {
+      "location": "root.training_sessions[2].path",
+      "original_value_sha256": "4a7edf180544ff11161e8cdf729b71c745923c628d71d29cebe0cc5fd26179d0",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-03.csv"
+    },
+    {
+      "location": "root.training_sessions[3].path",
+      "original_value_sha256": "9daa2f0d056a475f87e0ce13916fb22d6eef66e86128dc992ae82242f96746db",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-b/ra-cardb-normal-01.csv"
+    },
+    {
+      "location": "root.training_sessions[4].path",
+      "original_value_sha256": "e6bf411619b7385ef69956ec5b64f84755d14e5fb20ea1ae87fc86ffee4a2c05",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-b/ra-cardb-normal-02.csv"
+    },
+    {
+      "location": "root.validation_pseudo_sessions[0].path",
+      "original_value_sha256": "9c49842b68762a95b0ade4ccf2fa8b0deada12f22347f20ce7d7050e339c62bd",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-pseudo-01.csv"
+    },
+    {
+      "location": "root.validation_sessions[0].path",
+      "original_value_sha256": "0614ead19d4b1252867a7e742d45a68e0aaf74d75c2cdd98ba659ddb60bf3ecc",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-normal-01.csv"
+    },
+    {
+      "location": "root.validation_sessions[1].path",
+      "original_value_sha256": "62695dee745aed4fc1504700a1d299c110d9703770fbae1fd1f19b29d6a9fabe",
+      "published_value": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-normal-02.csv"
+    }
+  ],
+  "source_name": "freeze-v2r2.json",
+  "source_sha256": "dccf77772456b9a50cd65dccd63818061bcfcc50fb6e42e2d0cd857d8f2164fa"
+}

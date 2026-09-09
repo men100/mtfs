@@ -1,0 +1,133 @@
+{
+  "build_type": "Release",
+  "candidate_comparison": [
+    {
+      "multiply_accumulate_count": 672,
+      "parameter_count": 724,
+      "topology": [
+        24,
+        12,
+        4,
+        12,
+        24
+      ],
+      "validation_median_score": 1.3121094710667345e-08,
+      "validation_p95_score": 5.0249492504389486e-08
+    },
+    {
+      "multiply_accumulate_count": 768,
+      "parameter_count": 824,
+      "topology": [
+        24,
+        12,
+        8,
+        12,
+        24
+      ],
+      "validation_median_score": 4.943176689603537e-08,
+      "validation_p95_score": 1.827574607297012e-07
+    }
+  ],
+  "epochs": 200,
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "format": "mtfs-sentinel-training-manifest-v2",
+  "heldout_read": false,
+  "heldout_sessions": [],
+  "preprocessing_policy_sha256": "0dddfc4756d600bccd3bd2706ab62313eff1778db563feb401c821f6dd14185d",
+  "seed": 4303,
+  "split_unit": "physical-card-and-session",
+  "target_id": 1380005968,
+  "threshold_source": [
+    "ra-cardc-normal-20260906-01-r2",
+    "ra-cardc-normal-20260906-02-r2"
+  ],
+  "tool_version": "1.0.0",
+  "topology_policy": "common-fixed-24-12-4-12-24",
+  "train_sessions": [
+    {
+      "card_id": "RA-CardA-Lexar-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "8eab5ba9fa3e8a54e2b35a283dd542b0882110bcc79867d1ef3e5a80338e46b4",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-01.csv",
+      "session_id": "ra-carda-normal-20260902-01",
+      "source_sha256": "1377d60fd076e3d20bf663da456f95a8c00bd41ca111c9bad636d3ed080ec1f3",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardA-Lexar-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "450209dbdd1086cf80a16b72129de8f9955b585a3e4f8e87aaa225673c2db21a",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-02.csv",
+      "session_id": "ra-carda-normal-20260902-02",
+      "source_sha256": "3671b1c1047d4edd5e598046d80fb181d6ce465427e0eff26941416bc500dc72",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardA-Lexar-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "10c6eb13d2df9b1d8d36d34dd84e496ff8a4c208d8b8f89b18a32a3d4bc69ffd",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-a/ra-carda-normal-03.csv",
+      "session_id": "ra-carda-normal-20260902-03",
+      "source_sha256": "e343eac4981b4dc99957c02ef7bfc82e07b412d1407d1d0c29d0eab04c8fb0cb",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardB-Toshiba-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "675e6045c3199d98caa27a4d191be7d9971afc9471d67c92ef887b364bac03e4",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-b/ra-cardb-normal-01.csv",
+      "session_id": "ra-cardb-normal-20260906-01-r2",
+      "source_sha256": "af31639c16f85f0dcf41e69bbd02211294623f4a4612515522925242008edebe",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardB-Toshiba-4GB",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "376b914fa91d742469b06f97c59bb40a61e5487e4912df20a52535f82d983c7e",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/training/card-b/ra-cardb-normal-02.csv",
+      "session_id": "ra-cardb-normal-20260906-02-r2",
+      "source_sha256": "b73ed6065d0de20d1bbd03a146eaa27750ecebedd16d8862fbf74ef9816d7de0",
+      "usable_frames": 200
+    }
+  ],
+  "transport_id": 1397770528,
+  "validation_pseudo_sessions": [
+    {
+      "card_id": "RA-CardC-Transcend-16GB",
+      "condition": "pseudo",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "270450ae697c2c905f954538cda015e82a6e5681452a432d3e4c6043baa477c3",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-pseudo-01.csv",
+      "session_id": "ra-cardc-pseudo-20260906-01-r2",
+      "source_sha256": "063d6de96a2278b09494447dc5d973b54d294684f03f8cc560929c40e116d94b",
+      "usable_frames": 200
+    }
+  ],
+  "validation_sessions": [
+    {
+      "card_id": "RA-CardC-Transcend-16GB",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "4fdd65e4feecfa0b23dd9b533641b9216de9955223abcaf3d4ca17c65a61e6b6",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-normal-01.csv",
+      "session_id": "ra-cardc-normal-20260906-01-r2",
+      "source_sha256": "872920b2b0461c9c9f4d9fd292cca1bc581389317307a1475b9addf464b70997",
+      "usable_frames": 200
+    },
+    {
+      "card_id": "RA-CardC-Transcend-16GB",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "9fa1e8122d68442877b3ad0cfab59be254e92a205e2d57e4d47bb2a11920c507",
+      "path": "artifacts/storage_sentinel/datasets/ek_ra8p1/validation/card-c/ra-cardc-normal-02.csv",
+      "session_id": "ra-cardc-normal-20260906-02-r2",
+      "source_sha256": "96bef3446788d2632847505626d2739e8b67b31c793eef948fecdaf533faa9ea",
+      "usable_frames": 200
+    }
+  ]
+}

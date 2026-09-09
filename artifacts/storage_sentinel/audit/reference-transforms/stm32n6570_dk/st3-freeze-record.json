@@ -1,0 +1,44 @@
+{
+  "operation": "replace absolute dataset paths; canonical JSON serialization",
+  "published_name": "st3-freeze-record.path-neutral.json",
+  "published_sha256": "5e5bcc9a1c8ad53b8a27bcf7ed18578310add6155f4e8ea9b4f731838dd5cecf",
+  "replacements": [
+    {
+      "location": "root.training_sessions[0].path",
+      "original_value_sha256": "c883b619d2a97dc96605876752d267c08eecc5b6471f83f6994422f3809fdb98",
+      "published_value": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-a/st3-card-a-normal-01.csv"
+    },
+    {
+      "location": "root.training_sessions[1].path",
+      "original_value_sha256": "a3c08c832a98dd59e1982a6e8b18ec4f16a882485254665da86f7ece9a5d54a6",
+      "published_value": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-a/st3-card-a-normal-02.csv"
+    },
+    {
+      "location": "root.training_sessions[2].path",
+      "original_value_sha256": "c70b0434f212fbd483c3e8cb4d27d2745fa32685a39ca8f5f0f1e49b8b7cda08",
+      "published_value": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-b/st3-card-b-normal-01.csv"
+    },
+    {
+      "location": "root.training_sessions[3].path",
+      "original_value_sha256": "d842750589657599cacd7a4468cca9d25376455d37a2cd025422ecfcbbbec3f8",
+      "published_value": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-b/st3-card-b-normal-02.csv"
+    },
+    {
+      "location": "root.validation_pseudo_sessions[0].path",
+      "original_value_sha256": "765bdbc92395ea8167d0468975b2e881493f5b575e5bfa14bdda27e3bd86ed68",
+      "published_value": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-pseudo-01.csv"
+    },
+    {
+      "location": "root.validation_sessions[0].path",
+      "original_value_sha256": "8c2840c751fc1fefe37d3fc8c99c839acb5d6fc1943992f3e67d7a4251bf295c",
+      "published_value": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-normal-01.csv"
+    },
+    {
+      "location": "root.validation_sessions[1].path",
+      "original_value_sha256": "2218c10e2891f4f3acb4b5ff18e9ec0820e1028a9de9bd075333f93eeb50fc40",
+      "published_value": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-normal-02.csv"
+    }
+  ],
+  "source_name": "st3_freeze_record.json",
+  "source_sha256": "bb7028bbc1670e6883ef0abbe1c2a642a81e941b8d1e7bc9550c7d6f723c89b8"
+}

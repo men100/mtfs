@@ -1,0 +1,42 @@
+{
+  "build_type": "Release",
+  "capture_context": {
+    "allocation_unit_bytes": 4096,
+    "baseline_windows": {
+      "count": 32,
+      "first_sequence": 1
+    },
+    "capture_profile": "st-release-idma-v2",
+    "capture_session_id": "st3-card-c-normal-02",
+    "card_capacity": "4GB",
+    "card_manufacturer": "Lexar",
+    "condition": "normal",
+    "contract": "baseline-relative-v2",
+    "dataset_role": "validation-candidate",
+    "fat_type": "FAT32",
+    "mount_session_id": "st3-c-mount-02",
+    "operator_card_id": "st-card-c-lexara-4gb",
+    "power_cycle_id": "st3-c-power-02",
+    "workload_status_audit": {
+      "nonzero": 0,
+      "observed": 332
+    }
+  },
+  "card_id": "st-card-c-lexara-4gb",
+  "command": "record",
+  "created_utc": "2026-09-07T08:11:05.138801+00:00",
+  "dataset_sha256": "ce94b90c65f5d1e1285c79cf9002c4347f5dce15be9659fa816d761603364ed2",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "firmware_commit": "96a10d8639acc43673944e5280ed97cc7fc9f0bc",
+  "format": "mtfs-sentinel-dataset-manifest-v2",
+  "partial": false,
+  "row_count": 332,
+  "session_id": "st3-card-c-normal-02",
+  "source": "source-captures/st3-card-c-normal-02.log",
+  "source_sha256": "69f28596789a7247706f71ebf493bd92e7333aeaa49158041323defafdb0ec47",
+  "target_id": 1398033974,
+  "target_name": "STM32N6570-DK",
+  "tool_version": "1.0.0",
+  "transport_id": 1229212993,
+  "transport_name": "SDMMC-IDMA"
+}

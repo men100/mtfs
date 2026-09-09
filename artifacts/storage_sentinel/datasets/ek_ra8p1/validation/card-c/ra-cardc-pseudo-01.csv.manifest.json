@@ -1,0 +1,35 @@
+{
+  "build_type": "Release",
+  "capture_context": {
+    "allocation_unit_bytes": 4096,
+    "baseline_windows": {
+      "count": 32,
+      "first_sequence": 1
+    },
+    "capture_session_id": "ra-cardc-pseudo-20260906-01-r2",
+    "condition": "pseudo",
+    "contract": "baseline-relative-v2",
+    "dataset_role": "validation-candidate",
+    "fat_type": "FAT32",
+    "mount_session_id": "ra-cardc-mount-pseudo-01",
+    "operator_card_id": "RA-CardC-Transcend-16GB",
+    "power_cycle_id": "ra-cardc-power-pseudo-01"
+  },
+  "card_id": "RA-CardC-Transcend-16GB",
+  "command": "pseudo-collect-delay-ramp",
+  "created_utc": "2026-09-06T14:30:20.160217+00:00",
+  "dataset_sha256": "270450ae697c2c905f954538cda015e82a6e5681452a432d3e4c6043baa477c3",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "firmware_commit": "46ee05a8fc5b0c83f71c9cbd6d7e1f08451d50ce",
+  "format": "mtfs-sentinel-dataset-manifest-v2",
+  "partial": false,
+  "row_count": 200,
+  "session_id": "ra-cardc-pseudo-20260906-01-r2",
+  "source": "source-captures/ra-cardc-pseudo-01.log",
+  "source_sha256": "063d6de96a2278b09494447dc5d973b54d294684f03f8cc560929c40e116d94b",
+  "target_id": 1380005968,
+  "target_name": "EK-RA8P1",
+  "tool_version": "1.0.0",
+  "transport_id": 1397770528,
+  "transport_name": "SPI"
+}

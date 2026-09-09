@@ -1,0 +1,35 @@
+{
+  "build_type": "Release",
+  "capture_context": {
+    "allocation_unit_bytes": 4096,
+    "baseline_windows": {
+      "count": 32,
+      "first_sequence": 1
+    },
+    "capture_session_id": "ra-cardb-normal-20260906-02-r2",
+    "condition": "normal",
+    "contract": "baseline-relative-v2",
+    "dataset_role": "training-candidate",
+    "fat_type": "FAT32",
+    "mount_session_id": "ra-cardb-mount-02",
+    "operator_card_id": "RA-CardB-Toshiba-4GB",
+    "power_cycle_id": "ra-cardb-power-02"
+  },
+  "card_id": "RA-CardB-Toshiba-4GB",
+  "command": "record",
+  "created_utc": "2026-09-06T14:30:18.560099+00:00",
+  "dataset_sha256": "376b914fa91d742469b06f97c59bb40a61e5487e4912df20a52535f82d983c7e",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "firmware_commit": "46ee05a8fc5b0c83f71c9cbd6d7e1f08451d50ce",
+  "format": "mtfs-sentinel-dataset-manifest-v2",
+  "partial": false,
+  "row_count": 200,
+  "session_id": "ra-cardb-normal-20260906-02-r2",
+  "source": "source-captures/ra-cardb-normal-02.log",
+  "source_sha256": "b73ed6065d0de20d1bbd03a146eaa27750ecebedd16d8862fbf74ef9816d7de0",
+  "target_id": 1380005968,
+  "target_name": "EK-RA8P1",
+  "tool_version": "1.0.0",
+  "transport_id": 1397770528,
+  "transport_name": "SPI"
+}

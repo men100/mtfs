@@ -1,0 +1,35 @@
+{
+  "build_type": "Release",
+  "capture_context": {
+    "allocation_unit_bytes": 4096,
+    "baseline_windows": {
+      "count": 32,
+      "first_sequence": 1
+    },
+    "capture_session_id": "ra-carda-normal-20260902-02",
+    "condition": "normal",
+    "contract": "baseline-relative-v2",
+    "dataset_role": "training-candidate",
+    "fat_type": "FAT32",
+    "mount_session_id": "ra-carda-mount-02",
+    "operator_card_id": "RA-CardA-Lexar-4GB",
+    "power_cycle_id": "ra-carda-power-02"
+  },
+  "card_id": "RA-CardA-Lexar-4GB",
+  "command": "record",
+  "created_utc": "2026-09-06T13:45:26.777797+00:00",
+  "dataset_sha256": "450209dbdd1086cf80a16b72129de8f9955b585a3e4f8e87aaa225673c2db21a",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "firmware_commit": "46ee05a8fc5b0c83f71c9cbd6d7e1f08451d50ce",
+  "format": "mtfs-sentinel-dataset-manifest-v2",
+  "partial": false,
+  "row_count": 200,
+  "session_id": "ra-carda-normal-20260902-02",
+  "source": "source-captures/ra-carda-normal-02.log",
+  "source_sha256": "3671b1c1047d4edd5e598046d80fb181d6ce465427e0eff26941416bc500dc72",
+  "target_id": 1380005968,
+  "target_name": "EK-RA8P1",
+  "tool_version": "1.0.0",
+  "transport_id": 1397770528,
+  "transport_name": "SPI"
+}

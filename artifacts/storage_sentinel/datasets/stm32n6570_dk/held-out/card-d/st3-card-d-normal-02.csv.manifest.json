@@ -1,0 +1,42 @@
+{
+  "build_type": "Release",
+  "capture_context": {
+    "allocation_unit_bytes": 4096,
+    "baseline_windows": {
+      "count": 32,
+      "first_sequence": 1
+    },
+    "capture_profile": "st-release-idma-v2",
+    "capture_session_id": "st3-card-d-normal-02",
+    "card_capacity": "16GB",
+    "card_manufacturer": "SanDisk",
+    "condition": "normal",
+    "contract": "baseline-relative-v2",
+    "dataset_role": "heldout-locked",
+    "fat_type": "FAT32",
+    "mount_session_id": "st-d-mount-02",
+    "operator_card_id": "st-card-d-sandisk-16gb",
+    "power_cycle_id": "st-d-power-02",
+    "workload_status_audit": {
+      "nonzero": 0,
+      "observed": 332
+    }
+  },
+  "card_id": "st-card-d-sandisk-16gb",
+  "command": "record",
+  "created_utc": "2026-09-07T10:39:02.954563+00:00",
+  "dataset_sha256": "3feb128250bb4efa7a7e8135fa62622cbf2586d5b9434a9b6d7ccc421373ca6f",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "firmware_commit": "96a10d8639acc43673944e5280ed97cc7fc9f0bc",
+  "format": "mtfs-sentinel-dataset-manifest-v2",
+  "partial": false,
+  "row_count": 332,
+  "session_id": "st3-card-d-normal-02",
+  "source": "source-captures/st3-card-d-normal-02.log",
+  "source_sha256": "a7b4fd8bee098ba965ee0f5e32e88ddf31c4c3e664a6932e2cebf3b222423f53",
+  "target_id": 1398033974,
+  "target_name": "STM32N6570-DK",
+  "tool_version": "1.0.0",
+  "transport_id": 1229212993,
+  "transport_name": "SDMMC-IDMA"
+}

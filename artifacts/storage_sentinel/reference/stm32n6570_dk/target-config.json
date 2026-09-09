@@ -1,0 +1,16 @@
+{
+  "build_type": "Release",
+  "epochs": 200,
+  "maximum_normal_false_warning_rate": 0.01,
+  "maximum_normal_ood_rate": 0.01,
+  "maximum_training_ood_rate": 0.01,
+  "minimum_medium_safe_detection_rate": 0.5,
+  "minimum_recovery_normal_rate": 0.95,
+  "minimum_strong_safe_detection_rate": 0.75,
+  "seed": 4303,
+  "target": "STM32N6570-DK",
+  "target_id": 1398033974,
+  "threshold_quantile": 0.99,
+  "transport": "IDMA",
+  "transport_id": 1229212993
+}

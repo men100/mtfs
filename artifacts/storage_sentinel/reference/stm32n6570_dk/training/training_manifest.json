@@ -1,0 +1,123 @@
+{
+  "build_type": "Release",
+  "candidate_comparison": [
+    {
+      "multiply_accumulate_count": 672,
+      "parameter_count": 724,
+      "topology": [
+        24,
+        12,
+        4,
+        12,
+        24
+      ],
+      "validation_median_score": 1.1018346818159514e-06,
+      "validation_p95_score": 2.1521133915887168e-05
+    },
+    {
+      "multiply_accumulate_count": 768,
+      "parameter_count": 824,
+      "topology": [
+        24,
+        12,
+        8,
+        12,
+        24
+      ],
+      "validation_median_score": 4.88642208621896e-07,
+      "validation_p95_score": 2.013470237492002e-05
+    }
+  ],
+  "epochs": 200,
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "format": "mtfs-sentinel-training-manifest-v2",
+  "heldout_read": false,
+  "heldout_sessions": [],
+  "preprocessing_policy_sha256": "ee7e2b1f3534f84a353d4bb7ed35276d7ca00baa9e85a2cf7bb61f3663035386",
+  "seed": 4303,
+  "split_unit": "physical-card-and-session",
+  "target_id": 1398033974,
+  "threshold_source": [
+    "st3-card-c-normal-01",
+    "st3-card-c-normal-02"
+  ],
+  "tool_version": "1.0.0",
+  "topology_policy": "common-fixed-24-12-4-12-24",
+  "train_sessions": [
+    {
+      "card_id": "st-card-a-lexarb-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "e7d53d8657455713461fbee9444d7576580010cceb91095076314ff12559d18b",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-a/st3-card-a-normal-01.csv",
+      "session_id": "st3-card-a-normal-01",
+      "source_sha256": "ad2923b78df733a73160ae41de98e601f47c3b6cd6c2e13d30dfeee47d6cf18c",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-a-lexarb-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "ffb96ba25d6d6100cf37de12d2b1034e3b25f0353d8d7799bad8745c0103b0b4",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-a/st3-card-a-normal-02.csv",
+      "session_id": "st3-card-a-normal-02",
+      "source_sha256": "e4c7c8327dc1874f9e6452b97d7c337da5e491cbaf8b09c13deabdc529891935",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-b-toshiba-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "4c3846df6e7d87552a490b752a79be888fa4f4917dc92e2fdba41a7d098f7bc6",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-b/st3-card-b-normal-01.csv",
+      "session_id": "st3-card-b-normal-01",
+      "source_sha256": "cc0e6dd17ef7f7fc9c30089bc25ad6ce488b0f7a3ddc4c7db7dda0285193a843",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-b-toshiba-4gb",
+      "condition": "normal",
+      "dataset_role": "training-candidate",
+      "dataset_sha256": "f5c7772df4aa82e8206e6259e78ed7a99840729c91748cee07fac0f48258a0e4",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/training/card-b/st3-card-b-normal-02.csv",
+      "session_id": "st3-card-b-normal-02",
+      "source_sha256": "bcfd4ed611eb74bcbceda9532b65f1bfcf741362372821e5cf154bddf9066d79",
+      "usable_frames": 332
+    }
+  ],
+  "transport_id": 1229212993,
+  "validation_pseudo_sessions": [
+    {
+      "card_id": "st-card-c-lexara-4gb",
+      "condition": "pseudo",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "76521e2a9912564f8da843f044b53cc58bbefaa2d737761b6013fca5263e55df",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-pseudo-01.csv",
+      "session_id": "st3-card-c-pseudo-01",
+      "source_sha256": "45070f7ba016a7c49e430e14f608c96a3ddc349c8ed2823df8ace67865073690",
+      "usable_frames": 200
+    }
+  ],
+  "validation_sessions": [
+    {
+      "card_id": "st-card-c-lexara-4gb",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "f14437c5ce5031807f46d24bbaf9560f9f0aa1f8c04b1f4a8494e714055b8af7",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-normal-01.csv",
+      "session_id": "st3-card-c-normal-01",
+      "source_sha256": "6a5b4935c4a24a095cd0528ff16d812852644dfcb811f7f09f39a7aa93ab8e25",
+      "usable_frames": 332
+    },
+    {
+      "card_id": "st-card-c-lexara-4gb",
+      "condition": "normal",
+      "dataset_role": "validation-candidate",
+      "dataset_sha256": "ce94b90c65f5d1e1285c79cf9002c4347f5dce15be9659fa816d761603364ed2",
+      "path": "artifacts/storage_sentinel/datasets/stm32n6570_dk/validation/card-c/st3-card-c-normal-02.csv",
+      "session_id": "st3-card-c-normal-02",
+      "source_sha256": "69f28596789a7247706f71ebf493bd92e7333aeaa49158041323defafdb0ec47",
+      "usable_frames": 332
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "canonical_full_int8_tflite_sha256": "6f49ab9572c4c160e9b00da8f679144263417124929424dbd65d1269a43344b2",
+  "canonical_reference": {
+    "runtime": "canonical CPU int8",
+    "tflite_evaluator": "BUILTIN_REF"
+  },
+  "characterization_evidence": {
+    "report_canonical_scope": "card-c-validation-768-and-threshold-boundary-14; heldout-not-read",
+    "report_file_sha256": "832180e70877645ad73af9c234259670288f317ff81176ce7c0f114a9de68942",
+    "threshold_boundary_14": {
+      "common_q4_max_absolute_error": 0,
+      "decision_disagreements": 0,
+      "raw_int8_max_absolute_error": 0,
+      "samples": 14
+    },
+    "validation_768": {
+      "common_q4_error_elements": 1,
+      "common_q4_max_absolute_error": 1,
+      "decision_disagreements": 0,
+      "raw_int8_error_elements": 148,
+      "raw_int8_max_absolute_error": 1,
+      "repeatability_bit_exact": true,
+      "samples": 768,
+      "samples_with_q4_error": 1,
+      "samples_with_raw_error": 137,
+      "score_interval_ambiguous": 16,
+      "score_interval_violations": 0
+    }
+  },
+  "contract_version": 2,
+  "conversion_manifest_sha256": "a037c2365228fd7bca2d9d2d2deb37788c26bcde283aa944a6b98569446ac09b",
+  "decision_policy": {
+    "ambiguous": "otherwise",
+    "ambiguous_action": "canonical CPU arbitration",
+    "definitely_anomaly": "score_min_q8 > threshold_q8",
+    "definitely_normal": "score_max_q8 <= threshold_q8",
+    "threshold_q8": 1
+  },
+  "fixed_limits": {
+    "maximum_common_q4_output_error": 1,
+    "maximum_raw_output_error_int8": 1
+  },
+  "format": "mtfs-sentinel-neural-art-acceptance-core-v2",
+  "frozen_at_utc": "2026-09-07T10:19:51Z",
+  "heldout_gate": {
+    "card_id": "st-card-d-sandisk-16gb",
+    "contract_changes_after_open": "forbidden",
+    "required_samples": 300,
+    "required_violations": 0,
+    "status": "UNOPENED"
+  },
+  "mandatory_regression": {
+    "capture_sha256": "e75598642cc05a754eaf41e4c97e2c4e51029f1e6cdacfa5d41d45dcd5d8c322",
+    "kind": "threshold-boundary-validation-set",
+    "member_of_validation_768": true,
+    "required_for_release": true,
+    "samples": 14
+  },
+  "npu_runtime_binary_sha256": "dfbe8918b53f6570b81d73b468a1ba6d78d9a250e4fb0c005e705d8f80140c6e",
+  "score_interval": {
+    "candidate_component_interval": "[max(-128,y_i-e),min(127,y_i+e)]",
+    "candidate_score_requirement": "score_min_q8 <= score_q8 <= score_max_q8",
+    "maximum_squared_error": "sum(max(abs(x_i-lower_i),abs(x_i-upper_i))^2)",
+    "minimum_squared_error": "sum(distance(x_i,[lower_i,upper_i])^2)",
+    "rounding": "(sum + 12) // 24",
+    "version": 1
+  },
+  "status": "FROZEN"
+}

@@ -1,0 +1,21 @@
+{
+  "build_type": "Release",
+  "feature_schema_canonical_sha256": "01b0040533491d3f2d07248b345909447be004d4fcd8fc94719ec28d955094d8",
+  "files_sha256": {
+    "calibration_q4.json": "21e247b42284f6c01e44c2809634bc413af1ae8732f9db6e6807f44d5f561bb1",
+    "feature_schema_v1.json": "b5f6ffb42f5ca2a5aebd14e1becb4153253bf143b0e115594bae0078a2523ef0",
+    "model.json": "10033d658be9efa8c62a8f9fcac37a5f9502f701197f42979e2fdf4dcc14d246",
+    "normalization.json": "ecad3ba2caf0ef37a378cf17488a15e373a673200a2d07ec4b0e9832e2df4a44",
+    "preprocessing.json": "bfffa356aafb0c9f2d2dee4b9d811db00589b642916de618dfca4f3566673f01",
+    "test_vectors.json": "1710ae1b6ef03df7be09bd5d8461d9b6a87c5d7b96adfa4d6c4389bce61091b8",
+    "threshold.json": "c039d1cfec2ae4734b077a8c8b6e9af629d7593bfec05e47a6c91bb0d06bb154",
+    "training_manifest.json": "3f5a7cc86ac4f32a112a199233827f57a80c2fb8a646c5a535728930a710c863",
+    "validation_report.json": "8ec0844c41e25a178e9cb640a9c6c7cd558f216ef31c062d7399d0d8f0727604"
+  },
+  "format": "mtfs-sentinel-artifact-index-v2",
+  "heldout_read": false,
+  "policy_selection_sha256": "950e043c462e7278912a5b8a12deccbf086df0a3be719e91f7c36a68f881067b",
+  "target_id": 1398033974,
+  "tool_version": "1.0.0",
+  "transport_id": 1229212993
+}

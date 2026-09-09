@@ -1,0 +1,15 @@
+{
+  "destination_name": "st3-card-d-pseudo-01.csv",
+  "payload": {
+    "operation": "byte-for-byte copy",
+    "published_sha256": "0edde4f2ff1c5a15a97aee2478dea2f8846a8b22f4448a9defe039452c5d0232",
+    "source_sha256": "0edde4f2ff1c5a15a97aee2478dea2f8846a8b22f4448a9defe039452c5d0232"
+  },
+  "sidecar": {
+    "operation": "replace source path only; canonical JSON serialization",
+    "original_source_value_sha256": "4379a5f640255687fb0658037a7144f2c89cf9f7304ffdcca74496ff32537216",
+    "published_sha256": "0c347940991ec075be8cd27aa7c3a69df6390865793d1de47cd6784194380387",
+    "published_source": "source-captures/st3-card-d-pseudo-01.log",
+    "source_sha256": "3092efe4e0bfce14ff810fbe6f99007faa00efb46914f78462758eef44485a18"
+  }
+}

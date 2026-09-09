@@ -1,0 +1,21 @@
+{
+  "accelerator_id": 1163212085,
+  "canonical_tflite_sha256": "bfa7ec20dc2056707ffaea572cd3353a4287a6cec4aa44b24e6057379e2541a8",
+  "fleet_key": {
+    "notice": "TEST/DEMO KEY - PUBLIC AND NOT SECRET - DO NOT USE IN PRODUCTION",
+    "path": "tools/sealed_model/tests/vectors/fleet_test.key",
+    "sha256": "28bc9477666b50aa58cbe0f10d20e21c3d1746a2e46bace1a9168fb876d76aa2"
+  },
+  "format": "mtfs-sealed-model-v1",
+  "inner_bundle_sha256": "c5847706e211b0f231f3a346505652dda6122b201ef60480cdb7b38023eae830",
+  "model_format": 1397642289,
+  "model_id": "fe8352a3-33fb-490c-8d1f-6c92f2741308",
+  "model_version": 2,
+  "package_sha256": "1d2cc2d8e98bedbd0e046a7233cb340595f6d6e69f33fa594b8eed5b57de5e79",
+  "preprocessing_contract_version": 2,
+  "regeneration": "nondeterministic by design: CSPRNG package/model key material and nonces",
+  "required_ram": 23728,
+  "seal_verify": "PASS",
+  "target_id": 1380005968,
+  "unsealed_plaintext_sha256": "c5847706e211b0f231f3a346505652dda6122b201ef60480cdb7b38023eae830"
+}

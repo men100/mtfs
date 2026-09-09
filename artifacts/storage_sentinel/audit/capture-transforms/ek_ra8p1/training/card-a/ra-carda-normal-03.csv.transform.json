@@ -1,0 +1,15 @@
+{
+  "destination_name": "ra-carda-normal-03.csv",
+  "payload": {
+    "operation": "byte-for-byte copy",
+    "published_sha256": "10c6eb13d2df9b1d8d36d34dd84e496ff8a4c208d8b8f89b18a32a3d4bc69ffd",
+    "source_sha256": "10c6eb13d2df9b1d8d36d34dd84e496ff8a4c208d8b8f89b18a32a3d4bc69ffd"
+  },
+  "sidecar": {
+    "operation": "replace source path only; canonical JSON serialization",
+    "original_source_value_sha256": "aac5198ad82dae6e5c85083b6aef430e8cace251dcf63468a0cfcf6d932d7654",
+    "published_sha256": "bfc3602958d42c92c49d7ef42e62c021bef9ace97be3488efb5cd4aa7f54c2db",
+    "published_source": "source-captures/ra-carda-normal-03.log",
+    "source_sha256": "34db194deb01ecf5622ecb984f78645293573292e68619a16d0c8eb0dde910da"
+  }
+}

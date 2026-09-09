@@ -1,0 +1,33 @@
+{
+  "canonical_full_int8_tflite_sha256": "bfa7ec20dc2056707ffaea572cd3353a4287a6cec4aa44b24e6057379e2541a8",
+  "canonical_reference": {
+    "runtime": "canonical CPU int8",
+    "tflite_evaluator": "BUILTIN_REF"
+  },
+  "contract_version": 2,
+  "conversion_manifest_sha256": "bbf41718317e14ac1d29df8da473ccbac49f365f972ce61e7ddaf9fb05dad261",
+  "decision_policy": {
+    "ambiguous": "otherwise",
+    "ambiguous_action": "canonical CPU arbitration",
+    "definitely_anomaly": "score_min_q8 > threshold_q8",
+    "definitely_normal": "score_max_q8 <= threshold_q8",
+    "threshold_q8": 0
+  },
+  "fixed_limits": {
+    "decision_disagreements": 0,
+    "maximum_common_q4_output_error": 0,
+    "maximum_raw_output_error_int8": 0,
+    "maximum_score_error_q8": 0,
+    "repeatability_failures": 0,
+    "score_interval_violations": 0
+  },
+  "format": "mtfs-sentinel-ra-ethosu-acceptance-core-v2",
+  "npu_runtime_binary_sha256": "cacc6a87cb737dac257547dfb4f04db4fc74e61cd2190fb89c1688885ccd04a4",
+  "score_interval": {
+    "candidate_component_interval": "[max(-128,y_i-e),min(127,y_i+e)]",
+    "candidate_score_requirement": "score_min_q8 <= score_q8 <= score_max_q8",
+    "rounding": "(sum + 12) // 24",
+    "version": 1
+  },
+  "status": "FROZEN"
+}
