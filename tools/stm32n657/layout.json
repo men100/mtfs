@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "board_id": "STM32N6570-DK",
+  "external_flash": {
+    "name": "MX66UW1G45G",
+    "base": "0x70000000",
+    "size": "0x08000000",
+    "external_loader": "MX66UW1G45G_STM32N6570-DK.stldr"
+  },
+  "images": {
+    "fsbl": {
+      "address": "0x70000000",
+      "region_size": "0x00100000"
+    },
+    "appli": {
+      "address": "0x70100000",
+      "region_size": "0x07efe000"
+    }
+  },
+  "prohibited_ranges": [
+    {
+      "name": "fleet-key-slot-a",
+      "address": "0x77ffe000",
+      "size": "0x00001000"
+    },
+    {
+      "name": "fleet-key-slot-b",
+      "address": "0x77fff000",
+      "size": "0x00001000"
+    }
+  ],
+  "source_contract": {
+    "file": "src/ports/stm32_cube/crypto/mtfs_stm32_nor_key_store.h",
+    "nor_bytes_macro": "MTFS_STM32_NOR_BYTES",
+    "key_slot_a_macro": "MTFS_STM32_NOR_KEY_OFFSET_A",
+    "key_slot_b_macro": "MTFS_STM32_NOR_KEY_OFFSET_B"
+  }
+}
