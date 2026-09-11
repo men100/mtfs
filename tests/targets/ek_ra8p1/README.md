@@ -1,6 +1,6 @@
 # EK-RA8P1 target test project
 
-このdirectoryをe² studioへ既存projectとしてimportし、`mtfs_ek_ra8p1`の
+このdirectoryをe² studioへ既存projectとしてimportし、`mtfs_ek_ra8p1_test`の
 DebugまたはRelease configurationをclean buildします。FSP生成物（`ra/`、
 `ra_cfg/`、`ra_gen/`）とbuild directoryは追跡対象ではありません。
 

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>mtfs_ek_ra8p1</name>
+	<name>mtfs_ek_ra8p1_test</name>
 	<comment>microT-FS Phase 3.3 EK-RA8P1 RTC, SD SPI, and Card Detect test</comment>
 	<projects></projects>
 	<buildSpec>
