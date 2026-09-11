@@ -8,6 +8,7 @@
 /.settings/*
 !/.settings/com.renesas.cdt.ddsc.contentgen.options.prefs
 !/.settings/com.renesas.cdt.managedbuild.gnuarm.prefs
+!/.settings/org.eclipse.cdt.core.prefs
 !/.settings/org.eclipse.core.resources.prefs
 /.module_descriptions/
 /ra_cfg.txt

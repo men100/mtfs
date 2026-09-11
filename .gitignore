@@ -97,4 +97,5 @@ external/stm32_cube/stm32n6570_dk/Middlewares/ST/AI/Npu/
 # ただしプロジェクトのツールチェーン指定は共有
 !**/.settings/com.renesas.cdt.managedbuild.gnuarm.prefs
 !**/.settings/com.renesas.cdt.ddsc.contentgen.options.prefs
+!**/.settings/org.eclipse.cdt.core.prefs
 !**/.settings/org.eclipse.core.resources.prefs
