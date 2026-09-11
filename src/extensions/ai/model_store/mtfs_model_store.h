@@ -17,10 +17,13 @@ extern "C" {
 #define MTFS_MODEL_INFO_API_VERSION (1U)
 
 /* Registry rule: zero is invalid in every namespace and is never a wildcard. */
+/* registry規則: 0は全namespaceで無効であり、wildcardとしても扱わない。 */
 #define MTFS_MODEL_ID_INVALID (0U)
 /* FourCC "SNT1": authenticated plaintext is Sentinel bundle v1. */
+/* FourCC "SNT1": 認証済みplaintextがSentinel bundle v1であることを示す。 */
 #define MTFS_MODEL_FORMAT_SENTINEL_BUNDLE_V1 (UINT32_C(0x534e5431))
 /* Outer accelerator policy ID for a CPU-only Sentinel bundle. */
+/* CPU-only Sentinel bundle用のouter accelerator policy ID。 */
 #define MTFS_ACCELERATOR_CPU_REFERENCE (UINT32_C(0x43505520))
 
 typedef enum mtfs_model_state

@@ -36,6 +36,7 @@ typedef struct mtfs_ra8p1_card_detect_hardware_diagnostics
 void mtfs_ra8p1_sd_spi_config(mtfs_ra_sd_spi_config_t *config);
 
 /* 64-bit monotonic microseconds using kernel uptime plus SysTick phase. */
+/* kernel uptimeとSysTick位相から64-bit単調増加microsecond値を得る。 */
 uint64_t mtfs_ra8p1_benchmark_clock_us(void *context);
 
 #if MTFS_ENABLE_STORAGE_SENTINEL
@@ -56,6 +57,7 @@ void mtfs_ra8p1_get_card_detect_hardware_diagnostics(
     mtfs_ra8p1_card_detect_hardware_diagnostics_t *diagnostics);
 
 /* FSP External IRQ callback. It runs in IRQ context and only posts flags. */
+/* FSP外部IRQ callback。IRQ contextではflag通知だけを行う。 */
 void mtfs_ra8p1_card_detect_callback(external_irq_callback_args_t *args);
 
 #endif /* MTFS_RA8P1_PLATFORM_H */

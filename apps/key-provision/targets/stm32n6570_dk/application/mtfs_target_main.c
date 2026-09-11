@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "app/mtfs_app_log.h"
+
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
 
@@ -361,22 +363,69 @@ static void info(void)
         MTFS_STM32_NOR_KEY_OFFSET_B);
 }
 
+static mtfs_app_log_level_t provision_log_level = MTFS_APP_LOG_INFO;
+
+static void print_log_level(const char *prefix)
+{
+    tm_printf((UB *)"%s%s\n", (UB *)prefix,
+        (UB *)mtfs_app_log_level_name(provision_log_level));
+}
+
+static void help_group(const char *group)
+{
+    int all = strcmp(group, "all") == 0;
+    int known = 0;
+    if (all || strcmp(group, "general") == 0) {
+        known = 1;
+        tm_printf((UB *)"General:\n");
+        tm_printf((UB *)"  help                         show commands and groups\n");
+        tm_printf((UB *)"  help <group>                 show one command group\n");
+        tm_printf((UB *)"  help all                     show every command\n");
+        tm_printf((UB *)"  log-level [off|error|info|debug]\n");
+        tm_printf((UB *)"  info                         public configuration; no write\n");
+    }
+    if (all || strcmp(group, "provisioning") == 0) {
+        known = 1;
+        tm_printf((UB *)"Provisioning:\n");
+        tm_printf((UB *)"  verify-nor        load and crypto-validate; no write\n");
+        tm_printf((UB *)"  provision-xmodem  create first key from exact 32-byte file\n");
+        tm_printf((UB *)"  update-xmodem     intentional inactive-slot key update\n");
+    }
+    if (!known) {
+        tm_printf((UB *)"ERROR: unknown help group\n");
+        tm_printf((UB *)"Groups: general provisioning\n");
+    }
+}
+
 static void help(void)
 {
-    tm_printf((UB *)"info              public configuration; no write\n");
-    tm_printf((UB *)"verify-nor        load and crypto-validate; no write\n");
-    tm_printf((UB *)"provision-xmodem  create first key from exact 32-byte file\n");
-    tm_printf((UB *)"update-xmodem     intentional inactive-slot key update\n");
-    tm_printf((UB *)"help              show commands\n");
+    tm_printf((UB *)"General:\n");
+    tm_printf((UB *)"  help                         show commands and groups\n");
+    tm_printf((UB *)"  log-level [off|error|info|debug]\n");
+    tm_printf((UB *)"  info                         public configuration; no write\n");
+    tm_printf((UB *)"Groups:\n  general\n  provisioning\n");
+    tm_printf((UB *)"Use help <group> for details.\n");
 }
 
 static void dispatch(const char *line)
 {
-    if (strcmp(line, "info") == 0) info();
+    mtfs_app_log_level_t requested_level = provision_log_level;
+    int is_query = 0;
+    int log_command = mtfs_app_log_parse_command(
+        line, &requested_level, &is_query);
+
+    if (log_command < 0)
+        tm_printf((UB *)"ERROR: use log-level off|error|info|debug\n");
+    else if (log_command > 0) {
+        if (!is_query) provision_log_level = requested_level;
+        print_log_level(is_query ? "log-level: " : "log-level set: ");
+    }
+    else if (strcmp(line, "info") == 0) info();
     else if (strcmp(line, "verify-nor") == 0) (void)load_and_verify();
     else if (strcmp(line, "provision-xmodem") == 0) provision(0);
     else if (strcmp(line, "update-xmodem") == 0) provision(1);
     else if (strcmp(line, "help") == 0) help();
+    else if (strncmp(line, "help ", 5U) == 0) help_group(line + 5U);
     else if (line[0] != '\0') tm_printf((UB *)"unknown command; type help\n");
 }
 
@@ -387,12 +436,15 @@ static void console_task(INT start_code, void *context)
     int previous_cr = 0;
     (void)start_code;
     (void)context;
-    tm_printf((UB *)"\nmicroT-FS STM32N6570-DK dedicated fleet-key provisioner\n");
+    if (mtfs_app_log_enabled(provision_log_level, MTFS_APP_LOG_INFO))
+        tm_printf((UB *)"\nmicroT-FS STM32N6570-DK dedicated fleet-key provisioner\n");
     if (mtfs_stm32_saes_init(&crypto_context) != MTFS_STM32_SAES_OK) {
         tm_printf((UB *)"[provision] BLOCKED SAES/RNG init failed\n");
     }
-    info();
-    help();
+    if (mtfs_app_log_enabled(provision_log_level, MTFS_APP_LOG_INFO)) {
+        info();
+        help();
+    }
     tm_printf((UB *)"> ");
     for (;;) {
         int character = tm_getchar(1);

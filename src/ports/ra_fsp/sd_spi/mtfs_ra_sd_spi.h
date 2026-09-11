@@ -102,6 +102,8 @@ typedef struct mtfs_ra_sd_spi_diagnostics
 /*
  * The object is intentionally concrete so applications can place it in BSS.
  * No heap allocation is performed by this port.
+ * applicationがBSSへ配置できるよう意図的に具象型とする。このportはheap
+ * allocationを行わない。
  */
 typedef struct mtfs_ra_sd_spi_context
 {
@@ -156,11 +158,15 @@ mtfs_error_t mtfs_ra_sd_spi_diagnostics_reset(
  * ISR-safe removal hint.  It only invalidates lightweight state and wakes a
  * transfer waiter.  FSP close/reopen and SD reinitialization stay in normal
  * I/O context.  A present notification never restores initialized state.
+ * ISR-safeな取り外しhint。軽量stateの無効化とtransfer waiterの起床だけを
+ * 行い、FSP close/reopenとSD再初期化は通常I/O contextに残す。挿入通知だけで
+ * initialized stateを復元することはない。
  */
 mtfs_error_t mtfs_ra_sd_spi_media_changed_isr(
     mtfs_ra_sd_spi_context_t *context, int present);
 
 /* FSP callback selected for the SCI_B SPI stack in configuration.xml. */
+/* configuration.xmlのSCI_B SPI stackで選択するFSP callback。 */
 void mtfs_ra_sd_spi_callback(spi_callback_args_t *args);
 
 #ifdef __cplusplus

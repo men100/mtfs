@@ -81,6 +81,22 @@ set_target_properties(mtfs_public_headers_cpp_compile PROPERTIES
 target_compile_options(mtfs_public_headers_cpp_compile PRIVATE
     -Wall -Wextra -Wpedantic)
 
+add_library(mtfs_public_headers_c_compile OBJECT test_public_headers.c)
+target_include_directories(mtfs_public_headers_c_compile PRIVATE
+    ../../src
+    ../../src/block
+    ../../src/sentinel
+    ../../apps/sentinel-lab/application
+)
+target_compile_definitions(mtfs_public_headers_c_compile PRIVATE
+    MTFS_ENABLE_SEALED_MODEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL=1
+    MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1)
+set_target_properties(mtfs_public_headers_c_compile PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES)
+target_compile_options(mtfs_public_headers_c_compile PRIVATE
+    -Wall -Wextra -Wpedantic)
+
 target_include_directories(mtfs_host_tests PRIVATE
     ../../src
     ../../src/block
@@ -323,6 +339,7 @@ add_executable(mtfs_sentinel_lab_console_test
 )
 target_include_directories(mtfs_sentinel_lab_console_test PRIVATE
     ../../apps/sentinel-lab/application
+    ../../src
 )
 set_target_properties(mtfs_sentinel_lab_console_test PROPERTIES
     C_STANDARD 99 C_STANDARD_REQUIRED YES

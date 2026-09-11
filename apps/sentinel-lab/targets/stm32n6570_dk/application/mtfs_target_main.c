@@ -680,6 +680,95 @@ static int parse_command(const char *line, const char *expected,
 }
 #endif
 
+static int lab_help(const char *line)
+{
+    const char *group = NULL;
+    int all = 0;
+    int known = 0;
+
+    if (strcmp(line, "help") == 0) {
+        lab_console_write(NULL,
+            "General:\r\n"
+            "  help                         show commands and groups\r\n"
+            "  help <group>                 show one command group\r\n"
+            "  help all                     show every command\r\n"
+            "  log-level [off|error|info|debug]\r\n"
+            "Groups:\r\n  general\r\n"
+#if MTFS_ENABLE_STORAGE_SENTINEL
+            "  sentinel\r\n"
+            "  diagnostics\r\n  developer\r\n"
+#endif
+            "Use help <group> for details.\r\n");
+        return 1;
+    }
+    if (strncmp(line, "help ", 5U) != 0) return 0;
+    group = line + 5U;
+    all = strcmp(group, "all") == 0;
+    if (all || strcmp(group, "general") == 0) {
+        known = 1;
+        lab_console_write(NULL,
+            "General:\r\n"
+            "  help                         show commands and groups\r\n"
+            "  help <group>                 show one command group\r\n"
+            "  help all                     show every command\r\n"
+            "  log-level [off|error|info|debug]\r\n"
+#if MTFS_ENABLE_STORAGE_SENTINEL
+            "  record [samples]             emit requested CSV samples\r\n");
+#else
+            );
+#endif
+    }
+#if MTFS_ENABLE_STORAGE_SENTINEL
+    if (all || strcmp(group, "sentinel") == 0) {
+        known = 1;
+        lab_console_write(NULL,
+            "Sentinel:\r\n"
+            "  record [samples]             collect natural workload samples\r\n"
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+            "  sentinel-monitor [samples]   acquire and classify live windows\r\n"
+            "  sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
+#endif
+            );
+    }
+    if (all || strcmp(group, "diagnostics") == 0) {
+        known = 1;
+        lab_console_write(NULL,
+            "Diagnostics:\r\n"
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+            "  sentinel-infer-profile [iterations]  timing, scheduler, and stack measurements\r\n"
+#endif
+            );
+    }
+    if (all || strcmp(group, "developer") == 0) {
+        known = 1;
+        lab_console_write(NULL,
+            "Developer:\r\n"
+            "  pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
+            "  pseudo-collect-hard-fault [samples] [seed]\r\n"
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
+            "  sentinel-monitor-hotplug [samples]\r\n"
+            "  pseudo-monitor-delay-ramp [samples-per-stage] [seed]\r\n"
+            "  sentinel-infer-pseudo-slow [iterations]\r\n"
+            "  sentinel-infer-hotplug [iterations]\r\n"
+            "  sentinel-infer-vector HEX48 [iterations]\r\n"
+            "  siv HEX48 [iterations]\r\n"
+            "  sivb BASE64URL32 [iterations]\r\n"
+#endif
+            );
+    }
+#endif
+    if (!known) {
+        lab_console_write(NULL,
+            "ERROR: unknown help group\r\n"
+#if MTFS_ENABLE_STORAGE_SENTINEL
+            "Groups: general sentinel diagnostics developer\r\n");
+#else
+            "Groups: general\r\n");
+#endif
+    }
+    return 1;
+}
+
 static int lab_command(void *context, const char *line)
 {
 #if MTFS_ENABLE_STORAGE_SENTINEL
@@ -690,31 +779,7 @@ static int lab_command(void *context, const char *line)
 #endif
 #endif
     (void)context;
-    if (strcmp(line, "help") == 0) {
-#if MTFS_ENABLE_STORAGE_SENTINEL
-        lab_console_write(NULL,
-            "help\r\n"
-            "record [samples]\r\n"
-            "pseudo-collect-delay-ramp [samples-per-stage] [seed]\r\n"
-            "pseudo-collect-hard-fault [samples] [seed]\r\n"
-#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE && MTFS_ENABLE_SEALED_MODEL
-            "sentinel-monitor [samples]  acquire and classify each live window\r\n"
-            "sentinel-monitor-hotplug [samples]  remove/reinsert and verify baseline re-warmup\r\n"
-            "pseudo-monitor-delay-ramp [samples-per-stage] [seed]  monitor injected delay stages\r\n"
-            "sentinel-infer [iterations]  authenticate SENTINEL.MTF and compare CPU/NPU\r\n"
-            "sentinel-infer-profile [iterations]  diagnostic timing, scheduler, and stack measurements\r\n"
-            "sentinel-infer-pseudo-slow [iterations]  compare retained strong-delay frame\r\n"
-            "sentinel-infer-hotplug [iterations]  remove/reinsert SD during resident inference\r\n"
-            "sentinel-infer-vector HEX48 [iterations]  compare an exact common-Q4 vector\r\n"
-            "siv HEX48 [iterations]  short alias for sentinel-infer-vector\r\n"
-            "sivb BASE64URL32 [iterations]  compact exact common-Q4 vector\r\n"
-#endif
-            );
-#else
-        lab_console_write(NULL,
-            "help    show this help\r\n"
-            "record  measure workload continuously until board reset\r\n");
-#endif
+    if (lab_help(line)) {
         return 1;
     }
 #if MTFS_ENABLE_STORAGE_SENTINEL

@@ -68,13 +68,47 @@ int test_console(mtfs_test_t *test)
         &console, fixture_command, &fixture, "probe                     probe extension\r\n");
     mtfs_console_execute(&console, "help");
     if (!MTFS_TEST_CHECK(test,
-            strncmp(fixture.output, "help ", 5U) == 0 &&
+            strstr(fixture.output, "General:\r\n") != NULL &&
+                strstr(fixture.output, "help <group>") != NULL &&
+                strstr(fixture.output, "log-level [off|error|info|debug]") != NULL &&
+                strstr(fixture.output, "Groups:\r\n") != NULL &&
+                strstr(fixture.output, "\r\n  rtc\r\n") != NULL &&
+                strstr(fixture.output, "probe extension") != NULL,
+            "RTC console help shows general commands and groups first")) {
+        return 1;
+    }
+
+    memset(&fixture, 0, sizeof(fixture));
+    mtfs_console_init(&console, fixture_write, &fixture);
+    mtfs_console_set_extension(&console, fixture_command, &fixture, NULL);
+    mtfs_console_execute(&console, "help rtc");
+    mtfs_console_execute(&console, "help all");
+    if (!MTFS_TEST_CHECK(test,
+            strstr(fixture.output, "RTC:\r\n") != NULL &&
                 strstr(fixture.output, "rtc-get ") != NULL &&
-                strstr(fixture.output, "rtc-status ") != NULL &&
-                strstr(fixture.output, "rtc-set YYYY-MM-DD hh:mm:ss ") != NULL &&
-                strstr(fixture.output, "rtc-clear ") != NULL &&
-                strstr(fixture.output, "\r\nprobe ") != NULL,
-            "RTC console help starts with help and uses rtc-prefixed commands")) {
+                strstr(fixture.output, "rtc-set YYYY-MM-DD hh:mm:ss") != NULL &&
+                fixture.command_count == 1U &&
+                strcmp(fixture.command, "help all") == 0,
+            "RTC group is explicit and help all reaches target groups")) {
+        return 1;
+    }
+
+    memset(&fixture, 0, sizeof(fixture));
+    mtfs_console_init(&console, fixture_write, &fixture);
+    mtfs_console_set_extension(&console, fixture_command, &fixture, NULL);
+    mtfs_console_execute(&console, "log-level");
+    mtfs_console_execute(&console, "log-level off");
+    mtfs_console_execute(&console, "log-level debug");
+    mtfs_console_execute(&console, "log-level verbose");
+    if (!MTFS_TEST_CHECK(test,
+            strstr(fixture.output, "log-level: info\r\n") != NULL &&
+                strstr(fixture.output, "log-level set: off\r\n") != NULL &&
+                strstr(fixture.output, "log-level set: debug\r\n") != NULL &&
+                strstr(fixture.output,
+                    "ERROR: use log-level off|error|info|debug\r\n") != NULL &&
+                mtfs_console_log_level(&console) == MTFS_APP_LOG_DEBUG &&
+                fixture.command_count == 0U,
+            "runtime log level defaults to info and rejects invalid values")) {
         return 1;
     }
 

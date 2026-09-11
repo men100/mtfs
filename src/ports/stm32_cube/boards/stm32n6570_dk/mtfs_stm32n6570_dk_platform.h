@@ -28,6 +28,7 @@ typedef struct mtfs_stm32n6570_dk_card_detect_diagnostics
 } mtfs_stm32n6570_dk_card_detect_diagnostics_t;
 
 /* Call after Cube peripheral setup and before starting microT-Kernel. */
+/* Cube peripheral設定後、microT-Kernel起動前に呼び出す。 */
 HAL_StatusTypeDef mtfs_stm32n6570_dk_pre_kernel_init(void);
 
 uint64_t mtfs_stm32n6570_dk_benchmark_clock_us(void *context);

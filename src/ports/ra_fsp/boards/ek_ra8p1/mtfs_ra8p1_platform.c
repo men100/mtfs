@@ -6,14 +6,15 @@
 
 #include "bsp_pin_cfg.h"
 #include "hal_data.h"
+#include "mtfs_ra8p1_board_config.h"
 
 #ifndef MTFS_RA8P1_CD_ACTIVE_LOW
-/* Digilent Pmod MicroSD Rev. A is expected active-low; confirm from raw logs. */
-#define MTFS_RA8P1_CD_ACTIVE_LOW (1U)
+/* Compatibility override; the board configuration is the normal source. */
+#define MTFS_RA8P1_CD_ACTIVE_LOW MTFS_RA8P1_SD_CARD_DETECT_ACTIVE_LOW
 #endif
 
 #ifndef MTFS_RA8P1_CD_DEBOUNCE_MS
-#define MTFS_RA8P1_CD_DEBOUNCE_MS (100U)
+#define MTFS_RA8P1_CD_DEBOUNCE_MS MTFS_RA8P1_SD_CARD_DETECT_DEBOUNCE_MS
 #endif
 
 static mtfs_ra8p1_card_detect_diagnostics_t cd_diagnostics;
@@ -28,7 +29,7 @@ static int mtfs_ra8p1_card_detect_raw(void *opaque)
     (void)opaque;
 
     result = g_ioport.p_api->pinRead(
-        g_ioport.p_ctrl, PMOD2_GPIO1, &level);
+        g_ioport.p_ctrl, MTFS_RA8P1_SD_CARD_DETECT_PIN, &level);
     return (result == FSP_SUCCESS) ? (int)level : -1;
 }
 
@@ -105,7 +106,7 @@ void mtfs_ra8p1_sd_spi_config(mtfs_ra_sd_spi_config_t *config)
     config->device_name = "hspia";
     config->spi = &g_sci_spi0;
     config->ioport = &g_ioport;
-    config->chip_select_pin = PMOD2_CTS;
+    config->chip_select_pin = MTFS_RA8P1_SD_CHIP_SELECT_PIN;
     config->initialization_bitrate_hz = 400000U;
     config->data_bitrate_hz = 4000000U;
     config->initialization_timeout_ms = 1000U;

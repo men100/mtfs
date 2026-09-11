@@ -68,6 +68,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/mtkernel/kernel/knlinc}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Application}&quot;"/>
+									<listOptionValue builtIn="false" value="../../../../../../src"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32n6570_dk}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_common}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_crypto}&quot;"/>
@@ -177,6 +178,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtk3_bsp2/mtkernel/kernel/knlinc}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Application}&quot;"/>
+									<listOptionValue builtIn="false" value="../../../../../../src"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32n6570_dk}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_common}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/mtfs_stm32_crypto}&quot;"/>

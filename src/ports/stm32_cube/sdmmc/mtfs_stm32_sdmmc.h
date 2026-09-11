@@ -79,6 +79,7 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
     uint8_t hal_initialized;
     uint8_t transfer_active;
     /* IDMA writes that entered post-TX card-ready checking, including fast completion. */
+    /* 即時完了を含め、送信後card-ready確認へ進んだIDMA write回数。 */
     uint32_t ready_sequences;
     /* Calls to the kernel event wait after BUSYD0END was armed. */
     uint32_t ready_event_waits;
@@ -89,6 +90,7 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
 } mtfs_stm32_sdmmc_diagnostics_t;
 
 /* Concrete by design: applications statically allocate this object. */
+/* applicationが静的確保できるよう、意図的に具象型として公開する。 */
 typedef struct mtfs_stm32_sdmmc_context
 {
     mtfs_stm32_sdmmc_config_t config;
@@ -133,12 +135,15 @@ mtfs_error_t mtfs_stm32_sdmmc_diagnostics_reset(
 /*
  * ISR-safe removal hint.  It only invalidates lightweight state and wakes an
  * IDMA waiter. HAL_SD_Abort()/DeInit() remain deferred to normal I/O context.
+ * ISR-safeな取り外しhint。軽量stateの無効化とIDMA waiterの起床だけを行い、
+ * HAL_SD_Abort()/DeInit()は通常I/O contextまで遅延する。
  * A present notification never restores initialized state.
  */
 mtfs_error_t mtfs_stm32_sdmmc_media_changed_isr(
     mtfs_stm32_sdmmc_context_t *context, int present);
 
 /* Global STM32 HAL callbacks; dispatch is restricted to the configured handle. */
+/* STM32 HALのglobal callbackだが、dispatchは設定済みhandleだけに限定する。 */
 void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hal_sd);
 void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hal_sd);
 void HAL_SD_ErrorCallback(SD_HandleTypeDef *hal_sd);

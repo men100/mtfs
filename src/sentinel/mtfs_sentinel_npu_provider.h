@@ -61,6 +61,7 @@ typedef void (*mtfs_sentinel_npu_zeroize_fn)(void *target, void *address,
 typedef uint32_t (*mtfs_sentinel_npu_cycle_count_fn)(void *context);
 
 /* Diagnostic timing is opt-in and does not alter the normal inference path. */
+/* diagnostic timingはopt-inであり、通常のinference pathを変更しない。 */
 typedef struct mtfs_sentinel_npu_inference_profile
 {
     uint64_t input_requantize_cycles;

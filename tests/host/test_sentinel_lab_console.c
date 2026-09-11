@@ -46,7 +46,21 @@ int main(void)
     if (command_calls != 3U || record_calls != 2U ||
         strstr(output, "ERROR: unknown command; type help") == NULL)
         return 1;
+    mtfs_sentinel_lab_console_execute(&console, "log-level");
+    mtfs_sentinel_lab_console_execute(&console, "log-level off");
+    mtfs_sentinel_lab_console_execute(&console, "log-level error");
+    mtfs_sentinel_lab_console_execute(&console, "log-level info");
+    mtfs_sentinel_lab_console_execute(&console, "log-level debug");
+    mtfs_sentinel_lab_console_execute(&console, "log-level noisy");
+    if (command_calls != 3U ||
+        mtfs_sentinel_lab_console_log_level(&console) != MTFS_APP_LOG_DEBUG ||
+        strstr(output, "log-level: info") == NULL ||
+        strstr(output, "log-level set: off") == NULL ||
+        strstr(output, "log-level set: debug") == NULL ||
+        strstr(output, "ERROR: use log-level off|error|info|debug") == NULL)
+        return 1;
     mtfs_sentinel_lab_console_init(NULL, NULL, NULL, NULL, NULL);
     mtfs_sentinel_lab_console_feed(NULL, 'x');
+    mtfs_sentinel_lab_console_execute(NULL, NULL);
     return 0;
 }

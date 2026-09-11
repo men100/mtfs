@@ -16,6 +16,15 @@ microT-FSは、microT-Kernel 3.0向けにFatFsを統合・拡張する組み込�
 
 このrepositoryは現在、release documentationの再構成前です。
 
+組み込みtest projectは `tests/targets/ek_ra8p1/` と
+`tests/targets/stm32n6570_dk/` にあります。前者はe² studio project、後者は
+STM32CubeIDEのmulti-project（Appli/FSBL）です。import/build手順とpin設定の
+source of truthは各directoryのREADMEを参照してください。
+
+console applicationでは `log-level [off|error|info|debug]` で実行時ログレベルを
+確認・変更できます（既定は`info`、reset後の永続化なし）。`help`は一般commandと
+group一覧、`help <group>`は該当group、`help all`は全commandを表示します。
+
 ## Submodule
 
 microT-Kernel 3.0 BSPを取得するには、repositoryのrootで次を実行します。

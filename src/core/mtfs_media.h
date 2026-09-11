@@ -1,4 +1,5 @@
 /* Platform-independent removable-media lifecycle state machine. */
+/* platform非依存のremovable media lifecycle state machine。 */
 #ifndef MTFS_MEDIA_H
 #define MTFS_MEDIA_H
 
@@ -41,6 +42,7 @@ typedef enum mtfs_media_active_level
 } mtfs_media_active_level_t;
 
 /* Return 0/1 for the raw GPIO level and a negative value on read failure. */
+/* raw GPIO levelは0/1、読み取り失敗は負値を返す。 */
 typedef int (*mtfs_media_read_signal_fn)(void *opaque);
 typedef void (*mtfs_media_event_fn)(
     void *opaque, mtfs_media_event_t event, mtfs_media_state_t state);
@@ -77,6 +79,7 @@ typedef struct mtfs_media_diagnostics
 } mtfs_media_diagnostics_t;
 
 /* Concrete by design: applications statically allocate this object. */
+/* applicationが静的確保できるよう、意図的に具象型として公開する。 */
 typedef struct mtfs_media_context
 {
     mtfs_media_config_t config;
@@ -101,17 +104,21 @@ mtfs_error_t mtfs_media_init(
     mtfs_media_context_t *context, const mtfs_media_config_t *config);
 
 /* Stop notification acceptance before disabling/deleting the source IRQ. */
+/* 発生源IRQを無効化・削除する前に通知受付を停止する。 */
 mtfs_error_t mtfs_media_stop_notifications(mtfs_media_context_t *context);
 mtfs_error_t mtfs_media_deinit(mtfs_media_context_t *context);
 
 /*
  * ISR-safe: only records the raw level and a sequence number.  It never reads
  * GPIO, waits, allocates, locks, or invokes the application callback.
+ * ISR-safe: raw levelとsequence番号だけを記録し、GPIO read、wait、allocate、
+ * lock、application callback呼び出しは行わない。
  */
 mtfs_error_t mtfs_media_notify_isr(
     mtfs_media_context_t *context, int raw_level);
 
 /* Task-context manual edge notification; rereads the configured signal. */
+/* task context用の手動edge通知で、設定済みsignalを再読出しする。 */
 mtfs_error_t mtfs_media_notify(mtfs_media_context_t *context);
 
 /*

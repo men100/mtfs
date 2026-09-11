@@ -121,6 +121,83 @@ static void target_rtc_unlock(void *opaque)
 #if MTFS_TARGET_COMMAND_CONSOLE_ACTIVE
 static int target_console_command(void *opaque, const char *line);
 
+static int target_console_help(const char *line)
+{
+    const char *group;
+    int all;
+    int known = 0;
+
+    if (strncmp(line, "help ", 5U) != 0) {
+        return 0;
+    }
+    group = line + 5U;
+    all = strcmp(group, "all") == 0;
+    if (all || strcmp(group, "filesystem") == 0) {
+        known = 1;
+        mtfs_console_tmonitor_write(NULL,
+            "Filesystem:\r\n"
+            "  test-roundtrip [rounds]  run storage suite (default: profile)\r\n"
+            "  test-fatfs-time          verify FatFs timestamp against RTC\r\n");
+    }
+    if (all || strcmp(group, "media") == 0) {
+        known = 1;
+        mtfs_console_tmonitor_write(NULL,
+            "Media:\r\n"
+            "  test-hotplug             run one remove/reinsert storage test\r\n");
+    }
+#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
+    if (all || strcmp(group, "model") == 0) {
+        known = 1;
+        mtfs_console_tmonitor_write(NULL,
+            "Model:\r\n"
+            "  model-info               authenticate and show trusted model info\r\n"
+            "  model-load               load and verify MTFSTEST.MTF via model API\r\n"
+            "  model-hotplug            verify removal cleanup and reinsertion recovery\r\n");
+    }
+#endif
+    if (all || strcmp(group, "benchmark") == 0) {
+        known = 1;
+        mtfs_console_tmonitor_write(NULL,
+            "Benchmark:\r\n"
+            "  bench-info               print RA benchmark conditions\r\n"
+            "  bench-smoke              run short non-destructive benchmark\r\n"
+            "  bench-normal             run 1 MiB baseline benchmark\r\n");
+    }
+    if (all || strcmp(group, "diagnostics") == 0) {
+        known = 1;
+        mtfs_console_tmonitor_write(NULL,
+            "Diagnostics:\r\n"
+            "  diag                     print common/media/RA snapshots\r\n"
+            "  diag-help                explain diagnostic commands\r\n"
+            "  stack-highwater          print coordinator/worker peak stack use\r\n");
+    }
+    if (all || strcmp(group, "developer") == 0) {
+        known = 1;
+        mtfs_console_tmonitor_write(NULL,
+            "Developer:\r\n"
+            "  test-diagnostics-reset   verify reset on one active context\r\n"
+            "  diag-reset               reset diagnostic counters only\r\n"
+#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
+            "  crypto-info              show RSIP spike configuration and diagnostics\r\n"
+            "  crypto-consistency       test provisioned-key GCM consistency\r\n"
+            "  crypto-negative          reject SD test package tampering in RAM\r\n"
+            "  crypto-package-test      verify fleet-specific SD test package\r\n"
+            "  model-negative           reject reader/policy mutations via model API\r\n"
+#endif
+            );
+    }
+    if (!known) {
+        mtfs_console_tmonitor_write(NULL,
+            "ERROR: unknown help group\r\n"
+            "Groups: general rtc filesystem media"
+#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
+            " model"
+#endif
+            " benchmark diagnostics developer\r\n");
+    }
+    return 1;
+}
+
 /* Cortex-M task stacks descend toward the guard at the buffer's low end. */
 static size_t target_coordinator_stack_free_bytes(void)
 {
@@ -335,29 +412,14 @@ static void target_command_console(void)
 {
     mtfs_console_t console;
     mtfs_console_init(&console, mtfs_console_tmonitor_write, NULL);
-    mtfs_console_set_extension(&console, target_console_command, NULL,
-        "test-roundtrip [rounds]   run storage suite (default: profile)\r\n"
-        "test-hotplug              run one remove/reinsert storage test\r\n"
-        "test-fatfs-time           verify FatFs timestamp against RTC\r\n"
-        "bench-info                print RA benchmark conditions\r\n"
-        "bench-smoke               run short non-destructive benchmark\r\n"
-        "bench-normal              run 1 MiB baseline benchmark\r\n"
-        "test-diagnostics-reset    verify reset on one active context\r\n"
-        "diag                      print common/media/RA snapshots\r\n"
-        "diag-reset                reset diagnostic counters only\r\n"
-        "diag-help                 explain diagnostic commands\r\n"
-        "stack-highwater           print coordinator/worker peak stack use\r\n"
+    mtfs_console_set_extension(&console, target_console_command, &console,
+        "  filesystem\r\n  media\r\n"
 #if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
-        "crypto-info               show RSIP spike configuration and diagnostics\r\n"
-        "crypto-consistency        test provisioned-key GCM consistency\r\n"
-        "crypto-negative           reject SD test package tampering in RAM\r\n"
-        "crypto-package-test       verify fleet-specific SD test package\r\n"
-        "model-info               authenticate and show trusted model info\r\n"
-        "model-load               load and verify MTFSTEST.MTF via model API\r\n"
-        "model-negative           reject reader/policy mutations via model API\r\n"
-        "model-hotplug            verify removal cleanup and reinsertion recovery\r\n"
+        "  model\r\n"
 #endif
-        );
+        "  benchmark\r\n"
+        "  diagnostics\r\n  developer\r\n"
+        "Use help <group> for details.\r\n");
     mtfs_console_tmonitor_write(NULL,
         "microT-FS EK-RA8P1 command console\r\n"
         "Commands: RTC, storage tests, benchmark, and crypto diagnostics.\r\n"
@@ -1068,6 +1130,9 @@ static int target_console_command(void *opaque, const char *line)
     int parse_result = 0;
 
     (void)opaque;
+    if (target_console_help(line)) {
+        return 1;
+    }
     if (strcmp(line, command) == 0) {
         parse_result = 1;
     } else if ((strncmp(line, command, offset) == 0) &&

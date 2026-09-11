@@ -65,10 +65,10 @@ doxygen-output/
 # STM32CubeIDE local workspace and managed-build outputs
 .cubeide-workspace-*/
 .e2studio-workspace-phase3*/
-tests/targets/stm32n6570_dk/basic/Appli/Debug/
-tests/targets/stm32n6570_dk/basic/Appli/Release/
-tests/targets/stm32n6570_dk/basic/FSBL/Debug/
-tests/targets/stm32n6570_dk/basic/FSBL/Release/
+tests/targets/stm32n6570_dk/Appli/Debug/
+tests/targets/stm32n6570_dk/Appli/Release/
+tests/targets/stm32n6570_dk/FSBL/Debug/
+tests/targets/stm32n6570_dk/FSBL/Release/
 apps/key-provision/targets/stm32n6570_dk/Appli/Debug/
 apps/key-provision/targets/stm32n6570_dk/Appli/Release/
 apps/key-provision/targets/stm32n6570_dk/FSBL/Debug/
@@ -86,7 +86,7 @@ apps/sentinel-lab/targets/stm32n6570_dk/FSBL/Release/
 external/stm32_cube/stm32n6570_dk/Middlewares/ST/AI/Npu/
 
 # STM32N6570-DK consumer-specific debug launch configurations are shared
-!tests/targets/stm32n6570_dk/basic/FSBL/*.launch
+!tests/targets/stm32n6570_dk/FSBL/*.launch
 !apps/key-provision/targets/stm32n6570_dk/FSBL/*.launch
 !apps/simple/targets/stm32n6570_dk/FSBL/*.launch
 !apps/sentinel-lab/targets/stm32n6570_dk/FSBL/*.launch

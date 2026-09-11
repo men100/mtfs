@@ -1,5 +1,7 @@
 #include "mtfs_stm32n6570_sentinel_npu.h"
 
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -189,3 +191,5 @@ mtfs_error_t mtfs_stm32n6570_sentinel_npu_hardware_init(void)
     npu_cache_enable();
     return MTFS_OK;
 }
+
+#endif

@@ -1,5 +1,7 @@
 #include "mtfs_ra8p1_sentinel_npu.h"
 
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+
 #include <stddef.h>
 
 #define RA_PROVIDER MTFS_SENTINEL_PROVIDER_RA_TFLM_ETHOSU
@@ -62,3 +64,5 @@ mtfs_error_t mtfs_ra8p1_sentinel_npu_policy(
     *policy_count = (uint32_t)(sizeof(policies) / sizeof(policies[0]));
     return MTFS_OK;
 }
+
+#endif

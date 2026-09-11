@@ -1,4 +1,5 @@
 /* Storage Sentinel v1 integer feature schema and caller-driven sampling. */
+/* Storage Sentinel v1整数feature schemaとcaller主導sampling。 */
 #ifndef MTFS_SENTINEL_H
 #define MTFS_SENTINEL_H
 
@@ -105,6 +106,7 @@ typedef struct mtfs_sentinel_transport_feature
 } mtfs_sentinel_transport_feature_t;
 
 /* Adapter-owned cumulative snapshot; the Sentinel core emits checked deltas. */
+/* adapter所有の累積snapshotからSentinel coreが検査済みdeltaを生成する。 */
 typedef mtfs_error_t (*mtfs_sentinel_transport_sample_fn)(
     void *context, mtfs_sentinel_transport_snapshot_t *snapshot);
 
@@ -137,6 +139,7 @@ typedef struct mtfs_sentinel_feature_v1
 } mtfs_sentinel_feature_v1_t;
 
 /* Cached media lifecycle values supplied by the application; no I/O is done. */
+/* application提供のcache済みmedia lifecycle値であり、I/Oは行わない。 */
 typedef struct mtfs_sentinel_sample_metadata
 {
     uint32_t media_generation;

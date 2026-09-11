@@ -41,6 +41,13 @@ typedef struct mtfs_sealed_work
     size_t plaintext_capacity;
 } mtfs_sealed_work_t;
 
+/*
+ * Caller-owned work buffers are reused during authenticated loading and may
+ * temporarily contain plaintext that must be treated as secret.
+ * caller所有のwork bufferは認証付きload中に再利用され、一時的にplaintextを含む
+ * 可能性があるため秘密情報として扱う。
+ */
+
 typedef struct mtfs_sealed_blob
 {
     uint32_t api_version;

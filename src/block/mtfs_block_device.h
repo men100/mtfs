@@ -1,4 +1,5 @@
 /* Platform-independent block device API for microT-FS. */
+/* microT-FSのplatform非依存block device API。 */
 #ifndef MTFS_BLOCK_DEVICE_H
 #define MTFS_BLOCK_DEVICE_H
 

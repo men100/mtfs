@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "app/mtfs_app_log.h"
+
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
 #include <mtkernel/lib/libtm/libtm.h>
@@ -434,20 +436,64 @@ static void provision_xmodem(int allow_update)
     }
 }
 
+static mtfs_app_log_level_t provision_log_level = MTFS_APP_LOG_INFO;
+
+static void print_log_level(const char *prefix)
+{
+    tm_printf((UB *)"%s%s\n", (UB *)prefix,
+        (UB *)mtfs_app_log_level_name(provision_log_level));
+}
+
+static void print_help_group(const char *group)
+{
+    int all = strcmp(group, "all") == 0;
+    int known = 0;
+    if (all || strcmp(group, "general") == 0) {
+        known = 1;
+        tm_printf((UB *)"General:\n");
+        tm_printf((UB *)"  help                         show commands and groups\n");
+        tm_printf((UB *)"  help <group>                 show one command group\n");
+        tm_printf((UB *)"  help all                     show every command\n");
+        tm_printf((UB *)"  log-level [off|error|info|debug]\n");
+        tm_printf((UB *)"  info                         show public provisioning configuration\n");
+    }
+    if (all || strcmp(group, "provisioning") == 0) {
+        known = 1;
+        tm_printf((UB *)"Provisioning:\n");
+        tm_printf((UB *)"  verify-ospi       validate the active wrapped key; no write\n");
+        tm_printf((UB *)"  provision-xmodem  create the first key from a 32-byte file\n");
+        tm_printf((UB *)"  update-xmodem     intentionally replace the key; version increments\n");
+    }
+    if (!known) {
+        tm_printf((UB *)"ERROR: unknown help group\n");
+        tm_printf((UB *)"Groups: general provisioning\n");
+    }
+}
+
 static void print_help(void)
 {
-    tm_printf((UB *)"info              show public provisioning configuration\n");
-    tm_printf((UB *)"verify-ospi       validate the active wrapped key; no write\n");
-    tm_printf((UB *)"provision-xmodem  create the first key from a 32-byte file\n");
-    tm_printf((UB *)"update-xmodem     intentionally replace the key; version increments\n");
-    tm_printf((UB *)"help              show this help\n");
+    tm_printf((UB *)"General:\n");
+    tm_printf((UB *)"  help                         show commands and groups\n");
+    tm_printf((UB *)"  log-level [off|error|info|debug]\n");
+    tm_printf((UB *)"  info                         show public provisioning configuration\n");
+    tm_printf((UB *)"Groups:\n  general\n  provisioning\n");
+    tm_printf((UB *)"Use help <group> for details.\n");
 }
 
 static void dispatch(const char *line)
 {
     mtfs_ra8p1_key_metadata_t metadata = {0U};
+    mtfs_app_log_level_t requested_level = provision_log_level;
+    int is_query = 0;
+    int log_command = mtfs_app_log_parse_command(
+        line, &requested_level, &is_query);
 
-    if (strcmp(line, "info") == 0) {
+    if (log_command < 0) {
+        tm_printf((UB *)"ERROR: use log-level off|error|info|debug\n");
+    } else if (log_command > 0) {
+        if (!is_query) provision_log_level = requested_level;
+        print_log_level(is_query ? "log-level: " : "log-level set: ");
+    } else if (strcmp(line, "info") == 0) {
         print_info();
     } else if (strcmp(line, "verify-ospi") == 0) {
         (void)load_and_verify(&metadata);
@@ -457,6 +503,8 @@ static void dispatch(const char *line)
         provision_xmodem(1);
     } else if (strcmp(line, "help") == 0) {
         print_help();
+    } else if (strncmp(line, "help ", 5U) == 0) {
+        print_help_group(line + 5U);
     } else if (line[0] != '\0') {
         tm_printf((UB *)"unknown command; type help\n");
     }
@@ -471,15 +519,19 @@ static void console_task(INT start_code, void *context)
     (void)start_code;
     (void)context;
 
-    tm_printf((UB *)"\nmicroT-FS EK-RA8P1 dedicated fleet-key provisioner\n");
-    tm_printf((UB *)"Trusted local UART provisioning; plaintext key is transient\n");
+    if (mtfs_app_log_enabled(provision_log_level, MTFS_APP_LOG_INFO)) {
+        tm_printf((UB *)"\nmicroT-FS EK-RA8P1 dedicated fleet-key provisioner\n");
+        tm_printf((UB *)"Trusted local UART provisioning; plaintext key is transient\n");
+    }
     status = crypto_initialize();
     if (status != PSA_SUCCESS) {
         tm_printf((UB *)"[provision] BLOCKED: Compatibility crypto init psa=%d\n",
             (INT)status);
     }
-    print_info();
-    print_help();
+    if (mtfs_app_log_enabled(provision_log_level, MTFS_APP_LOG_INFO)) {
+        print_info();
+        print_help();
+    }
     tm_printf((UB *)"> ");
     for (;;) {
         int character = tm_getchar(1);
@@ -491,7 +543,9 @@ static void console_task(INT start_code, void *context)
             previous_cr = character == '\r';
             line[length] = '\0';
             tm_printf((UB *)"\n");
-            if (crypto_ready != 0U) {
+            if ((crypto_ready != 0U) ||
+                (strncmp(line, "help", 4U) == 0) ||
+                (strncmp(line, "log-level", 9U) == 0)) {
                 dispatch(line);
             } else if (line[0] != '\0') {
                 tm_printf((UB *)"[provision] BLOCKED: crypto initialization failed\n");

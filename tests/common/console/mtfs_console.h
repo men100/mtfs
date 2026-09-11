@@ -4,6 +4,8 @@
 
 #include <stddef.h>
 
+#include "app/mtfs_app_log.h"
+
 typedef void (*mtfs_console_write_t)(void *context, const char *text);
 typedef int (*mtfs_console_command_t)(void *context, const char *line);
 
@@ -14,6 +16,7 @@ typedef struct mtfs_console
     mtfs_console_command_t command;
     void *command_context;
     const char *command_help;
+    mtfs_app_log_level_t log_level;
     char line[64];
     size_t length;
     int ignore_next_lf;
@@ -31,5 +34,6 @@ void mtfs_console_set_extension(
 void mtfs_console_banner(mtfs_console_t *console);
 void mtfs_console_feed(mtfs_console_t *console, char character);
 void mtfs_console_execute(mtfs_console_t *console, const char *line);
+mtfs_app_log_level_t mtfs_console_log_level(const mtfs_console_t *console);
 
 #endif /* MTFS_CONSOLE_H */

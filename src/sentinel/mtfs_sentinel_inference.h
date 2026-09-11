@@ -148,6 +148,7 @@ typedef struct mtfs_sentinel_bundle
     const uint8_t *cpu_runtime;
     uint32_t cpu_runtime_size;
     /* Opaque metadata. Embedded code does not parse JSON or recompute SHA-256. */
+    /* opaque metadata。組み込み側はJSON解析やSHA-256再計算を行わない。 */
     const uint8_t *provenance;
     uint32_t provenance_size;
 } mtfs_sentinel_bundle_t;
@@ -273,6 +274,8 @@ typedef struct mtfs_sentinel_runtime_policy_result
 /*
  * Outer required_ram covers this plan only. The parsed bundle/API structs,
  * raw features, tensors, and inference result remain caller-owned elsewhere.
+ * outer required_ramはこのplanだけを対象とする。parse済みbundle/API struct、
+ * raw feature、tensor、inference resultは別領域でcallerが所有する。
  * The bundle occupies [0, bundle_size). Persistent regions are retained for
  * every runtime, while scratch is shared because CPU/NPU comparison is
  * sequential. persistent_offset[runtime_index] and persistent_size[
@@ -303,6 +306,8 @@ typedef struct mtfs_sentinel_memory_plan
  * mtfs_sentinel_runtime_info_t::binary, and an initialized CPU context contain
  * pointers into bytes. The backing buffer must remain alive and byte-for-byte
  * unchanged until all of those views and contexts are no longer used.
+ * lifetime契約: parseはbundleをcopyしない。各view/contextが使われなくなるまで、
+ * backing bufferを存続させ、内容を1 byteも変更してはならない。
  * Runtime binary pointers are returned only after checked section-offset and
  * binary-offset validation.
  */

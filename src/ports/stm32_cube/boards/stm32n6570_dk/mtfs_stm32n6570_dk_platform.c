@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "main.h"
+#include "mtfs_stm32n6570_dk_board_config.h"
 
 #ifndef MTFS_STM32_SD_USE_IDMA
 #define MTFS_STM32_SD_USE_IDMA (1U)
@@ -13,10 +14,11 @@
 #define MTFS_STM32N6_SDMMC2_SLAVE_WORD         (1U)
 #define MTFS_STM32N6_SDMMC2_MASTER_CID         (1U)
 #ifndef MTFS_STM32N6_CD_DEBOUNCE_MS
-/* STM32N6570-DK Cube FileX hot-plug examples also settle CD for 500 ms. */
-#define MTFS_STM32N6_CD_DEBOUNCE_MS            (500U)
+#define MTFS_STM32N6_CD_DEBOUNCE_MS \
+    MTFS_STM32N6570_DK_SD_CARD_DETECT_DEBOUNCE_MS
 #endif
-#define MTFS_STM32N6_CD_IRQ_PRIORITY           (6U)
+#define MTFS_STM32N6_CD_IRQ_PRIORITY \
+    MTFS_STM32N6570_DK_SD_CARD_DETECT_IRQ_PRIORITY
 
 extern SD_HandleTypeDef hsd2;
 
@@ -83,15 +85,19 @@ uint32_t mtfs_stm32n6570_dk_cycle_clock_hz(void)
 
 static int mtfs_stm32n6570_dk_card_present(void *opaque)
 {
+    GPIO_PinState state;
     (void)opaque;
-    return HAL_GPIO_ReadPin(SD_DETECT_GPIO_Port, SD_DETECT_Pin) ==
-        GPIO_PIN_RESET;
+    state = HAL_GPIO_ReadPin(MTFS_STM32N6570_DK_SD_CARD_DETECT_PORT,
+        MTFS_STM32N6570_DK_SD_CARD_DETECT_PIN);
+    return MTFS_STM32N6570_DK_SD_CARD_DETECT_ACTIVE_LOW ?
+        state == GPIO_PIN_RESET : state == GPIO_PIN_SET;
 }
 
 static int mtfs_stm32n6570_dk_card_detect_raw(void *opaque)
 {
     (void)opaque;
-    return HAL_GPIO_ReadPin(SD_DETECT_GPIO_Port, SD_DETECT_Pin) ==
+    return HAL_GPIO_ReadPin(MTFS_STM32N6570_DK_SD_CARD_DETECT_PORT,
+        MTFS_STM32N6570_DK_SD_CARD_DETECT_PIN) ==
         GPIO_PIN_SET;
 }
 
@@ -178,15 +184,17 @@ uint32_t mtfs_stm32n6570_dk_sdmmc_clock_hz(void)
 
 static void mtfs_stm32n6570_dk_exti12_handler(UINT interrupt_number)
 {
-    int rising = __HAL_GPIO_EXTI_GET_RISING_IT(SD_DETECT_Pin) != 0U;
-    int falling = __HAL_GPIO_EXTI_GET_FALLING_IT(SD_DETECT_Pin) != 0U;
+    int rising = __HAL_GPIO_EXTI_GET_RISING_IT(
+        MTFS_STM32N6570_DK_SD_CARD_DETECT_PIN) != 0U;
+    int falling = __HAL_GPIO_EXTI_GET_FALLING_IT(
+        MTFS_STM32N6570_DK_SD_CARD_DETECT_PIN) != 0U;
     int raw_level;
     (void)interrupt_number;
 
     if (!rising && !falling) {
         return;
     }
-    __HAL_GPIO_EXTI_CLEAR_IT(SD_DETECT_Pin);
+    __HAL_GPIO_EXTI_CLEAR_IT(MTFS_STM32N6570_DK_SD_CARD_DETECT_PIN);
     raw_level = mtfs_stm32n6570_dk_card_detect_raw(NULL);
     ++cd_diagnostics.irq_entries;
     cd_diagnostics.rising_edges += rising ? 1U : 0U;
@@ -198,6 +206,7 @@ static void mtfs_stm32n6570_dk_exti12_handler(UINT interrupt_number)
         ++cd_diagnostics.service_notify_errors;
     }
     /* PN12 is active-low, so a high edge is an immediate removal hint. */
+    /* PN12はactive-lowのため、立上りedgeを即時の取り外し通知に使う。 */
     if ((cd_sdmmc != NULL) && raw_level &&
         (mtfs_stm32_sdmmc_media_changed_isr(cd_sdmmc, 0) != MTFS_OK)) {
         ++cd_diagnostics.port_notify_errors;
@@ -268,7 +277,8 @@ mtfs_error_t mtfs_stm32n6570_dk_card_detect_start(
     media_config.event_callback = event_callback;
     media_config.event_context = event_context;
     media_config.debounce_ms = MTFS_STM32N6_CD_DEBOUNCE_MS;
-    media_config.active_level = MTFS_MEDIA_ACTIVE_LOW;
+    media_config.active_level = MTFS_STM32N6570_DK_SD_CARD_DETECT_ACTIVE_LOW ?
+        MTFS_MEDIA_ACTIVE_LOW : MTFS_MEDIA_ACTIVE_HIGH;
     result = mtfs_media_init(media, &media_config);
     if (result != MTFS_OK) {
         if (media->initialized) {
@@ -289,10 +299,11 @@ mtfs_error_t mtfs_stm32n6570_dk_card_detect_start(
 
     cd_service = service;
     cd_sdmmc = sdmmc;
-    __HAL_GPIO_EXTI_CLEAR_IT(SD_DETECT_Pin);
+    __HAL_GPIO_EXTI_CLEAR_IT(MTFS_STM32N6570_DK_SD_CARD_DETECT_PIN);
     interrupt.intatr = TA_HLNG;
     interrupt.inthdr = (FP)mtfs_stm32n6570_dk_exti12_handler;
-    service->last_kernel_error = tk_def_int((UINT)EXTI12_IRQn, &interrupt);
+    service->last_kernel_error = tk_def_int(
+        (UINT)MTFS_STM32N6570_DK_SD_CARD_DETECT_IRQ, &interrupt);
     if (service->last_kernel_error < E_OK) {
         cd_sdmmc = NULL;
         (void)mtfs_media_service_stop_notifications(service);
@@ -303,8 +314,9 @@ mtfs_error_t mtfs_stm32n6570_dk_card_detect_start(
         return MTFS_ERROR_NOT_READY;
     }
     cd_diagnostics.irq_registered = 1U;
-    HAL_NVIC_SetPriority(EXTI12_IRQn, MTFS_STM32N6_CD_IRQ_PRIORITY, 0U);
-    HAL_NVIC_EnableIRQ(EXTI12_IRQn);
+    HAL_NVIC_SetPriority(MTFS_STM32N6570_DK_SD_CARD_DETECT_IRQ,
+        MTFS_STM32N6_CD_IRQ_PRIORITY, 0U);
+    HAL_NVIC_EnableIRQ(MTFS_STM32N6570_DK_SD_CARD_DETECT_IRQ);
     return MTFS_OK;
 }
 
@@ -322,9 +334,10 @@ mtfs_error_t mtfs_stm32n6570_dk_card_detect_stop(void)
     if (mtfs_media_service_stop_notifications(service) != MTFS_OK) {
         result = MTFS_ERROR_IO;
     }
-    HAL_NVIC_DisableIRQ(EXTI12_IRQn);
-    __HAL_GPIO_EXTI_CLEAR_IT(SD_DETECT_Pin);
-    if (tk_def_int((UINT)EXTI12_IRQn, NULL) < E_OK) {
+    HAL_NVIC_DisableIRQ(MTFS_STM32N6570_DK_SD_CARD_DETECT_IRQ);
+    __HAL_GPIO_EXTI_CLEAR_IT(MTFS_STM32N6570_DK_SD_CARD_DETECT_PIN);
+    if (tk_def_int((UINT)MTFS_STM32N6570_DK_SD_CARD_DETECT_IRQ,
+            NULL) < E_OK) {
         result = MTFS_ERROR_IO;
     }
     cd_diagnostics.irq_registered = 0U;
@@ -334,6 +347,8 @@ mtfs_error_t mtfs_stm32n6570_dk_card_detect_stop(void)
         /*
          * Retain cd_service as an ownership guard.  Reusing its static stack
          * or media context while the worker may still exist is unsafe.
+         * ownership guardとしてcd_serviceを保持する。workerが残る可能性が
+         * ある間にstatic stackやmedia contextを再利用してはならない。
          */
         return MTFS_ERROR_IO;
     }

@@ -16,6 +16,13 @@ extern "C" {
 
 typedef uint32_t mtfs_crypto_key_handle_t;
 
+/*
+ * Providers expose opaque handles only; plaintext fleet/model keys never
+ * cross this boundary.
+ * providerはopaque handleだけを公開し、plaintextのfleet/model keyをこの境界の
+ * 外へ渡さない。
+ */
+
 typedef enum mtfs_crypto_status
 {
     MTFS_CRYPTO_OK = 0,

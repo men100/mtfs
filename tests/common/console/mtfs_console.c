@@ -144,6 +144,48 @@ static void console_get(mtfs_console_t *console, const char *prefix)
     console_print_datetime(console, prefix, &datetime, status);
 }
 
+static void console_print_log_level(mtfs_console_t *console, const char *prefix)
+{
+    char output[40] = "log-level: ";
+    size_t offset = 11U;
+    const char *name = mtfs_app_log_level_name(console->log_level);
+
+    if (prefix != NULL) {
+        output[0] = '\0';
+        offset = 0U;
+        while (*prefix != '\0') {
+            output[offset++] = *prefix++;
+        }
+    }
+    while (*name != '\0') {
+        output[offset++] = *name++;
+    }
+    output[offset++] = '\r';
+    output[offset++] = '\n';
+    output[offset] = '\0';
+    console_write(console, output);
+}
+
+static void console_print_general_help(mtfs_console_t *console)
+{
+    console_write(console,
+        "General:\r\n"
+        "  help                         show common commands and groups\r\n"
+        "  help <group>                 show one command group\r\n"
+        "  help all                     show every command\r\n"
+        "  log-level [off|error|info|debug]\r\n");
+}
+
+static void console_print_rtc_help(mtfs_console_t *console)
+{
+    console_write(console,
+        "RTC:\r\n"
+        "  rtc-get                      show local RTC time\r\n"
+        "  rtc-status                   show provider state\r\n"
+        "  rtc-set YYYY-MM-DD hh:mm:ss  set local time and verify it\r\n"
+        "  rtc-clear                    clear the setting marker\r\n");
+}
+
 void mtfs_console_init(
     mtfs_console_t *console,
     mtfs_console_write_t write,
@@ -155,6 +197,7 @@ void mtfs_console_init(
     memset(console, 0, sizeof(*console));
     console->write = write;
     console->write_context = write_context;
+    console->log_level = MTFS_APP_LOG_INFO;
 }
 
 void mtfs_console_set_extension(
@@ -183,19 +226,41 @@ void mtfs_console_execute(mtfs_console_t *console, const char *line)
     mtfs_datetime_t datetime;
     mtfs_time_status_t status;
     mtfs_error_t error;
+    mtfs_app_log_level_t requested_level;
+    int is_query;
+    int log_command;
 
     if ((console == NULL) || (line == NULL)) {
         return;
     }
-    if (strcmp(line, "help") == 0) {
-        console_write(console,
-            "help                          show this help\r\n"
-            "rtc-get                       show local RTC time\r\n"
-            "rtc-status                    show provider state\r\n"
-            "rtc-set YYYY-MM-DD hh:mm:ss    set local time and verify it\r\n"
-            "rtc-clear                     clear the setting marker\r\n");
+    requested_level = console->log_level;
+    log_command = mtfs_app_log_parse_command(
+        line, &requested_level, &is_query);
+    if (log_command != 0) {
+        if (log_command < 0) {
+            console_write(console,
+                "ERROR: use log-level off|error|info|debug\r\n");
+        } else if (is_query) {
+            console_print_log_level(console, NULL);
+        } else {
+            console->log_level = requested_level;
+            console_print_log_level(console, "log-level set: ");
+        }
+    } else if (strcmp(line, "help") == 0) {
+        console_print_general_help(console);
+        console_write(console, "Groups:\r\n  general\r\n  rtc\r\n");
         if (console->command_help != NULL) {
             console_write(console, console->command_help);
+        }
+    } else if (strcmp(line, "help general") == 0) {
+        console_print_general_help(console);
+    } else if (strcmp(line, "help rtc") == 0) {
+        console_print_rtc_help(console);
+    } else if (strcmp(line, "help all") == 0) {
+        console_print_general_help(console);
+        console_print_rtc_help(console);
+        if (console->command != NULL) {
+            (void)console->command(console->command_context, line);
         }
     } else if (strcmp(line, "rtc-get") == 0) {
         console_get(console, "time: ");
@@ -231,6 +296,11 @@ void mtfs_console_execute(mtfs_console_t *console, const char *line)
             !console->command(console->command_context, line))) {
         console_write(console, "ERROR: unknown command; type help\r\n");
     }
+}
+
+mtfs_app_log_level_t mtfs_console_log_level(const mtfs_console_t *console)
+{
+    return console == NULL ? MTFS_APP_LOG_INFO : console->log_level;
 }
 
 void mtfs_console_feed(mtfs_console_t *console, char character)

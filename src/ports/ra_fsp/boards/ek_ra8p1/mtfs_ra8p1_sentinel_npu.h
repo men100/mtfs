@@ -3,6 +3,8 @@
 
 #include "../../../../sentinel/mtfs_sentinel_inference.h"
 
+#if MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -15,5 +17,6 @@ mtfs_error_t mtfs_ra8p1_sentinel_npu_policy(
 
 #ifdef __cplusplus
 }
+#endif
 #endif
 #endif
