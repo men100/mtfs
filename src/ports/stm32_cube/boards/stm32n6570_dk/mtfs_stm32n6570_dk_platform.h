@@ -7,6 +7,14 @@
 #include "mtfs_media.h"
 #include "mtfs_media_service.h"
 
+#ifndef MTFS_STM32_SD_USE_IDMA
+#define MTFS_STM32_SD_USE_IDMA (1U)
+#endif
+
+#if (MTFS_STM32_SD_USE_IDMA != 0) && (MTFS_STM32_SD_USE_IDMA != 1)
+#error MTFS_STM32_SD_USE_IDMA must be 0 or 1
+#endif
+
 typedef struct mtfs_stm32n6570_dk_rif_diagnostics
 {
     uint32_t master_attribute;

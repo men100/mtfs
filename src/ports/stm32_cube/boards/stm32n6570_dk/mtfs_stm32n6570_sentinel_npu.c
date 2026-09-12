@@ -118,7 +118,6 @@ mtfs_error_t mtfs_stm32n6570_sentinel_npu_policy(
 
 mtfs_error_t mtfs_stm32n6570_sentinel_npu_linker_policy_validate(void)
 {
-#if defined(MTFS_STM32N6570_DK_LINKER_POLICY)
     extern uint8_t __mtfs_npu_params_start__[], __mtfs_npu_params_end__[];
     extern uint8_t __mtfs_npu_activation3_start__[], __mtfs_npu_activation3_end__[];
     extern uint8_t __mtfs_npu_activation4_start__[], __mtfs_npu_activation4_end__[];
@@ -137,9 +136,6 @@ mtfs_error_t mtfs_stm32n6570_sentinel_npu_linker_policy_validate(void)
             (uintptr_t)__mtfs_npu_activation5_start__ != ST_ACTIVATION_SIZE)
         return MTFS_ERROR_INVALID_STATE;
     return MTFS_OK;
-#else
-    return MTFS_ERROR_NOT_SUPPORTED;
-#endif
 }
 
 mtfs_error_t mtfs_stm32n6570_sentinel_npu_hardware_init(void)

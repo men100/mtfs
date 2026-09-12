@@ -7,7 +7,7 @@
 
 #define MTFS_LFN_PATH_SIZE (320U)
 
-#if MTFS_FF_USE_LFN == 2
+#if MTFS_FF_ENABLE_LFN
 static int mtfs_lfn_make_path(char *path, size_t path_size,
     const char *volume_path, const char *name)
 {
@@ -141,7 +141,7 @@ static void mtfs_lfn_make_boundary_name(char *name, size_t length)
 
 int test_fatfs_lfn(mtfs_test_t *test, const char *volume_path)
 {
-#if MTFS_FF_USE_LFN == 0
+#if !MTFS_FF_ENABLE_LFN
     (void)volume_path;
     return MTFS_TEST_CHECK(test, FF_USE_LFN == 0,
         "repository LFN-disabled configuration remains available") ? 0 : 1;

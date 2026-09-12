@@ -171,7 +171,7 @@ done:
 int test_fatfs_concurrent(mtfs_test_t *test, const char *volume_path)
 {
     static const char *const filenames[MTFS_CONCURRENT_WORKERS] = {
-#if MTFS_FF_USE_LFN == 2
+#if MTFS_FF_ENABLE_LFN
         "microtfs concurrent task alpha result.bin",
         "microtfs concurrent task beta result.bin"
 #else

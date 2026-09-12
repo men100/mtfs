@@ -8,7 +8,6 @@
 
 #include <tm/tmonitor.h>
 
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
 #include "ff.h"
 #include "hal_data.h"
 #include "psa/crypto.h"
@@ -908,18 +907,13 @@ static void print_info(void)
         (INT)store_diag.last_fsp_error);
     mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
 }
-#endif
-
 void mtfs_ra8p1_crypto_spike_banner(void)
 {
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
     tm_printf((UB *)"[crypto] Compatibility Mode; HUK-wrapped fleet key source=onboard OSPI\n");
-#endif
 }
 
 int mtfs_ra8p1_crypto_spike_command(const char *line)
 {
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
     if (strcmp(line, "crypto-info") == 0) {
         print_info();
         return 1;
@@ -936,8 +930,5 @@ int mtfs_ra8p1_crypto_spike_command(const char *line)
         (void)run_package_integration_suite();
         return 1;
     }
-#else
-    (void)line;
-#endif
     return 0;
 }

@@ -8,15 +8,15 @@ endif()
 enable_testing()
 find_package(Threads REQUIRED)
 
-set(MTFS_HOST_FF_USE_LFN "2" CACHE STRING
-    "FatFs LFN mode for the host test executable (0 or 2)")
+set(MTFS_HOST_FF_ENABLE_LFN "1" CACHE STRING
+    "Enable FatFs LFN support for the host test executable (0 or 1)")
 set(MTFS_HOST_FF_MAX_LFN "64" CACHE STRING
     "FatFs maximum LFN length in UTF-16 code units")
 set(MTFS_HOST_FF_CODE_PAGE "437" CACHE STRING
     "FatFs OEM code page for host tests")
 
 message(STATUS
-    "microT-FS FatFs: LFN=${MTFS_HOST_FF_USE_LFN} MAX=${MTFS_HOST_FF_MAX_LFN} CODE_PAGE=${MTFS_HOST_FF_CODE_PAGE}")
+    "microT-FS FatFs: LFN=${MTFS_HOST_FF_ENABLE_LFN} MAX=${MTFS_HOST_FF_MAX_LFN} CODE_PAGE=${MTFS_HOST_FF_CODE_PAGE}")
 
 add_executable(mtfs_host_tests
     main.c
@@ -121,7 +121,7 @@ target_compile_definitions(mtfs_host_tests PRIVATE
     MTFS_ENABLE_STORAGE_SENTINEL=1
     MTFS_ENABLE_STORAGE_SENTINEL_INFERENCE=1
     MTFS_FF_USE_MKFS=1
-    MTFS_FF_USE_LFN=${MTFS_HOST_FF_USE_LFN}
+    MTFS_FF_ENABLE_LFN=${MTFS_HOST_FF_ENABLE_LFN}
     MTFS_FF_MAX_LFN=${MTFS_HOST_FF_MAX_LFN}
     MTFS_FF_CODE_PAGE=${MTFS_HOST_FF_CODE_PAGE}
     MTFS_FF_FS_NORTC=0

@@ -258,7 +258,7 @@ int mtfs_test_concurrent_microtkernel(mtfs_test_t *test,
     const char *volume_path, unsigned int outer_iteration)
 {
     static const char *const paths[MTFS_TK_WORKERS] = {
-#if MTFS_FF_USE_LFN == 2
+#if MTFS_FF_ENABLE_LFN
         "0:microtfs concurrent task alpha result.bin",
         "0:microtfs concurrent task beta result.bin"
 #else

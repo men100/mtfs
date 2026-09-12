@@ -42,12 +42,12 @@
 
 /*
  * Optional FatFs long-file-name support. Only the no-LFN configuration and
- * the per-caller stack working buffer are supported by microT-FS. The maximum
- * is measured in FatFs UTF-16 code units even though the Phase 3.6 API remains
- * ANSI/OEM char strings (not UTF-8).
+ * the per-caller stack working buffer are supported by microT-FS. Enabling LFN
+ * maps to FatFs FF_USE_LFN=2. The maximum is measured in FatFs UTF-16 code
+ * units even though the Phase 3.6 API remains ANSI/OEM char strings (not UTF-8).
  */
-#ifndef MTFS_FF_USE_LFN
-#define MTFS_FF_USE_LFN (0)
+#ifndef MTFS_FF_ENABLE_LFN
+#define MTFS_FF_ENABLE_LFN (0)
 #endif
 
 #ifndef MTFS_FF_MAX_LFN
@@ -97,11 +97,11 @@
 #error MTFS_FF_FS_REENTRANT must be 0 or 1
 #endif
 
-#if (MTFS_FF_USE_LFN != 0) && (MTFS_FF_USE_LFN != 2)
-#error MTFS_FF_USE_LFN must be 0 or 2
+#if (MTFS_FF_ENABLE_LFN != 0) && (MTFS_FF_ENABLE_LFN != 1)
+#error MTFS_FF_ENABLE_LFN must be 0 or 1
 #endif
 
-#if MTFS_FF_USE_LFN && \
+#if MTFS_FF_ENABLE_LFN && \
     ((MTFS_FF_MAX_LFN < 12) || (MTFS_FF_MAX_LFN > 255))
 #error MTFS_FF_MAX_LFN must be between 12 and 255 when LFN is enabled
 #endif

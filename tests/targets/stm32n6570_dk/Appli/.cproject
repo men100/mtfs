@@ -54,12 +54,11 @@
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_REENTRANT=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
-									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_ENABLE_LFN=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
-									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths.74213989" name="Include paths (-I)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths" useByScannerDiscovery="false" valueType="includePath">
 									<listOptionValue builtIn="false" value="../Core/Inc"/>
@@ -197,12 +196,11 @@
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_REENTRANT=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_FS_NORTC=0"/>
 									<listOptionValue builtIn="false" value="MTFS_ENABLE_SEALED_MODEL=1"/>
-									<listOptionValue builtIn="false" value="MTFS_FF_USE_LFN=2"/>
+									<listOptionValue builtIn="false" value="MTFS_FF_ENABLE_LFN=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_MAX_LFN=64"/>
 									<listOptionValue builtIn="false" value="MTFS_FF_CODE_PAGE=437"/>
 									<listOptionValue builtIn="false" value="MTFS_TARGET_RTC_CONSOLE=1"/>
 									<listOptionValue builtIn="false" value="MTFS_FATFS_MUTEX_ADAPTER=2"/>
-									<listOptionValue builtIn="false" value="MTFS_STM32_SD_USE_IDMA=1"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths.16207007" name="Include paths (-I)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths" useByScannerDiscovery="false" valueType="includePath">
 									<listOptionValue builtIn="false" value="../Core/Inc"/>

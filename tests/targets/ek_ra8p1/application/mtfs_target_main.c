@@ -145,7 +145,6 @@ static int target_console_help(const char *line)
             "Media:\r\n"
             "  test-hotplug             run one remove/reinsert storage test\r\n");
     }
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
     if (all || strcmp(group, "model") == 0) {
         known = 1;
         mtfs_console_tmonitor_write(NULL,
@@ -154,7 +153,6 @@ static int target_console_help(const char *line)
             "  model-load               load and verify MTFSTEST.MTF via model API\r\n"
             "  model-hotplug            verify removal cleanup and reinsertion recovery\r\n");
     }
-#endif
     if (all || strcmp(group, "benchmark") == 0) {
         known = 1;
         mtfs_console_tmonitor_write(NULL,
@@ -177,22 +175,18 @@ static int target_console_help(const char *line)
             "Developer:\r\n"
             "  test-diagnostics-reset   verify reset on one active context\r\n"
             "  diag-reset               reset diagnostic counters only\r\n"
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
             "  crypto-info              show RSIP spike configuration and diagnostics\r\n"
             "  crypto-consistency       test provisioned-key GCM consistency\r\n"
             "  crypto-negative          reject SD test package tampering in RAM\r\n"
             "  crypto-package-test      verify fleet-specific SD test package\r\n"
             "  model-negative           reject reader/policy mutations via model API\r\n"
-#endif
             );
     }
     if (!known) {
         mtfs_console_tmonitor_write(NULL,
             "ERROR: unknown help group\r\n"
             "Groups: general rtc filesystem media"
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
             " model"
-#endif
             " benchmark diagnostics developer\r\n");
     }
     return 1;
@@ -414,9 +408,7 @@ static void target_command_console(void)
     mtfs_console_init(&console, mtfs_console_tmonitor_write, NULL);
     mtfs_console_set_extension(&console, target_console_command, &console,
         "  filesystem\r\n  media\r\n"
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
         "  model\r\n"
-#endif
         "  benchmark\r\n"
         "  diagnostics\r\n  developer\r\n"
         "Use help <group> for details.\r\n");
@@ -1167,7 +1159,6 @@ static int target_console_command(void *opaque, const char *line)
         (void)target_run_storage_test(1U, 1);
         return 1;
     }
-#if MTFS_RA8P1_CRYPTO_SPIKE_ENABLE
     if ((strcmp(line, "crypto-package-test") == 0) ||
         (strcmp(line, "crypto-negative") == 0) ||
         (strcmp(line, "model-info") == 0) ||
@@ -1231,7 +1222,6 @@ crypto_sd_cleanup:
         }
         return 1;
     }
-#endif
     if (mtfs_ra8p1_crypto_spike_command(line)) {
         return 1;
     }

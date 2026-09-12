@@ -115,7 +115,11 @@
 */
 
 
-#define FF_USE_LFN		MTFS_FF_USE_LFN
+#if MTFS_FF_ENABLE_LFN
+#define FF_USE_LFN		2
+#else
+#define FF_USE_LFN		0
+#endif
 #define FF_MAX_LFN		MTFS_FF_MAX_LFN
 /* The FF_USE_LFN switches the support for LFN (long file name).
 /

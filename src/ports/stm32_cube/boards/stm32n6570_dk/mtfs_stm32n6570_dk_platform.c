@@ -5,10 +5,6 @@
 #include "main.h"
 #include "mtfs_stm32n6570_dk_board_config.h"
 
-#ifndef MTFS_STM32_SD_USE_IDMA
-#define MTFS_STM32_SD_USE_IDMA (1U)
-#endif
-
 #define MTFS_STM32N6_SDMMC2_RIMC_MASTER_INDEX (3U)
 #define MTFS_STM32N6_SDMMC2_SLAVE_BIT          (UINT32_C(1) << 22)
 #define MTFS_STM32N6_SDMMC2_SLAVE_WORD         (1U)
