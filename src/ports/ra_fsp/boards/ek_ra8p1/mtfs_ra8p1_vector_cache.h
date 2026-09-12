@@ -11,6 +11,13 @@ extern "C" {
 #define MTFS_RA8P1_DISABLE_CACHES_FALLBACK (0)
 #endif
 
+/* Keep CMSIS SCB details inside the RA8P1 platform implementation. */
+#define MTFS_RA8P1_CACHE_STATE_ICACHE_ENABLED (UINT32_C(1) << 0)
+#define MTFS_RA8P1_CACHE_STATE_DCACHE_ENABLED (UINT32_C(1) << 1)
+#define MTFS_RA8P1_CACHE_STATE_REQUIRED \
+    (MTFS_RA8P1_CACHE_STATE_ICACHE_ENABLED | \
+     MTFS_RA8P1_CACHE_STATE_DCACHE_ENABLED)
+
 typedef struct mtfs_ra8p1_vector_cache_diagnostics
 {
     uint32_t ccr_at_hal_entry;
@@ -45,6 +52,8 @@ extern volatile mtfs_ra8p1_vector_cache_diagnostics_t
     g_mtfs_ra8p1_vector_cache_diagnostics;
 extern volatile mtfs_ra8p1_fault_snapshot_t g_mtfs_ra8p1_fault_snapshot;
 
+uint32_t mtfs_ra8p1_cache_state_from_ccr(uint32_t ccr);
+uint32_t mtfs_ra8p1_cache_state_current(void);
 void mtfs_ra8p1_capture_cache_startup(void);
 
 #ifdef __cplusplus

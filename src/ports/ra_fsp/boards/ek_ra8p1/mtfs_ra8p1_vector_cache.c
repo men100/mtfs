@@ -34,6 +34,24 @@ volatile mtfs_ra8p1_vector_cache_diagnostics_t
     g_mtfs_ra8p1_vector_cache_diagnostics;
 volatile mtfs_ra8p1_fault_snapshot_t g_mtfs_ra8p1_fault_snapshot;
 
+uint32_t mtfs_ra8p1_cache_state_from_ccr(uint32_t ccr)
+{
+    uint32_t state = 0U;
+
+    if ((ccr & SCB_CCR_IC_Msk) != 0U) {
+        state |= MTFS_RA8P1_CACHE_STATE_ICACHE_ENABLED;
+    }
+    if ((ccr & SCB_CCR_DC_Msk) != 0U) {
+        state |= MTFS_RA8P1_CACHE_STATE_DCACHE_ENABLED;
+    }
+    return state;
+}
+
+uint32_t mtfs_ra8p1_cache_state_current(void)
+{
+    return mtfs_ra8p1_cache_state_from_ccr(SCB->CCR);
+}
+
 static uint32_t mtfs_dcache_line_size(void)
 {
 #if (__DCACHE_PRESENT == 1U)

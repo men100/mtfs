@@ -310,6 +310,7 @@ static void target_benchmark_info(void *opaque,
 {
     const mtfs_ra_sd_spi_context_t *context =
         (const mtfs_ra_sd_spi_context_t *)opaque;
+    uint32_t cache_state = mtfs_ra8p1_cache_state_current();
     (void)log;
     (void)log_context;
     tm_printf((UB *)"[BENCH] target card=%s transport=SPI bus_width=1 clock_hz=%u mode=blocking_irq\n",
@@ -317,8 +318,10 @@ static void target_benchmark_info(void *opaque,
             ? (UB *)"SDHC/SDXC" : (UB *)"SDSC",
         context->current_bitrate_hz);
     tm_printf((UB *)"[BENCH] target block_mapping=CMD17/CMD24-per-sector multi_request=split cache_i=%s cache_d=%s\n",
-        (SCB->CCR & SCB_CCR_IC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
-        (SCB->CCR & SCB_CCR_DC_Msk) ? (UB *)"enabled" : (UB *)"disabled");
+        (cache_state & MTFS_RA8P1_CACHE_STATE_ICACHE_ENABLED)
+            ? (UB *)"enabled" : (UB *)"disabled",
+        (cache_state & MTFS_RA8P1_CACHE_STATE_DCACHE_ENABLED)
+            ? (UB *)"enabled" : (UB *)"disabled");
     tm_printf((UB *)"[BENCH] clock source=microtkernel_uptime+systick resolution=core_cycle tick_ms=10 monotonic=yes\n");
 }
 
@@ -1280,6 +1283,8 @@ static int target_run_storage_test(unsigned int rounds, int hotplug)
     int context_ready = 0;
     int media_ready = 0;
     int overall_failure = 0;
+    uint32_t cache_state_at_hal_entry;
+    uint32_t current_cache_state;
     T_CFLG media_flag_config = {
         .flgatr = TA_TFIFO,
         .iflgptn = 0U
@@ -1300,15 +1305,18 @@ static int target_run_storage_test(unsigned int rounds, int hotplug)
         }
     }
 
+    cache_state_at_hal_entry = mtfs_ra8p1_cache_state_from_ccr(
+        g_mtfs_ra8p1_vector_cache_diagnostics.ccr_at_hal_entry);
+    current_cache_state = mtfs_ra8p1_cache_state_current();
     tm_printf((UB *)"\n[mtfs] EK-RA8P1 storage test: profile=%s rounds=%u path=SCI_B SPI+IRQ CD hotplug=%s LFN=%u max=%u codepage=%u\n",
         (UB *)MTFS_RA8P1_TEST_PROFILE_NAME, rounds,
         hotplug ? (UB *)"on" : (UB *)"off",
         FF_USE_LFN, FF_MAX_LFN, FF_CODE_PAGE);
     tm_printf((UB *)"[mtfs] cache: I=%s D=%s fallback=%s VTOR=0x%08x\n",
-        (g_mtfs_ra8p1_vector_cache_diagnostics.ccr_at_hal_entry &
-            SCB_CCR_IC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
-        (g_mtfs_ra8p1_vector_cache_diagnostics.ccr_at_hal_entry &
-            SCB_CCR_DC_Msk) ? (UB *)"enabled" : (UB *)"disabled",
+        (cache_state_at_hal_entry & MTFS_RA8P1_CACHE_STATE_ICACHE_ENABLED)
+            ? (UB *)"enabled" : (UB *)"disabled",
+        (cache_state_at_hal_entry & MTFS_RA8P1_CACHE_STATE_DCACHE_ENABLED)
+            ? (UB *)"enabled" : (UB *)"disabled",
         g_mtfs_ra8p1_vector_cache_diagnostics.fallback_active
             ? (UB *)"ACTIVE" : (UB *)"off",
         g_mtfs_ra8p1_vector_cache_diagnostics.vtor_after_relocation);
@@ -1320,8 +1328,8 @@ static int target_run_storage_test(unsigned int rounds, int hotplug)
         g_mtfs_ra8p1_vector_cache_diagnostics.dcache_line_size,
         g_mtfs_ra8p1_vector_cache_diagnostics.clean_count);
     if (g_mtfs_ra8p1_vector_cache_diagnostics.fallback_active ||
-        ((SCB->CCR & (SCB_CCR_IC_Msk | SCB_CCR_DC_Msk)) !=
-            (SCB_CCR_IC_Msk | SCB_CCR_DC_Msk))) {
+        ((current_cache_state & MTFS_RA8P1_CACHE_STATE_REQUIRED) !=
+            MTFS_RA8P1_CACHE_STATE_REQUIRED)) {
         tm_printf((UB *)"[mtfs] cache precondition FAIL: I/D cache required\n");
         overall_failure = 1;
     }
