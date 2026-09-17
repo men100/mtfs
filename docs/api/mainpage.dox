@@ -1,0 +1,22 @@
+/**
+ * @mainpage microT-FS Public API Reference / 公開APIリファレンス
+ *
+ * microT-FS provides a portable block-device boundary, FatFs integration,
+ * removable-media lifecycle, diagnostics, time providers, and optional sealed
+ * model and Storage Sentinel components.
+ *
+ * microT-FSは、portableなblock device境界、FatFs integration、removable
+ * media lifecycle、diagnostics、time provider、およびoptionalなsealed modelと
+ * Storage Sentinel componentを提供します。
+ *
+ * Start with `mtfs.h` for portable APIs. OS adapters and target ports are
+ * documented separately because they introduce microT-Kernel, FSP, or STM32
+ * HAL dependencies. The bundled FatFs upstream API is intentionally not
+ * reproduced as a microT-FS API.
+ *
+ * portable APIは`mtfs.h`から参照してください。OS adapterとtarget portは
+ * microT-Kernel、FSP、STM32 HALへの依存を導入するため別groupです。同梱する
+ * FatFs upstream APIはmicroT-FS APIとして再文書化していません。
+ *
+ * @see docs/architecture/README.md
+ */

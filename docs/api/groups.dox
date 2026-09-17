@@ -1,0 +1,12 @@
+/** @defgroup mtfs_core Core Types and Errors / 共通型とerror */
+/** @defgroup mtfs_block_device Block Device / Block Device */
+/** @defgroup mtfs_block_registry Block Registry / Block Registry */
+/** @defgroup mtfs_media Removable Media / Removable Media */
+/** @defgroup mtfs_diagnostics Diagnostics / 診断 */
+/** @defgroup mtfs_time Time and RTC / 時刻とRTC */
+/** @defgroup mtfs_fatfs FatFs Integration / FatFs統合 */
+/** @defgroup mtfs_kernel microT-Kernel Integration / microT-Kernel統合 */
+/** @defgroup mtfs_sealed Sealed Blob and Crypto Provider / Sealed Blobと暗号provider */
+/** @defgroup mtfs_model Model Store / Model Store */
+/** @defgroup mtfs_sentinel Storage Sentinel / Storage Sentinel */
+/** @defgroup mtfs_ports Target Ports / Target Port */
