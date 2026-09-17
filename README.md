@@ -14,7 +14,10 @@ microT-FSは、microT-Kernel 3.0向けにFatFsを統合・拡張する組み込�
 
 `MTFS_ENABLE_SEALED_MODEL`の既定値は`0`です。FatFs-only構成を標準とし、必要に応じてsealed model機能を有効にできます。
 
-このrepositoryは現在、release documentationの再構成前です。
+公開アーキテクチャと組み込み時の入口は
+[公開ドキュメント](docs/README.md)を参照してください。公開C APIの詳細は
+[API Reference](https://men100.github.io/mtfs/index.html)で確認できます。
+board別のセットアップ手順は各targetのREADMEに分離しています。
 
 組み込みtest projectは `tests/targets/ek_ra8p1/` と
 `tests/targets/stm32n6570_dk/` にあります。前者はe² studio project、後者は
