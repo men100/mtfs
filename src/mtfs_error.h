@@ -1,6 +1,13 @@
-/* Common status values for the initial microT-FS API. */
+/** @file mtfs_error.h
+ * @brief Common status values. / 共通のstatus値。
+ * @details MTFS_OK is zero; all errors are negative and functions do not use errno.
+ * / MTFS_OKは0、すべてのerrorは負値で表し、errnoは使用しない。
+ * @ingroup mtfs_core */
 #ifndef MTFS_ERROR_H
 #define MTFS_ERROR_H
+
+/** @addtogroup mtfs_core
+ * @{ */
 
 typedef enum mtfs_error
 {
@@ -22,5 +29,7 @@ typedef enum mtfs_error
     MTFS_ERROR_UNSUPPORTED_FORMAT = -15,
     MTFS_ERROR_CRYPTO = -16
 } mtfs_error_t;
+
+/** @} */
 
 #endif /* MTFS_ERROR_H */

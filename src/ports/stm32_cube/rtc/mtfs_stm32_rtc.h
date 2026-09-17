@@ -1,6 +1,13 @@
-/* STM32Cube HAL calendar RTC provider for microT-FS. */
+/** @file mtfs_stm32_rtc.h
+ * @brief STM32Cube HAL calendar RTC provider. / STM32Cube HALのcalendar RTC向けtime provider。
+ * @details Caller-owned context and RTC handle remain valid while the time provider is registered.
+ * / time providerが登録されている間、呼び出し側が所有するcontextとRTC handleは有効な状態を維持する必要がある。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_STM32_RTC_H
 #define MTFS_STM32_RTC_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "stm32n6xx_hal.h"
 
@@ -35,4 +42,5 @@ mtfs_time_provider_t *mtfs_stm32_rtc_provider(
 }
 #endif
 
+/** @} */
 #endif /* MTFS_STM32_RTC_H */

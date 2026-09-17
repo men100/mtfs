@@ -1,5 +1,11 @@
+/** @file mtfs_sealed_format.h
+ * @brief Versioned sealed-package format parser. / version付きsealed package formatのparser。
+ * @ingroup mtfs_sealed */
 #ifndef MTFS_SEALED_FORMAT_H
 #define MTFS_SEALED_FORMAT_H
+
+/** @addtogroup mtfs_sealed
+ * @{ */
 
 #include "mtfs_config.h"
 
@@ -63,10 +69,26 @@ typedef struct mtfs_sealed_layout
     uint8_t payload_nonce_prefix[8];
 } mtfs_sealed_layout_t;
 
+/** @brief Parse and validate the fixed preamble without authenticating it. / 固定preambleをparseして形式を検証する。この時点では認証は行わない。
+ * @param preamble Exactly MTFS_SEALED_PREAMBLE_SIZE bytes. / MTFS_SEALED_PREAMBLE_SIZE byte固定のpreamble。
+ * @param[out] info Parsed package metadata. / parseしたpackage metadata。
+ * @param[out] layout Parsed offsets and key identifiers. / parseしたoffsetとkey identifier。
+ * @return MTFS_OK or format/range/argument error. / MTFS_OKまたはformat/範囲/引数error。
+ * @warning Parsed values are untrusted until the manifest is authenticated. / manifestの認証が完了するまでは、parseした値を信頼してはならない。 */
 mtfs_error_t mtfs_sealed_format_parse(const uint8_t preamble[160],
     mtfs_sealed_package_info_t *info, mtfs_sealed_layout_t *layout);
+
+/** @brief Validate bounded opaque metadata encoding. / サイズ上限付きのopaque metadata encodingを検証する。
+ * @param metadata Metadata bytes, or NULL only when size is zero. / metadata。sizeが0の場合のみNULL指定可。
+ * @param metadata_size Bytes not exceeding MTFS_SEALED_MAX_METADATA_SIZE. / metadataのサイズ。MTFS_SEALED_MAX_METADATA_SIZE以下であること。
+ * @return MTFS_OK or validation error. / MTFS_OKまたはvalidation error。 */
 mtfs_error_t mtfs_sealed_metadata_validate(const uint8_t *metadata,
     size_t metadata_size);
+
+/** @brief Derive checked payload offsets and expected file size. / 検証済みのpayload offsetと想定file sizeを算出する。
+ * @param info Previously parsed package information. / 事前にparse済みのpackage情報。
+ * @param[in,out] layout Parsed layout completed in place. / parse済みlayoutに残りの情報を設定して完成させる。
+ * @return MTFS_OK or overflow/format/argument error. / MTFS_OKまたはoverflow/format/引数error。 */
 mtfs_error_t mtfs_sealed_format_finish_layout(
     const mtfs_sealed_package_info_t *info, mtfs_sealed_layout_t *layout);
 
@@ -74,5 +96,7 @@ mtfs_error_t mtfs_sealed_format_finish_layout(
 }
 #endif
 #endif /* MTFS_ENABLE_SEALED_MODEL */
+
+/** @} */
 
 #endif /* MTFS_SEALED_FORMAT_H */

@@ -1,5 +1,13 @@
+/** @file mtfs_ra8p1_rsip_provider.h
+ * @brief RSIP-E50D hardware-backed crypto provider. / RSIP-E50Dハードウェアを使用するcrypto provider。
+ * @details Exposes opaque handles for wrapped fleet/model keys and chunked AES-256-GCM. Provider context, work areas, and key store remain caller-owned; no plaintext key crosses the provider boundary.
+ * / wrapped fleet／model keyを内部内容を直接扱わないopaque handleとして公開し、chunked AES-256-GCMを提供する。provider context、work領域、およびkey storeの所有権は呼び出し側にあり、plaintext keyがproviderの外部に渡されることはない。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_RA8P1_RSIP_PROVIDER_H
 #define MTFS_RA8P1_RSIP_PROVIDER_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "../../../mtfs_config.h"
 
@@ -25,18 +33,13 @@ extern "C" {
 #define MTFS_RA8P1_RSIP_ALIGN
 #endif
 
-/* Return zero after acquiring the target-global RSIP lock.  RSIP, PSA crypto
- * and R_RSIP_AES256_InitialKeyWrap are one target-global resource.  Every
- * provider context and every direct low-level crypto caller must share this
- * same priority-inheritance lock.  The application owns it for the complete
- * target lifetime; provider deinit never deletes it. */
+/* Return zero after acquiring the target-global RSIP lock.  RSIP, PSA crypto and R_RSIP_AES256_InitialKeyWrap are one target-global resource.  Every provider context and every direct low-level crypto caller must share this same priority-inheritance lock.  The application owns it for the complete target lifetime; provider deinit never deletes it. */
+/* target全体で共有するRSIP lockの取得に成功した場合は0、失敗した場合は非0を返す。RSIP、PSA crypto、およびR_RSIP_AES256_InitialKeyWrapは、target全体で共有される1つのresourceとして扱う。そのため、すべてのprovider contextとlow-level crypto APIを直接呼び出す処理は、同じpriority-inheritance lockを共有する必要がある。このlockはtargetの動作期間を通してapplication側が所有・管理し、providerのdeinitでは削除しない。 */
 typedef int (*mtfs_ra8p1_rsip_lock_fn)(void *context);
 typedef void (*mtfs_ra8p1_rsip_unlock_fn)(void *context);
 
-/* Lock order contract: FatFs and the RSIP lock are never nested.  Provider
- * functions do not call FatFs.  Applications must complete SD/FatFs reads
- * before entering a provider operation and must not call FatFs while holding
- * the lock. */
+/* Lock order contract: FatFs and the RSIP lock are never nested.  Provider functions do not call FatFs.  Applications must complete SD/FatFs reads before entering a provider operation and must not call FatFs while holding the lock. */
+/* lock順序に関する規約として、FatFs lockとRSIP lockを同時に保持してはならない。provider関数からFatFsを呼び出すことはない。applicationはprovider処理を開始する前にSD／FatFsのreadを完了させ、RSIP lockを保持している間はFatFsを呼び出してはならない。 */
 
 typedef union mtfs_ra8p1_rsip_model_key_work
 {
@@ -99,4 +102,5 @@ mtfs_crypto_status_t mtfs_ra8p1_rsip_provider_deinit(
 
 #endif /* MTFS_ENABLE_SEALED_MODEL */
 
-#endif /* MTFS_RA8P1_RSIP_PROVIDER_H */
+/** @} */
+#endif /

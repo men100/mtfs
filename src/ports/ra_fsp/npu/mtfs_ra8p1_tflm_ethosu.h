@@ -1,5 +1,13 @@
+/** @file mtfs_ra8p1_tflm_ethosu.h
+ * @brief EK-RA8P1 TensorFlow Lite Micro / Ethos-U55 Sentinel provider. / EK-RA8P1 TFLM/Ethos-U55向けSentinel provider。
+ * @details Caller supplies aligned resident model, arena, and provider memory; the target runtime retains them until close.
+ * / 呼び出し側はalignment要件を満たす常駐model、arena、およびprovider用memoryを提供する。target runtimeはそれらをcloseまで参照するため、その間は有効な状態を維持する必要がある。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_RA8P1_TFLM_ETHOSU_H
 #define MTFS_RA8P1_TFLM_ETHOSU_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "../../../sentinel/mtfs_sentinel_npu_provider.h"
 
@@ -49,10 +57,12 @@ mtfs_error_t mtfs_ra8p1_tflm_ethosu_provider_config(
     void *callback_context,
     mtfs_sentinel_npu_provider_config_t *config);
 
-/* Process-lifetime cleanup.  It must not be called while a model is open. */
+/* Process-lifetime cleanup. It must not be called while a model is open. */
+/* process全体で保持するresourceを終了時に解放する。modelがopen中の場合は呼び出してはならない。 */
 mtfs_error_t mtfs_ra8p1_tflm_ethosu_global_shutdown(void);
 
 #ifdef __cplusplus
 }
 #endif
+/** @} */
 #endif

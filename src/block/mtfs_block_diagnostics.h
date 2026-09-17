@@ -1,6 +1,11 @@
-/* Vendor-independent, versioned block-device diagnostic snapshots. */
+/** @file mtfs_block_diagnostics.h
+ * @brief Vendor-independent versioned snapshots. / vendor非依存のversion付きdiagnostic snapshot。
+ * @ingroup mtfs_diagnostics */
 #ifndef MTFS_BLOCK_DIAGNOSTICS_H
 #define MTFS_BLOCK_DIAGNOSTICS_H
+
+/** @addtogroup mtfs_diagnostics
+ * @{ */
 
 #include <stdint.h>
 
@@ -83,6 +88,7 @@ typedef struct mtfs_block_diagnostics
 } mtfs_block_diagnostics_t;
 
 /* Static storage embedded by ports that opt in to common diagnostics. */
+/* common diagnosticsを使用するportが内部に組み込んで保持する静的storage。 */
 typedef struct mtfs_block_diagnostics_state
 {
     mtfs_block_diagnostics_t snapshot;
@@ -97,22 +103,46 @@ typedef struct mtfs_block_diagnostics_state
 #endif
 } mtfs_block_diagnostics_state_t;
 
+/** @brief Attach zeroed caller-owned diagnostic state to a device. / zero初期化済みの呼び出し側所有diagnostic stateをdeviceへattachする。
+ * @param device Valid device not concurrently used. / 他の処理から同時に使用されていない有効なdevice。
+ * @param state Storage retained until the device is no longer used. / deviceの使用終了まで有効な状態を維持するstorage。
+ * @return MTFS_OK or validation/state error. / MTFS_OKまたはvalidation/state error。
+ * @pre Attach before registration or I/O. / registryへの登録またはI/O開始より前にattachすること。 */
 mtfs_error_t mtfs_block_diagnostics_attach(
     mtfs_block_device_t *device, mtfs_block_diagnostics_state_t *state);
+
 #if MTFS_ENABLE_STORAGE_SENTINEL
+/** @brief Attach diagnostics with a task-context snapshot/reset lock. / task contextからのsnapshot取得／reset処理を保護するlock付きでdiagnosticsをattachする。
+ * @param device Valid idle device. / 他の処理を実行していない有効なdevice。
+ * @param state Caller-owned state. / 呼び出し側が所有するdiagnostic state。
+ * @param lock Lock callback; paired with unlock. / unlockと対になるlock callback。
+ * @param unlock Unlock callback. / unlock callback。
+ * @param lock_context Opaque callback context retained by the state. / stateが参照を保持するopaque callback context。
+ * @return MTFS_OK or validation/state error. / MTFS_OKまたはvalidation/state error。 */
 mtfs_error_t mtfs_block_diagnostics_attach_locked(
     mtfs_block_device_t *device, mtfs_block_diagnostics_state_t *state,
     mtfs_error_t (*lock)(void *context), void (*unlock)(void *context),
     void *lock_context);
 #endif
 
-/* Task-context only. No media I/O is issued by either function. */
+/** @brief Copy a coherent diagnostic snapshot without media I/O. / media I/Oを行わず、整合性の取れたdiagnostic snapshotをコピーする。
+ * @param device Device with attached diagnostics. / diagnosticsをattach済みのdevice。
+ * @param[out] snapshot Caller storage receiving version and struct_size. / api_versionとstruct_sizeを含むsnapshotの出力先として呼び出し側が用意するstorage。
+ * @return MTFS_OK or an argument/state/lock error. / MTFS_OKまたは引数/state/lock error。
+ * @note Task context only; counters saturate and are never wrapped. / task contextからのみ呼び出すこと。counterは最大値で飽和し、wraparoundしない。 */
 mtfs_error_t mtfs_block_diagnostics_get(
     mtfs_block_device_t *device, mtfs_block_diagnostics_t *snapshot);
+
+/** @brief Reset counters and advance reset_epoch without media I/O. / media I/Oを行わずcounterをresetし、reset_epochを更新する。
+ * @param device Device with attached diagnostics. / diagnosticsをattach済みのdevice。
+ * @return MTFS_OK or an argument/state/lock error. / MTFS_OKまたは引数/state/lock error。
+ * @note Task context only. Existing snapshots remain values from the previous epoch. / task contextからのみ呼び出すこと。reset前に取得済みのsnapshotは、previous epochの値としてそのまま有効。 */
 mtfs_error_t mtfs_block_diagnostics_reset(mtfs_block_device_t *device);
 
 #ifdef __cplusplus
 }
 #endif
+
+/** @} */
 
 #endif /* MTFS_BLOCK_DIAGNOSTICS_H */

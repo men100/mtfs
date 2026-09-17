@@ -1,5 +1,13 @@
+/** @file mtfs_stm32_nor_key_store.h
+ * @brief STM32 external-NOR wrapped-key record store adapter. / STM32 external NOR上にwrapped key recordを保存するためのadapter。
+ * @details Stores opaque wrapped records in a caller-configured region; it does not define board flash layout or provisioning authority.
+ * / 呼び出し側が指定した領域に、内部内容を直接扱わないwrapped key recordを保存する。board側のflash layoutや、key provisioningを行う主体・権限までは定義しない。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_STM32_NOR_KEY_STORE_H
 #define MTFS_STM32_NOR_KEY_STORE_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "../../../mtfs_config.h"
 
@@ -96,4 +104,5 @@ const char *mtfs_stm32_nor_key_store_status_string(
 
 #endif /* MTFS_ENABLE_SEALED_MODEL */
 
+/** @} */
 #endif

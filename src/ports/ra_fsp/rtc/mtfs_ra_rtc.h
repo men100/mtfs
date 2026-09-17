@@ -1,6 +1,13 @@
-/* Renesas RA FSP calendar RTC provider for microT-FS. */
+/** @file mtfs_ra_rtc.h
+ * @brief Renesas RA FSP calendar RTC provider. / Renesas RA FSPのcalendar RTC向けtime provider。
+ * @details Caller-owned context and FSP instance must remain valid while its mtfs_time_provider_t is registered.
+ * / mtfs_time_provider_tが登録されている間、呼び出し側が所有するcontextとFSP instanceは有効な状態を維持する必要がある。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_RA_RTC_H
 #define MTFS_RA_RTC_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "r_rtc_api.h"
 
@@ -11,6 +18,7 @@ extern "C" {
 #endif
 
 /* The final 12 bytes of the 128-byte RA8P1 VBATT backup register area. */
+/* RA8P1の128 byte VBATT backup register領域の末尾12 byteを使用する。 */
 #define MTFS_RA_RTC_MARKER_OFFSET_VERSION  (116U)
 #define MTFS_RA_RTC_MARKER_OFFSET_INVERSE  (120U)
 #define MTFS_RA_RTC_MARKER_OFFSET_MAGIC    (124U)
@@ -39,4 +47,5 @@ mtfs_time_provider_t *mtfs_ra_rtc_provider(mtfs_ra_rtc_context_t *context);
 }
 #endif
 
+/** @} */
 #endif /* MTFS_RA_RTC_H */

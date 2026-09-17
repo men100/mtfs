@@ -1,6 +1,13 @@
-/* Host-only file-backed block device port. */
+/** @file mtfs_host_block_file.h
+ * @brief Host-only file-backed Block Device adapter. / host環境専用のfile-backed Block Device adapter。
+ * @details The caller owns context and backing-file lifetime. This test port is not an embedded target or a durability guarantee.
+ * / contextとbacking fileのlifetimeは呼び出し側が管理する。このportはtest用途であり、組み込みtarget向けの実装やデータ永続性を保証するものではない。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_HOST_BLOCK_FILE_H
 #define MTFS_HOST_BLOCK_FILE_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include <stdint.h>
 
@@ -37,4 +44,5 @@ mtfs_error_t mtfs_host_block_file_close(mtfs_host_block_file_t *context);
 }
 #endif
 
+/** @} */
 #endif /* MTFS_HOST_BLOCK_FILE_H */

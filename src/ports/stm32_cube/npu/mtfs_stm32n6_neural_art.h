@@ -1,5 +1,13 @@
+/** @file mtfs_stm32n6_neural_art.h
+ * @brief STM32N657 Neural-ART Sentinel provider. / STM32N657 Neural-ART向けSentinel provider。
+ * @details The caller supplies policy-approved runtime regions and keeps them alive until close. NPU runtime serialization remains a target responsibility.
+ * / 呼び出し側はpolicyで許可されたruntime領域を提供し、closeまで有効な状態を維持する。NPU runtimeへのアクセスの直列化はtarget側の責務とする。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_STM32N6_NEURAL_ART_H
 #define MTFS_STM32N6_NEURAL_ART_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "../../../sentinel/mtfs_sentinel_npu_provider.h"
 
@@ -45,6 +53,7 @@ typedef struct mtfs_stm32n6_neural_art_profile
 } mtfs_stm32n6_neural_art_profile_t;
 
 /* Diagnostic substages are observational only and are not part of policy. */
+/* diagnostic substageは観測・診断のみを目的としており、policy判定には使用しない。 */
 #define MTFS_STM32N6_NPU_DIAG_INSPECT_BEGIN       (UINT32_C(1))
 #define MTFS_STM32N6_NPU_DIAG_RELOC_INFO          (UINT32_C(2))
 #define MTFS_STM32N6_NPU_DIAG_RELOC_BOUNDS        (UINT32_C(3))
@@ -90,9 +99,11 @@ mtfs_error_t mtfs_stm32n6_neural_art_provider_config(
     mtfs_stm32n6_npu_yield_fn yield, mtfs_sentinel_npu_lock_fn lock,
     mtfs_sentinel_npu_unlock_fn unlock, void *callback_context,
     mtfs_sentinel_npu_provider_config_t *config);
+
 mtfs_error_t mtfs_stm32n6_neural_art_profile_start(
     mtfs_stm32n6_neural_art_t *target,
     mtfs_sentinel_npu_cycle_count_fn cycle_count, void *cycle_context);
+
 mtfs_error_t mtfs_stm32n6_neural_art_profile_stop(
     mtfs_stm32n6_neural_art_t *target,
     mtfs_stm32n6_neural_art_profile_t *profile);
@@ -100,4 +111,5 @@ mtfs_error_t mtfs_stm32n6_neural_art_profile_stop(
 #ifdef __cplusplus
 }
 #endif
+/** @} */
 #endif

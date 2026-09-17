@@ -1,9 +1,15 @@
-/*
- * microT-FS public umbrella header.
- * The public API will be introduced with the first implementation milestone.
+/**
+ * @file mtfs.h
+ * @brief Public umbrella header for portable microT-FS APIs. / portableなmicroT-FS公開APIをまとめて提供するumbrella header。
+ * @details Optional declarations follow the feature macros in mtfs_config.h. target-port and OS-adapter headers are included separately because they add platform dependencies.
+ * / optionalなAPI宣言はmtfs_config.hのfeature macro設定に従う。platform依存を追加するtarget portおよびOS adapterのheaderは、必要に応じて個別にincludeする。
+ * @ingroup mtfs_core
  */
 #ifndef MTFS_H
 #define MTFS_H
+
+/** @addtogroup mtfs_core
+ * @{ */
 
 #include "mtfs_config.h"
 #include "mtfs_error.h"
@@ -37,5 +43,7 @@
 #define MTFS_VERSION_MAJOR (0U)
 #define MTFS_VERSION_MINOR (1U)
 #define MTFS_VERSION_PATCH (0U)
+
+/** @} */
 
 #endif /* MTFS_H */

@@ -1,7 +1,13 @@
-/* Storage Sentinel v1 integer feature schema and caller-driven sampling. */
-/* Storage Sentinel v1整数feature schemaとcaller主導sampling。 */
+/** @file mtfs_sentinel.h
+ * @brief Caller-driven passive feature sampling. / 呼び出し側主導で、既存情報のみを用いてfeatureをsamplingする。
+ * @details Sampling consumes existing diagnostics/timing snapshots and cached media metadata; it issues no media I/O.
+ * / samplingでは既存のdiagnostics/timing snapshotとcache済みのmedia metadataを使用し、追加のmedia I/Oは発行しない。
+ * @ingroup mtfs_sentinel */
 #ifndef MTFS_SENTINEL_H
 #define MTFS_SENTINEL_H
+
+/** @addtogroup mtfs_sentinel
+ * @{ */
 
 #include <stdint.h>
 
@@ -106,7 +112,7 @@ typedef struct mtfs_sentinel_transport_feature
 } mtfs_sentinel_transport_feature_t;
 
 /* Adapter-owned cumulative snapshot; the Sentinel core emits checked deltas. */
-/* adapter所有の累積snapshotからSentinel coreが検査済みdeltaを生成する。 */
+/* adapterが所有する累積snapshotをもとに、Sentinel coreが妥当性を確認したdeltaを生成する。 */
 typedef mtfs_error_t (*mtfs_sentinel_transport_sample_fn)(
     void *context, mtfs_sentinel_transport_snapshot_t *snapshot);
 
@@ -139,7 +145,7 @@ typedef struct mtfs_sentinel_feature_v1
 } mtfs_sentinel_feature_v1_t;
 
 /* Cached media lifecycle values supplied by the application; no I/O is done. */
-/* application提供のcache済みmedia lifecycle値であり、I/Oは行わない。 */
+/* applicationが提供するcache済みのmedia lifecycle情報。取得時にI/Oは発生しない。 */
 typedef struct mtfs_sentinel_sample_metadata
 {
     uint32_t media_generation;
@@ -183,25 +189,65 @@ typedef struct mtfs_sentinel_window
     uint32_t next;
 } mtfs_sentinel_window_t;
 
+/** @brief Initialize a sampling context and baseline snapshot. / sampling contextと基準となるsnapshotを初期化する。
+ * @param context Caller-owned context. / 呼び出し側が所有するcontext。
+ * @param config Borrowed observer, clock, identity, and optional transport adapter. / 所有権を取得せず参照するobserver/clock/identity、および省略可能なtransport adapter。
+ * @return MTFS_OK or validation/snapshot error. / MTFS_OKまたはvalidation/snapshot error。
+ * @note Task context only; keep referenced objects alive until reset/disuse. / task contextからのみ呼び出すこと。参照先objectはresetまたは使用終了まで有効な状態を維持すること。 */
 mtfs_error_t mtfs_sentinel_init(
     mtfs_sentinel_context_t *context, const mtfs_sentinel_config_t *config);
+
+/** @brief Generate one delta feature without additional media I/O. / 追加のmedia I/Oを発生させず、1つのdelta featureを生成する。
+ * @param context Initialized context. / 初期化済みcontext。
+ * @param metadata Cached media lifecycle values supplied by the application. / applicationが提供するcache済みのmedia lifecycle情報。
+ * @param[out] feature Versioned feature output. / version情報を含むfeatureの出力先。
+ * @return MTFS_OK or snapshot/clock/continuity error. / MTFS_OKまたはsnapshot/clock/continuity error。
+ * @post The internal previous snapshot advances only according to the implementation's validated sampling contract. / 内部で保持するprevious snapshotは、実装で検証されたsampling contractに従ってのみ更新される。 */
 mtfs_error_t mtfs_sentinel_sample(mtfs_sentinel_context_t *context,
     const mtfs_sentinel_sample_metadata_t *metadata,
     mtfs_sentinel_feature_v1_t *feature);
-/* Validate the internal count/total/average/histogram timing invariants. */
+
+/** @brief Validate timing count/total/average/histogram invariants. / timingのcount/total/average/histogram間の整合性を検証する。
+ * @param operation Operation feature. / operation単位のfeature。
+ * @return Nonzero when consistent, zero otherwise. / 整合している場合は非0、それ以外は0。 */
 int mtfs_sentinel_operation_timing_is_consistent(
     const mtfs_sentinel_operation_feature_t *operation);
+
+/** @brief Rebase sampling snapshots and advance discontinuity handling. / samplingの基準snapshotを更新し、差分計算を再開できる状態にする。
+ * @param context Initialized context. / 初期化済みcontext。
+ * @return MTFS_OK or snapshot/clock error. / MTFS_OKまたはsnapshot/clock error。 */
 mtfs_error_t mtfs_sentinel_reset(mtfs_sentinel_context_t *context);
+
+/** @brief Initialize a caller-backed fixed-capacity window. / 呼び出し側が用意したstorageを使用し、最大要素数が固定されたwindowを初期化する。
+ * @param window Window object. / window object。
+ * @param storage Array kept alive while window is used. / windowの使用中、有効な状態を維持するstorage array。
+ * @param capacity Nonzero element count. / 要素数。0は指定不可。
+ * @return MTFS_OK or INVALID_ARGUMENT. / MTFS_OKまたはINVALID_ARGUMENT。 */
 mtfs_error_t mtfs_sentinel_window_init(mtfs_sentinel_window_t *window,
     mtfs_sentinel_feature_v1_t *storage, uint32_t capacity);
+
+/** @brief Push a copy, overwriting the oldest entry when full. / 指定されたfeatureの内容をwindow内のstorageにコピーして追加し、満杯の場合は最も古いentryを上書きする。
+ * @param window Initialized window. / 初期化済みwindow。
+ * @param feature Feature to copy. / copyするfeature。
+ * @return MTFS_OK or validation error. / MTFS_OKまたはvalidation error。 */
 mtfs_error_t mtfs_sentinel_window_push(mtfs_sentinel_window_t *window,
     const mtfs_sentinel_feature_v1_t *feature);
+
+/** @brief Copy the newest feature. / window内の最新featureの内容を出力先にコピーする。
+ * @param window Initialized nonempty window. / 初期化済みかつ空でないwindow。
+ * @param[out] feature Output. / featureの出力先。
+ * @return MTFS_OK, NOT_FOUND when empty, or validation error. / MTFS_OK、windowが空の場合はNOT_FOUND、またはvalidation error。 */
 mtfs_error_t mtfs_sentinel_window_get(const mtfs_sentinel_window_t *window,
     mtfs_sentinel_feature_v1_t *feature);
+
+/** @brief Drop all entries without clearing caller storage. / 呼び出し側のstorage内容はクリアせず、window内の全entryを破棄する。
+ * @param window Initialized window. / 初期化済みwindow。 */
 void mtfs_sentinel_window_reset(mtfs_sentinel_window_t *window);
 
 #ifdef __cplusplus
 }
 #endif
 #endif /* MTFS_ENABLE_STORAGE_SENTINEL */
+
+/** @} */
 #endif /* MTFS_SENTINEL_H */

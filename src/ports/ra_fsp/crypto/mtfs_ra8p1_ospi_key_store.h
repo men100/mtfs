@@ -1,5 +1,13 @@
+/** @file mtfs_ra8p1_ospi_key_store.h
+ * @brief EK-RA8P1 OSPI wrapped-key record store adapter. / EK-RA8P1 OSPI上にwrapped key recordを保存するためのadapter。
+ * @details Stores only opaque hardware-wrapped records. Flash layout and provisioning policy are supplied by the target project.
+ * / hardwareでwrapされ、内部内容を直接扱わないkey recordのみを保存する。flash layoutとkey provisioningの方針はtarget project側で定義する。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_RA8P1_OSPI_KEY_STORE_H
 #define MTFS_RA8P1_OSPI_KEY_STORE_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "../../../mtfs_config.h"
 
@@ -77,4 +85,5 @@ const char *mtfs_ra8p1_key_store_status_string(
 
 #endif /* MTFS_ENABLE_SEALED_MODEL */
 
+/** @} */
 #endif /* MTFS_RA8P1_OSPI_KEY_STORE_H */

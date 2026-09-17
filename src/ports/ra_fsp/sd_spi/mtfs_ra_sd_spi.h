@@ -1,6 +1,13 @@
-/* EK-RA8P1 SD-card SPI block device for microT-FS. */
+/** @file mtfs_ra_sd_spi.h
+ * @brief EK-RA8P1 SPI SD Block Device adapter. / EK-RA8P1 SPI SD向けBlock Device adapter。
+ * @details The concrete caller-owned context contains all kernel objects and transfer buffers. media_changed_isr is a lightweight removal hint; close, reopen, and SD initialization remain in task I/O context.
+ * / 呼び出し側が所有するcontext内に、すべてのkernel objectとtransfer bufferを保持する。media_changed_isrではmedia取り外しに伴う軽量なstate更新のみを行い、close/reopen/SD初期化はtask I/O contextで実行する。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_RA_SD_SPI_H
 #define MTFS_RA_SD_SPI_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include <stdint.h>
 
@@ -100,10 +107,8 @@ typedef struct mtfs_ra_sd_spi_diagnostics
 } mtfs_ra_sd_spi_diagnostics_t;
 
 /*
- * The object is intentionally concrete so applications can place it in BSS.
- * No heap allocation is performed by this port.
- * applicationがBSSへ配置できるよう意図的に具象型とする。このportはheap
- * allocationを行わない。
+ * The object is intentionally concrete so applications can place it in BSS. No heap allocation is performed by this port.
+ * application側でBSSに静的配置できるよう、structの完全な定義を意図的に公開している。このportではheap allocationを行わない。
  */
 typedef struct mtfs_ra_sd_spi_context
 {
@@ -140,11 +145,13 @@ typedef struct mtfs_ra_sd_spi_context
 } mtfs_ra_sd_spi_context_t;
 
 /* Apply defaults, create fixed kernel objects, and register device_name. */
+/* default設定を適用し、必要なkernel objectを作成してdevice_nameを登録する。 */
 mtfs_error_t mtfs_ra_sd_spi_context_init(
     mtfs_ra_sd_spi_context_t *context,
     const mtfs_ra_sd_spi_config_t *config);
 
 /* Close the descriptor/FSP channel and delete kernel objects. */
+/* descriptorとFSP channelをcloseし、kernel objectを削除する。 */
 mtfs_error_t mtfs_ra_sd_spi_context_deinit(mtfs_ra_sd_spi_context_t *context);
 
 mtfs_block_device_t *mtfs_ra_sd_spi_block_device(mtfs_ra_sd_spi_context_t *context);
@@ -155,22 +162,19 @@ mtfs_error_t mtfs_ra_sd_spi_diagnostics_reset(
     mtfs_ra_sd_spi_context_t *context);
 
 /*
- * ISR-safe removal hint.  It only invalidates lightweight state and wakes a
- * transfer waiter.  FSP close/reopen and SD reinitialization stay in normal
- * I/O context.  A present notification never restores initialized state.
- * ISR-safeな取り外しhint。軽量stateの無効化とtransfer waiterの起床だけを
- * 行い、FSP close/reopenとSD再初期化は通常I/O contextに残す。挿入通知だけで
- * initialized stateを復元することはない。
+ * ISR-safe removal hint.  It only invalidates lightweight state and wakes a transfer waiter.  FSP close/reopen and SD reinitialization stay in normal I/O context.  A present notification never restores initialized state.
+ * ISRから安全に呼び出せるmedia取り外し通知。軽量なstateの無効化と、transfer待機中のtaskの起床のみを行う。FSPのclose/reopenとSDの再初期化は、通常のI/O contextで実行する。mediaがpresentになったという通知だけでは、initialized状態には復帰しない。
  */
 mtfs_error_t mtfs_ra_sd_spi_media_changed_isr(
     mtfs_ra_sd_spi_context_t *context, int present);
 
 /* FSP callback selected for the SCI_B SPI stack in configuration.xml. */
-/* configuration.xmlのSCI_B SPI stackで選択するFSP callback。 */
+/* configuration.xmlのSCI_B SPI stackで使用するFSP callback。 */
 void mtfs_ra_sd_spi_callback(spi_callback_args_t *args);
 
 #ifdef __cplusplus
 }
 #endif
 
+/** @} */
 #endif /* MTFS_RA_SD_SPI_H */

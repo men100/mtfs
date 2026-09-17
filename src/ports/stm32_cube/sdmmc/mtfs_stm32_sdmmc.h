@@ -1,6 +1,13 @@
-/* STM32Cube SDMMC block device for microT-FS. */
+/** @file mtfs_stm32_sdmmc.h
+ * @brief STM32Cube SDMMC Block Device adapter. / STM32Cube SDMMC向けBlock Device adapter。
+ * @details Caller-owned context contains kernel objects and an aligned bounce buffer. IDMA completion uses IRQ callbacks; media_changed_isr only invalidates lightweight state and wakes waiters. HAL abort/deinit remains in task context.
+ * / 呼び出し側が所有するcontext内にkernel objectとalignment済みbounce bufferを保持する。IDMAの完了通知にはIRQ callbackを使用する。media_changed_isrでは軽量なstateの無効化とwaiterの起床のみを行い、HALのabort/deinitはtask contextで実行する。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_STM32_SDMMC_H
 #define MTFS_STM32_SDMMC_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include <stdint.h>
 
@@ -79,7 +86,7 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
     uint8_t hal_initialized;
     uint8_t transfer_active;
     /* IDMA writes that entered post-TX card-ready checking, including fast completion. */
-    /* 即時完了を含め、送信後card-ready確認へ進んだIDMA write回数。 */
+    /* 即時完了した場合も含め、送信完了後のcard-ready確認処理に進んだIDMA writeの回数。 */
     uint32_t ready_sequences;
     /* Calls to the kernel event wait after BUSYD0END was armed. */
     uint32_t ready_event_waits;
@@ -90,7 +97,7 @@ typedef struct mtfs_stm32_sdmmc_diagnostics
 } mtfs_stm32_sdmmc_diagnostics_t;
 
 /* Concrete by design: applications statically allocate this object. */
-/* applicationが静的確保できるよう、意図的に具象型として公開する。 */
+/* application側で静的確保できるよう、意図的にstruct定義を公開している。 */
 typedef struct mtfs_stm32_sdmmc_context
 {
     mtfs_stm32_sdmmc_config_t config;
@@ -135,15 +142,16 @@ mtfs_error_t mtfs_stm32_sdmmc_diagnostics_reset(
 /*
  * ISR-safe removal hint.  It only invalidates lightweight state and wakes an
  * IDMA waiter. HAL_SD_Abort()/DeInit() remain deferred to normal I/O context.
- * ISR-safeな取り外しhint。軽量stateの無効化とIDMA waiterの起床だけを行い、
- * HAL_SD_Abort()/DeInit()は通常I/O contextまで遅延する。
  * A present notification never restores initialized state.
+ * ISRから安全に呼び出せるmedia取り外し通知。軽量なstateの無効化と
+ * IDMA待機中のtaskの起床のみを行い、HAL_SD_Abort()/DeInit()は通常のI/O contextで実行する。
+ * present の通知を受けても、initialized 状態には戻さない。
  */
 mtfs_error_t mtfs_stm32_sdmmc_media_changed_isr(
     mtfs_stm32_sdmmc_context_t *context, int present);
 
 /* Global STM32 HAL callbacks; dispatch is restricted to the configured handle. */
-/* STM32 HALのglobal callbackだが、dispatchは設定済みhandleだけに限定する。 */
+/* STM32 HALのglobal callback。処理対象はconfigで指定されたhandleに限定する。 */
 void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hal_sd);
 void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hal_sd);
 void HAL_SD_ErrorCallback(SD_HandleTypeDef *hal_sd);
@@ -152,4 +160,5 @@ void HAL_SD_ErrorCallback(SD_HandleTypeDef *hal_sd);
 }
 #endif
 
+/** @} */
 #endif /* MTFS_STM32_SDMMC_H */

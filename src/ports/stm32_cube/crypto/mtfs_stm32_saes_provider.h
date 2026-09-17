@@ -1,5 +1,13 @@
+/** @file mtfs_stm32_saes_provider.h
+ * @brief STM32N657 SAES hardware-backed crypto provider. / STM32N657 SAESハードウェアを使用するcrypto provider。
+ * @details Uses opaque wrapped key material and chunked AES-256-GCM. Caller owns provider context and key-store buffers through close.
+ * / 内部内容を直接扱わないwrapped keyと chunked AES-256-GCMを使用する。provider contextとkey-store bufferの所有権はcloseまで呼び出し側にある。
+ * @ingroup mtfs_ports */
 #ifndef MTFS_STM32_SAES_PROVIDER_H
 #define MTFS_STM32_SAES_PROVIDER_H
+
+/** @addtogroup mtfs_ports
+ * @{ */
 
 #include "../../../mtfs_config.h"
 
@@ -17,19 +25,13 @@ extern "C" {
 
 #define MTFS_STM32_SAES_PROVIDER_API_VERSION (1U)
 
-/* Return zero after acquiring the exclusive SAES lock, nonzero on failure.
- * SAES and mtfs_stm32_saes.c work buffers are process-global resources.  Every
- * provider instance and every direct mtfs_stm32_saes_* caller in the target
- * must therefore use the same global lock.  Per-instance locks do not satisfy
- * this contract.  The application owns the lock for the target lifetime;
- * provider deinit neither deletes nor otherwise manages it. */
+/* Return zero after acquiring the exclusive SAES lock, nonzero on failure. SAES and mtfs_stm32_saes.c work buffers are process-global resources. Every provider instance and every direct mtfs_stm32_saes_* caller in the target must therefore use the same global lock.  Per-instance locks do not satisfy this contract.  The application owns the lock for the target lifetime; provider deinit neither deletes nor otherwise manages it. */
+/* 排他的なSAES lockの取得に成功した場合は0、失敗した場合は非0を返す。SAESおよびmtfs_stm32_saes.cのwork bufferはprocess全体で共有されるresourceである。そのため、target内のすべてのprovider instanceとmtfs_stm32_saes_*を直接呼び出す処理は、同じglobal lockを使用する必要がある。instanceごとに個別のlockを使用してはならない。このlockはtargetの動作期間を通してapplication側が所有・管理し、providerのdeinitでは削除やその他の管理を行わない。 */
 typedef int (*mtfs_stm32_saes_provider_lock_fn)(void *context);
 typedef void (*mtfs_stm32_saes_provider_unlock_fn)(void *context);
 
-/* Lock order contract: FatFs and SAES locks are never nested.  sealed_blob
- * completes each reader callback before invoking this provider.  Applications
- * must not hold a FatFs volume lock while calling provider functions, nor call
- * FatFs while holding the global lock supplied here. */
+/* Lock order contract: FatFs and SAES locks are never nested.  sealed_blob completes each reader callback before invoking this provider.  Applications must not hold a FatFs volume lock while calling provider functions, nor call FatFs while holding the global lock supplied here. */
+/* lock順序に関する規約として、FatFs lockとSAES lockを同時に保持してはならない。sealed_blobは各reader callbackの処理を完了してから、このproviderを呼び出す。applicationはFatFsのvolume lockを保持したままprovider関数を呼び出してはならず、また、ここで指定したglobal lockを保持したままFatFsを呼び出してはならない。 */
 
 typedef struct mtfs_stm32_saes_provider_context
 {
@@ -71,4 +73,5 @@ mtfs_crypto_status_t mtfs_stm32_saes_provider_deinit(
 
 #endif /* MTFS_ENABLE_SEALED_MODEL */
 
+/** @} */
 #endif /* MTFS_STM32_SAES_PROVIDER_H */
