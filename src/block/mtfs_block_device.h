@@ -1,4 +1,3 @@
-```c
 /** @file mtfs_block_device.h
  * @brief Platform-independent sector I/O API. / platform非依存のsector I/O API。
  * @ingroup mtfs_block_device */
@@ -121,4 +120,3 @@ mtfs_error_t mtfs_block_trim(mtfs_block_device_t *device, mtfs_lba_t lba, mtfs_l
 /** @} */
 
 #endif /* MTFS_BLOCK_DEVICE_H */
-```
