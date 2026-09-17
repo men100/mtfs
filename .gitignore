@@ -61,6 +61,7 @@
 makefile
 compile_commands.json
 doxygen-output/
+build/doxygen/
 
 # STM32CubeIDE local workspace and managed-build outputs
 .cubeide-workspace-*/
