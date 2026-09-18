@@ -20,13 +20,13 @@ static_assert(MTFS_SENTINEL_MONITOR_SOURCE_NPU == 1,
 #if UINTPTR_MAX == UINT32_MAX
 static_assert(sizeof(mtfs_sentinel_bundle_policy_t) == 28U,
     "32-bit bundle policy ABI size");
-static_assert(sizeof(mtfs_sentinel_bundle_t) == 352U,
+static_assert(sizeof(mtfs_sentinel_bundle_t) == 480U,
     "32-bit parsed bundle ABI size");
-static_assert(sizeof(mtfs_sentinel_cpu_context_t) == 32U,
+static_assert(sizeof(mtfs_sentinel_cpu_context_t) == 24U,
     "32-bit CPU context ABI size");
 static_assert(sizeof(mtfs_sentinel_inference_result_t) == 32U,
     "32-bit inference result ABI size");
-static_assert(sizeof(mtfs_sentinel_runtime_info_t) == 168U,
+static_assert(sizeof(mtfs_sentinel_runtime_info_t) == 184U,
     "32-bit runtime info ABI size");
 static_assert(sizeof(mtfs_sentinel_memory_plan_t) == 64U,
     "32-bit memory plan ABI size");

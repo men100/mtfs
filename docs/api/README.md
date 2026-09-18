@@ -27,7 +27,7 @@ doxygen Doxyfile
 
 生成されたHTMLは`build/doxygen/html/index.html`から確認できます。
 
-`build/doxygen/`は`.gitignore`の対象になっているため、生成HTMLがrepositoryへ追加されることはありません。また、Doxygenのwarningをerrorとして扱う設定にしているため、commandが正常終了した場合はwarning/errorともに0件です。
+`build/doxygen/`は`.gitignore`の対象になっているため、生成HTMLがrepositoryへ追加されることはありません。Doxyfileはproject source／documentation由来のwarningをbuild失敗として扱います。一方、使用するDoxygen versionによっては、日本語translationが未更新であるというDoxygen自身のnonfatal warningが表示されます。このtool由来のwarningはAPI文書内容の不備を示すものではありません。
 
 ## API group
 
