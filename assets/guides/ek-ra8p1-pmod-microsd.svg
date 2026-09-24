@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">EK-RA8P1 PMOD2 to Digilent Pmod MicroSD wiring</title>
+  <desc id="desc">SPI, card detect, power and ground wiring between PMOD2 and the Pmod MicroSD Revision A.</desc>
+  <rect width="960" height="520" fill="#f8fafc"/>
+  <style>
+    text { font-family: sans-serif; fill: #172033; }
+    .head { font-size: 24px; font-weight: 700; }
+    .label { font-size: 17px; }
+    .small { font-size: 14px; fill: #44506a; }
+    .box { fill: #fff; stroke: #344766; stroke-width: 2; rx: 12; }
+    .sig { stroke-width: 4; fill: none; }
+  </style>
+  <text x="480" y="38" text-anchor="middle" class="head">EK-RA8P1 PMOD2 ↔ Pmod MicroSD Rev. A</text>
+  <rect x="55" y="75" width="300" height="390" class="box"/>
+  <rect x="605" y="75" width="300" height="390" class="box"/>
+  <text x="205" y="112" text-anchor="middle" class="head">EK-RA8P1 PMOD2</text>
+  <text x="755" y="112" text-anchor="middle" class="head">Pmod MicroSD J1</text>
+  <g class="label">
+    <text x="80" y="165">P601 / SCK0</text><text x="880" y="165" text-anchor="end">Pin 4 / SCK</text>
+    <text x="80" y="215">P602 / RXD0</text><text x="880" y="215" text-anchor="end">Pin 3 / MISO</text>
+    <text x="80" y="265">P603 / TXD0</text><text x="880" y="265" text-anchor="end">Pin 2 / MOSI</text>
+    <text x="80" y="315">P604 / GPIO CS</text><text x="880" y="315" text-anchor="end">Pin 1 / CS</text>
+    <text x="80" y="365">P409 / IRQ6</text><text x="880" y="365" text-anchor="end">Pin 9 / CD</text>
+    <text x="80" y="415">3V3 / GND</text><text x="880" y="415" text-anchor="end">Pins 6,12 / 5,11</text>
+  </g>
+  <path d="M300 158 H660" class="sig" stroke="#3268c8"/>
+  <path d="M300 208 H660" class="sig" stroke="#2c8f68"/>
+  <path d="M300 258 H660" class="sig" stroke="#a26400"/>
+  <path d="M300 308 H660" class="sig" stroke="#8e4bb8"/>
+  <path d="M300 358 H660" class="sig" stroke="#d34a4a"/>
+  <path d="M300 408 H660" class="sig" stroke="#566170"/>
+  <text x="480" y="348" text-anchor="middle" class="small">CD active-low · debounce 100 ms</text>
+  <text x="480" y="385" text-anchor="middle" class="small">P000 IRQ6-DS must remain disabled</text>
+  <text x="480" y="495" text-anchor="middle" class="small">SPI pinmux: FSP configuration.xml · CS/CD aliases: mtfs_ra8p1_board_config.h</text>
+</svg>

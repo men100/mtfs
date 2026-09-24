@@ -1,25 +1,32 @@
 # microT-FS 公開ドキュメント
 
-microT-FSは、FatFsとmicroT-Kernel 3.0を接続し、交換可能なblock device、media lifecycle、診断機能、および任意で利用できるsealed model/Storage Sentinel機能を提供する組み込みストレージ基盤です。
+このdirectoryには、microT-FSの公開ドキュメントをまとめています。microT-FSを導入する場合は、まず[Getting Started](getting-started.md)から始めてください。
 
 ## 目的別ガイド
 
-| 目的 | 最初に読む文書 |
-| --- | --- |
-| まず全体像を把握したい | [アーキテクチャ概要](architecture/README.md)で、microT-FSの責務と利用範囲を確認してください。完全なgetting startedは今後追加する予定です。 |
-| 既存projectへ組み込みたい | [全体レイヤー](architecture/overview.md)と[通常I/O / media lifecycle](architecture/io-and-media.md)を参照してください。 |
-| 対応boardで動作させたい | [target profile](architecture/target-profiles.md)で正式に対応している構成を確認し、各target projectのREADMEを参照してください。 |
-| 新しいblock device/boardへ移植したい | [通常I/O／media lifecycle](architecture/io-and-media.md)で、移植時に実装すべき境界を確認してください。完全なporting guideは今後追加する予定です。 |
-| sealed modelを利用したい | [sealed model](architecture/sealed-model.md)で、鍵、認証、RAMのlifetime、および保証範囲を確認してください。 |
-| Storage Sentinelを利用したい | [Storage Sentinel](architecture/storage-sentinel.md)で、passive observation、baseline、および判定処理の境界を確認してください。 |
-| API仕様を確認したい | [microT-FS 公開APIリファレンス](https://men100.github.io/mtfs/index.html)を参照してください。 |
+| 目的                                            | 文書                                                                                                 |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| まずHostで試してみたい                                 | [Getting Started - Hostで試してみる](getting-started.md#hostで試してみる)                                                   |
+| EK-RA8P1/STM32N6570-DKで動作させたい                 | [Getting Started - EK-RA8P1](getting-started.md#ek-ra8p1)、[Getting Started - STM32N6570-DK](getting-started.md#stm32n6570-dk) |
+| 配線やpin assignmentを確認したい                       | [Board configuration](board-configuration.md)                                                      |
+| 自分のprojectへsourceを組み込みたい                      | [Source integration](integration.md)                                                               |
+| compile-time設定を確認したい                          | [Configuration reference](configuration.md)                                                        |
+| FatFs、hotplug、RTC、diagnostics、benchmarkを利用したい | [Storage operations](storage-operations.md)                                                        |
+| sample/test/provisioning/Sentinel Labを操作したい   | [Application / console manual](applications.md)                                                    |
+| sealed modelとkeyのsecurity boundaryを確認したい      | [Sealed Model / Security](security.md)                                                             |
+| Storage Sentinelを評価・再現したい                     | [Storage Sentinel](storage-sentinel.md)                                                            |
+| STM32N657へimageを書き込みたい                        | [STM32 deployment](stm32-deployment.md)                                                            |
+| 新しいboard/storage deviceへ移植したい                 | [New port guide](porting.md)                                                                       |
+| 問題の原因を切り分けたい                                  | [Troubleshooting](troubleshooting.md)                                                              |
+| performanceやRAM/ROM使用量の参考値を確認したい              | [Performance / resource reference](performance.md)                                                 |
+| licenseとartifactの公開範囲を確認したい                   | [Third-party software / licenses](licenses.md)                                                     |
+| 全体のarchitectureを把握したい                         | [Architecture](architecture/README.md)                                                             |
+| 公開C APIの仕様を確認したい                              | [API Reference](https://men100.github.io/mtfs/index.html)                                          |
 
-## 文書の範囲
+## 文書の読み方
 
-ここでは、現在公開しているarchitectureとAPI契約について説明します。
+architecture文書ではcomponent間の責務や設計理由を説明し、各利用ガイドでは現在の設定や具体的な操作手順を説明します。
 
-boardのIDEへのimport/build/flash手順、pin接続表、console command一覧、完全なporting guide、実測performance値、memory使用量、学習手順、troubleshootingは対象外です。
+FatFsのupstream情報については[`UPSTREAM.md`](../src/fatfs/UPSTREAM.md)、microT-FSで加えた変更については[`CHANGES.mtfs.md`](../src/fatfs/CHANGES.mtfs.md)を参照してください。
 
-対応状況や性能について推測で補足することはせず、現在のsource treeから確認できる範囲のみを扱います。
-
-FatFs本体はupstream softwareであり、microT-FS固有のAPIとは区別して扱います。来歴については [`src/fatfs/UPSTREAM.md`](../src/fatfs/UPSTREAM.md)、microT-FS側での変更点については [`src/fatfs/CHANGES.mtfs.md`](../src/fatfs/CHANGES.mtfs.md) を参照してください。
+performance値は保証値ではなく、記載されたboard、card、build、commitで測定したreference resultです。SD cardの個体差、断片化、温度、wear leveling、内部GCなどによって変動します。
