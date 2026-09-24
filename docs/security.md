@@ -42,10 +42,9 @@ mtfs-test-package --key fleet.key --package MTFSTEST.MTF \
 policyと一致させます。`mtfs-verify`と`mtfs-unseal`にも期待するpolicyを指定すると、別target向け
 packageの取り違えをHost側で検出できます。
 
-現行Host toolがpackageへ記録するfleet key ID/versionは`1/1`固定で、CLIから変更できません。
-これは`apps/key-provision`の初回登録と一致しますが、version 2以降へ進める
-`update-xmodem`を含むproduction key rotation workflowは未完成です。更新前に
-[key-provisionの制約](applications.md#明示更新)を確認してください。
+現行Host toolがpackageへ記録するfleet key ID/versionは`1/1`固定で、CLIから変更できません。`apps/key-provision`も初回登録とreplacementの双方でID/version `1/1`を維持し、device-localなrecord generationだけを増やします。[replacementと非atomic deploymentの手順](applications.md#単一fleet-keyの明示的なreplacement)を確認してください。
+
+複数key versionの同時保持、versioned key rotation、packageとdevice keyのatomic deployment、automatic rollback、anti-rollback、revocation、OTA key rotationは初版の保証範囲外です。旧`update-xmodem`は案内専用であり、keyを変更しません。
 
 既存のoutput fileは既定では上書きしません。上書きする場合のみ`--overwrite`を明示的に指定します。
 
@@ -56,7 +55,7 @@ fileは許可したOS accountだけが読めるdirectoryで管理し、key内容
 history、console、CI logへ出力しないでください。`mtfs-unseal`の出力はplaintextなので、出力先の
 access control、使用後の保持/廃棄方針も別途定めます。
 
-同じ`K_fleet`をtargetへ初回登録または明示更新する手順は、
+`K_fleet`をtargetへ初回登録または明示的にreplacementする手順は、
 [`apps/key-provision`](applications.md#appskey-provision)を参照してください。provisionerは
 信頼できるlocal UART/XMODEM経路からkeyを受信してhardware-backed storageへwrapしますが、
 Host側のkey生成、保管、backup、配布経路全体を提供するものではありません。
@@ -67,9 +66,7 @@ Host側のkey生成、保管、backup、配布経路全体を提供するもの�
 
 [`fleet_test.key`](../tools/sealed_model/tests/vectors/fleet_test.key)は、公開test vectorとRA reference packageを再現するためだけに使用するdemo keyです。秘密情報として扱う必要はありませんが、production用途には使用しないでください。
 
-production keyのentropy source、生成、保管、backup、deviceへの安全な配布、rotation、廃棄は利用者の責務です。
-現行toolだけではversion 2以降のpackageを生成できないため、rotation実施手順が提供済みという
-意味ではありません。
+production keyのentropy source、生成、保管、backup、deviceへの安全な配布、replacement、廃棄は利用者の責務です。正式対応するのは単一fleet keyの明示的なreplacementと手動rollbackであり、versioned rotationではありません。
 
 [key-provision application](applications.md#appskey-provision)はdevice側の登録mechanismであり、
 production向けkey-management/secure-room運用/remote provisioningを一式提供するsolutionでは

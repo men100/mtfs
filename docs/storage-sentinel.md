@@ -8,7 +8,7 @@ Storage Sentinelは、通常のstorage I/Oから得られる統計をpassiveに�
 
 SD cardの寿命、残寿命、故障原因、故障時期を直接推定するものではありません。また、`NORMAL`であってもcardの健全性を保証するものではありません。
 
-Storage Sentinelは、card交換などの判断を単独で自動化するための機能ではなく、diagnostics、application log、media状態などと組み合わせて、異常の兆候を調査するための仕組みです。
+Storage Sentinelは、card交換などの判断を単独で自動化するための機能ではありません。diagnostics、application log、media状態などと組み合わせて、異常の兆候を調査するための仕組みです。
 
 ## 全体の処理
 
@@ -111,7 +111,7 @@ featureの完全な順序、範囲、単位は[`feature_schema_v1.json`](../tool
 
 target ID、timestamp、media generation、label、command、injection条件はmodel入力には含めません。
 
-また、I/O errorやtimeoutなどのhard fault counterをmodelに推定させることはせず、rule-based guardで直接処理します。既知のstorage errorを、曖昧なAI scoreへ変換しないためです。
+また、I/O errorやtimeoutなどのhard fault counterをmodelに推定させることはせず、rule-based guardで直接処理します。既知のstorage errorを曖昧なAI scoreへ変換しないためです。
 
 24要素のschema自体はtarget間で共通ですが、公開modelが実際に使用するactive featureは、capture結果に基づいてtargetごとに固定されています。
 
@@ -361,7 +361,7 @@ bundle parserはtarget、transport、accelerator、model format、profile IDを�
 
 公開datasetは、row単位でrandom splitしていません。
 
-cardとcapture sessionをsplitの単位とすることで、同じcard/sessionから得られた近接windowがtrainingとevaluationの両方へ含まれ、性能を過大評価することを防いでいます。
+cardとcapture sessionをsplitの単位とすることで、同じcard/sessionから得られた近接windowがtrainingとevaluationの両方へ含まれ、performanceを過大評価することを防いでいます。
 
 | card     | role       | 使用目的                                              |
 | -------- | ---------- | ------------------------------------------------- |
@@ -419,7 +419,7 @@ python tools/storage_sentinel/reproduce_release.py \
   --vela-python <path-to-vela-environment-python>
 ```
 
-ST向けの生成まで行う場合は、利用者が取得したST Edge AI Core 4.0.1/atonn 1.1.3と、target memory layoutに適合するrelocation profileを指定します。
+ST向けの生成まで行う場合は、利用者が正規に導入したST Edge AI Core 4.0.1-20581（atonn 1.1.3-275）と、同製品に同梱されている`test-int2` profileを指定します。
 
 必要に応じてGNU tool directoryを`--st-tool-path`で追加します。
 
@@ -427,15 +427,17 @@ ST向けの生成まで行う場合は、利用者が取得したST Edge AI Core
 python tools/storage_sentinel/reproduce_release.py \
   --output-root <new-empty-output-directory> \
   --stedgeai <path-to-stedgeai> \
-  --st-reloc-profile <path-to-user-relocation-profile> \
+  --st-reloc-profile <ST-Edge-AI-Core-4.0.1>/scripts/N6_reloc/test/neural_art_reloc.json \
   --st-reloc-profile-name test-int2
 ```
 
-public repositoryには、accepted `test-int2` relocation profileとST生成binaryを含めていません。
+accepted `test-int2` profileはproject-owned fileではなく、ST Edge AI Coreに同梱されたvendor fileです。
 
-そのため、public checkoutだけで再現できる範囲はST canonical TFLiteまでです。
+そのためpublic repositoryにはcopyしておらず、public checkoutだけではST runtimeを生成できません。
 
-STのpost-canonical生成では、利用者自身のtoolchainとmemory layoutに対応するprofileを用意してください。
+一方で、利用者自身が正規に導入した上記versionのvendor tool/profileをexternal prerequisiteとして指定すれば、accepted runtime、bundle、必要に応じて`SENTINEL.MTF`までfail-closedで生成できます。
+
+別version、別profile、変更したmemory layout、custom Neural-ART runtime、custom acceptance contractは、このreference workflowの対象外です。
 
 公開している[`st-edge-ai-recipe-result.json`](../artifacts/storage_sentinel/audit/st-edge-ai-recipe-result.json)には、acceptance時のtool version、runtime hash/size、private temporary outputとの一致結果を記録しています。
 
@@ -451,7 +453,7 @@ python tools/storage_sentinel/audit_public_release.py --repo-root .
 
 ## STM32N6570-DK用`SENTINEL.MTF`の生成
 
-ST用の`SENTINEL.MTF`は、canonical TFLite、利用者環境で生成したNeural-ART runtime、CPU／NPUの数値acceptance contractを1つのSentinel bundleへまとめ、そのbundleをdeviceへprovisionしたfleet keyでsealして作成します。
+ST用の`SENTINEL.MTF`は、canonical TFLite、利用者環境で生成したNeural-ART runtime、CPU/NPUの数値acceptance contractを1つのSentinel bundleへまとめ、そのbundleをdeviceへprovisionしたfleet keyでsealして作成します。
 
 この手順で生成される`network_rel.bin`、`sentinel.bundle`、`SENTINEL.MTF`には、利用者が取得したST softwareから生成されたruntimeが含まれます。
 
@@ -462,9 +464,9 @@ ST用の`SENTINEL.MTF`は、canonical TFLite、利用者環境で生成したNeu
 次を用意します。
 
 * [公開再現セット](#公開artifactの構成)のPython環境
-* ST Edge AI Core 4.0.1-20581／atonn 1.1.3-275
-* STM32N6570-DKの実際のmemory layoutに対応したrelocation profile
-* `mtfs-seal`／`mtfs-verify`をbuild済みのHost環境
+* ST Edge AI Core 4.0.1-20581/atonn 1.1.3-275
+* ST Edge AI Coreに同梱された`scripts/N6_reloc/test/neural_art_reloc.json`内の`test-int2` profile
+* `mtfs-seal`/`mtfs-verify`/`mtfs-unseal`を同じdirectoryへbuild済みのHost環境
 * targetの`apps/key-provision`で登録したものと同一の32-byte fleet key file
 * 生成するruntimeのhashに対応する、事前に固定・評価済みのNPU acceptance contract
 
@@ -472,13 +474,13 @@ ST用の`SENTINEL.MTF`は、canonical TFLite、利用者環境で生成したNeu
 
 別のprofileから生成したruntimeへ流用しないでください。
 
-public repositoryには、accepted `test-int2` profile自体は収録していません。
+public repositoryにはvendor profile自体を収録していません。
 
-そのため、public checkoutと任意のrelocation profileがあれば、公開acceptance contractに適合する`SENTINEL.MTF`を作成できる、という意味ではありません。
+任意のrelocation profileを指定し、公開acceptance contractだけを流用することはできません。
 
-異なるruntimeを使用する場合は、そのruntimeに対して数値corpusを実行し、CPU／NPUの許容差、score interval、decision、repeatabilityを確認したうえで、新しいacceptance contractを固定してからbundle化してください。
+custom profileを使用する場合は、そのruntimeに対する新しいtarget evaluationとacceptance freezeが必要です。ただし、そのworkflowは今回のpublic reference reproductionではサポートしていません。
 
-### 1. Canonical modelとNeural-ART runtimeを生成する
+### 1. Canonical model、Neural-ART runtime、bundleを生成する
 
 repository rootで、空のdirectoryを`--output-root`に指定して実行します。
 
@@ -486,7 +488,7 @@ repository rootで、空のdirectoryを`--output-root`に指定して実行し�
 python tools/storage_sentinel/reproduce_release.py \
   --output-root <new-empty-output-directory> \
   --stedgeai <path-to-stedgeai> \
-  --st-reloc-profile <path-to-user-relocation-profile> \
+  --st-reloc-profile <ST-Edge-AI-Core-4.0.1>/scripts/N6_reloc/test/neural_art_reloc.json \
   --st-reloc-profile-name test-int2 \
   --st-tool-path <path-to-required-gnu-tools>
 ```
@@ -507,6 +509,23 @@ python tools/storage_sentinel/reproduce_release.py \
 | `<st-root>/sentinel_baseline_v2.tflite`                                  | canonical full-int8 TFLite                                             |
 | `<st-root>/stedgeai-private-output/generated/network_rel.bin`            | Neural-ART relocatable runtime                                         |
 | `<st-root>/stedgeai-private-output/sentinel_st_neural_art_manifest.json` | runtime ABI、memory region、quantization、hashを記録したmanifest               |
+| `<st-root>/sentinel.bundle`                                              | identityとinner layoutを検証済みのCPU＋Neural-ART bundle                       |
+
+scriptは、canonical TFLite、ST Edge AI Core/atonn version、profile名、runtime size/hash、conversion manifest、公開acceptance contractを順に検証します。
+
+すべて一致した場合にのみ`pack.py`を実行し、bundleのtarget、transport、accelerator、model format、runtime count、required RAM、inner runtime identityを再度検証します。
+
+いずれかが一致しない場合、bundleは生成されません。
+
+公開用training manifestでは、dataset pathをrepository-relativeな表現へ置き換えています。
+
+一方、freeze済みのST acceptanceは、同じdataset/session/file hashを持つ評価時artifact indexのidentity `b27f6bde9199ea3cf9271c1533d0ee0e67a87c02860a2a186c0c353419fc19c9`に紐付いています。
+
+`reproduce_release.py`は、このpathだけのprovenance差分を明示的にconverterへ渡し、accepted conversion manifest identityを再現します。
+
+これはdataset、model、normalizer、threshold、runtime、acceptance contractを書き換える処理ではありません。
+
+生成されるmanifest自体はpath-neutralであり、絶対pathが含まれている場合は拒否されます。
 
 ### 2. Runtimeとacceptance contractのidentityを確認する
 
@@ -544,7 +563,9 @@ tool versionが一致していても、relocation profileやmemory layoutが異�
 
 ### 3. Sentinel bundleを作成する
 
-identityが一致していることを確認したら、runtime、manifest、および対応するacceptance contractを`pack.py`へ渡します。
+`reproduce_release.py`は、identityが一致したことを確認した後、次と同等の`pack.py`処理を自動的に実行します。
+
+個別調査やauditのために手動で実行する場合は、次のcommandを使用します。
 
 ```console
 python tools/storage_sentinel/pack.py \
@@ -559,7 +580,7 @@ python tools/storage_sentinel/pack.py \
   > <st-root>/sentinel.bundle.summary.json
 ```
 
-`pack.py`は、canonical model、runtime、conversion manifest、acceptance contractのidentityに加え、target／transport／accelerator policyも検証します。
+`pack.py`は、canonical model、runtime、conversion manifest、acceptance contractのidentityに加え、target/transport/accelerator policyも検証します。
 
 不一致が検出された場合は、acceptance checkを無効化したりmanifestを書き換えたりせず、runtime生成またはacceptanceの手順へ戻ってください。
 
@@ -570,7 +591,7 @@ python -c "import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_
   <st-root>/sentinel.bundle.summary.json
 ```
 
-STのCPU／NPU hybrid bundleでは、少なくとも次の値が表示されます。
+STのCPU/NPU hybrid bundleでは、少なくとも次の値が表示されます。
 
 | field            | 期待値                   |
 | ---------------- | --------------------- |
@@ -581,7 +602,13 @@ STのCPU／NPU hybrid bundleでは、少なくとも次の値が表示されま�
 
 `required_ram`と`alignment`には、生成されたbundleのmemory planから求められた値を使用します。
 
-accepted runtimeでは`required_ram`として29,040 bytesが記録されていますが、異なるruntimeへこの値をそのまま流用しないでください。
+公開recipeから生成される現在のpath-neutralなCPU＋NPU bundleは24,868 bytesで、bundle SHA-256は`c58d9f7a022f65ad586425d68a709389073c842987682c39b9c1c3d55a723926`、`required_ram`は32,592 bytesです。
+
+scriptは、これらの値についても固定identityとして検証します。
+
+評価時に使用した旧bundleのidentityには絶対pathを含むprovenanceが影響しているため、現在のpublic reference identityとしては使用しません。
+
+model、runtime、conversion manifest、acceptance contractのidentity自体は変更されていません。
 
 ### 4. Fleet keyでsealする
 
@@ -593,7 +620,30 @@ cmake --build build/sealed-model --parallel
 ctest --test-dir build/sealed-model --output-on-failure
 ```
 
-`sentinel.bundle.summary.json`の`minimum_required_ram_32bit`を`--required-ram`へ指定し、targetへprovisionしたfleet keyでbundleをsealします。
+生成からsealまでを1回のreference workflowで実行する場合は、`reproduce_release.py`へbuild済みの`mtfs-seal`、fleet key、出力先を指定します。
+
+同じdirectoryにある`mtfs-verify`と`mtfs-unseal`も自動的に使用されます。
+
+```console
+python tools/storage_sentinel/reproduce_release.py \
+  --output-root <new-empty-output-directory-outside-repository> \
+  --stedgeai <ST-Edge-AI-Core-4.0.1>/Utilities/windows/stedgeai.exe \
+  --st-reloc-profile <ST-Edge-AI-Core-4.0.1>/scripts/N6_reloc/test/neural_art_reloc.json \
+  --st-reloc-profile-name test-int2 \
+  --mtfs-seal <sealed-tools-directory>/mtfs-seal \
+  --fleet-key <fleet-key-file> \
+  --sealed-output <output-directory-outside-repository>/SENTINEL.MTF
+```
+
+public demo keyを使用して検証する場合は、次の注意を必ず守ってください。
+
+> **TEST/DEMO KEY - PUBLIC AND NOT SECRET - DO NOT USE IN PRODUCTION**
+
+scriptは、seal self-verify、別processでの`mtfs-verify`、`mtfs-unseal`、unsealed payloadとbundleのbyte単位での一致に加え、wrong keyの拒否、ciphertext/tag mutationの拒否、失敗時にpartial plaintextが残らないことまで確認します。
+
+CSPRNGを使用するため、`SENTINEL.MTF`全体のhashは固定しません。
+
+手動でsealする場合は、bundle summaryの`minimum_required_ram_32bit`を`--required-ram`へ指定します。
 
 ```console
 build/sealed-model/mtfs-seal \
@@ -623,13 +673,15 @@ build/sealed-model/mtfs-verify \
 
 Windows native buildでは、実行file名に`.exe`が付きます。
 
-現行Host toolがpackageへ記録するfleet key ID／versionは`1/1`固定です。
+現行Host toolがpackageへ記録するfleet key ID/versionは`1/1`固定です。
 
-target側のactive key recordも、同じID／versionである必要があります。
+target側のactive key recordも、同じID/versionである必要があります。
 
-`apps/key-provision`の`update-xmodem`によってversion 2以降へ更新したtargetでは、現行Host toolで作成したpackageをopenできません。
+`apps/key-provision`でfleet keyをreplacementしても、ID/versionは`1/1`のまま維持されます。
 
-詳細については[key-provisionの制約](applications.md#明示更新)を参照してください。
+ただし、raw key materialは変わるため、old packageをnew keyで認証することはできません。
+
+packageとdevice keyの切り替え順序、切り替え途中のnon-atomicな期間、手動rollbackについては[single-key replacement手順](applications.md#単一fleet-keyの明示的なreplacement)を参照してください。
 
 ### 5. SD cardへ配置する
 
@@ -639,7 +691,7 @@ target側のactive key recordも、同じID／versionである必要がありま
 0:/SENTINEL.MTF
 ```
 
-targetでは最初に`sentinel-monitor`を実行し、package authentication、runtime policy、32 windowのwarmup、common／media／target diagnosticsを確認してください。
+targetでは最初に`sentinel-monitor`を実行し、package authentication、runtime policy、32 windowのwarmup、common/media/target diagnosticsを確認してください。
 
 操作方法については[Sentinel Lab manual](applications.md#appssentinel-lab)を参照してください。
 
@@ -671,7 +723,7 @@ repositoryのprovenance記録上、conditional redistributionの条件は確認�
 
 これは、「STでは動作していない」「変換方法が分からない」という意味ではありません。
 
-公開auditには、指定されたtool versionを使ってprivate temporary outputを生成し、acceptance済みruntimeのhashと一致したことを確認した記録があります。
+公開auditには、指定されたtool versionを使用してprivate temporary outputを生成し、acceptance済みruntimeのhashと一致したことを確認した記録があります。
 
 一方で、公開可否を独自に解釈してbinaryを匿名で再配布することはせず、次の境界を設けています。
 

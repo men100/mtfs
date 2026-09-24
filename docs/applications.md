@@ -104,7 +104,7 @@ RA版にはSPI diagnostics、RSIP、Ethos-U55 model testが含まれます。ST�
 
 ## `apps/key-provision`
 
-fleet keyの初回登録と明示的な更新だけを行う専用applicationです。
+fleet keyの初回登録と、単一logical fleet keyの明示的なreplacementだけを行う専用applicationです。
 
 信頼できるlocal UART sessionを使用して32-byteのraw keyをXMODEM-CRCで受信し、RAではRSIPでwrapしてOSPIへ、STではSAES/DHUKでwrapしてexternal NORへ保存します。
 
@@ -119,14 +119,20 @@ host側でのfleet key生成、sealed package作成、keyの取り扱いにつ�
 help provisioning
 info
 provision-xmodem
-update-xmodem
+provision-xmodem replace
+verify-ospi                 # RA
+verify-nor                  # ST
 ```
 
 read-onlyの検証commandは、RA版では`verify-ospi`、ST版では`verify-nor`です。
 
 実際に利用可能なcommandや表示内容については、実行中binaryの`help all`を最終的な確認先としてください。
 
-key recordはgenerationとkey versionを持つdual-slot構成です。更新時にはinactive slotをerase/write/readbackし、最後にcommit wordを書き込みます。このため、更新途中で電源が切れた場合でも従来のslotを残せる設計になっています。
+key recordは、generationとkey ID/versionを持つdual-slot構成です。初期のfleet key ID/versionは常に`1/1`です。generationはpackage側のkey versionを表すものではありません。validかつcommittedなslotの中から最新のrecordを選択するために、device内で管理するmetadataです。
+
+keyを置き換える場合は、inactive slotをerase/writeした後にreadbackで内容を検証し、commitが完了してからgeneration `N+1`のrecordを新しいactive slotとして選択します。それまでactiveだったslotを先に消去しないため、commitの途中で電源が切れた場合でも、generation `N`のrecordを引き続き利用できます。
+
+generationが`UINT32_MAX`に達している場合はwraparoundさせず、erase/writeを開始する前にreplacementを拒否します。
 
 ただし、両slotの破損、whole-chip erase、NOR障害からの復旧までは保証しません。STM32N6570-DKでwhole-chip eraseを実行すると、`0x77ffe000`/`0x77fff000`にあるkey slotも消去されます。
 
@@ -145,25 +151,45 @@ UART/debug接続については[Getting Started](getting-started.md)を参照し
 
 受信したraw keyはwrap処理直後にRAMからzeroizeされ、removable SDへ保存されることはありません。
 
-### 明示更新
+### 単一fleet keyの明示的なreplacement
 
-`update-xmodem`は、既存keyを意図的に置き換える場合にのみ使用します。
+`provision-xmodem replace`は、既存のfleet keyが登録されている場合にのみreplacementを開始します。
 
-初回登録と同じ32-byte fileをXMODEM-CRCで送信し、inactive slotへのcommitとreadback検証が完了すると、key versionが増加します。
+現在のgeneration、key ID/version、active slotを表示した後にXMODEM受信へ進み、inactive slotに対してerase/write/readback/commitを実行し、最後にwrapped-keyのcrypto validationを行います。
 
-> **現行toolの制約:** `mtfs-seal`/`mtfs-test-package`がpackageへ記録するfleet key ID/versionは`1/1`固定です。
->
-> 一方、`update-xmodem`成功後のactive recordはversion 2以降となり、target providerはpackageとrecordのversionが完全に一致することを要求します。
->
-> このため、現行host toolで生成したpackageは、同じraw keyで再sealした場合でも、key更新後のtargetでは開くことができません。
->
-> 対応するversionを指定できるpackagerとrotation/rollback手順が整うまでは、sealed packageを利用しているdeviceで`update-xmodem`を実行しないでください。
+fleet keyが未登録の場合はflashを変更せず、通常の`provision-xmodem`を使用するよう案内します。
 
-inactive slotへcommitする仕組みは、更新途中で失敗した場合に従来slotを保持するためのものです。version更新後のpackage互換性や、電源断、両slot破損、whole-chip eraseを含むあらゆる障害からのrollbackを保証するものではありません。
+replacementの前後でkey ID/versionは`1/1`のまま変わらず、generationだけが1増加します。
 
-removable SDをfleet keyの保存先として使用しないでください。また、raw keyをrepository、command line、log、ELF、mapへ含めないでください。
+raw key materialが異なる場合、metadata上のkey ID/versionが同じ`1/1`であっても、AES-GCM authenticationによって異なるkeyで作成されたpackageはfail-closedになります。
 
-production keyの生成、backup、配布については利用者側で適切に管理する必要があります。
+旧commandの`update-xmodem`はhelpには表示しません。
+
+`update-xmodem`が入力された場合も、XMODEM受信、key wrap、erase、writeは開始しません。versioned key rotationが未対応であることと、`provision-xmodem replace`の使用方法だけを表示します。
+
+### Packageを含むreplacement手順
+
+onboard keyとremovable SD上のpackageは、atomicには切り替わりません。
+
+replacementは次の順序で実施します。
+
+1. Hostでnew fleet keyを生成し、そのkeyを使用してnew packageを作成します。
+2. Host上でseal self-verify、`mtfs-verify`、`mtfs-unseal`を実行し、unsealした内容が元のinner bundleと一致することを確認します。
+3. old raw keyとold packageを、access controlされたrollback用の保管先へ保存します。
+4. key-provision applicationで`provision-xmodem replace`を実行します。
+5. new packageを配置したSD cardで通常applicationを起動し、package authenticationとmodel loadが成功することを確認します。
+
+手順4でdevice keyを置き換えてから、手順5でnew packageへ切り替えるまでの間は、old packageを開けない期間が発生します。
+
+複数versionの同時保持、packageとdevice keyのatomic deployment、automatic rollback、anti-rollback、revocation、OTA key rotationは提供しません。
+
+### 手動rollback
+
+replacement後に問題が発生した場合は、key-provision applicationを起動し、`provision-xmodem replace`を使って安全に保管していたold raw keyを再登録します。その後、old packageをSD cardへ戻し、package authenticationとmodel loadが成功することを確認します。rollbackの場合もkey ID/versionは`1/1`のままです。replacementとして新しいrecordがcommitされるため、generationだけがさらに1増加します。
+
+dual-slot構成は、key recordをcommitしている途中で電源が切れた場合の耐性を提供します。一方で、両slotの破損、whole-chip erase、NOR障害、key/package切り替え全体のatomicity、automatic rollbackまでは保証しません。
+
+removable SDをfleet keyの保存先として使用しないでください。また、raw keyをrepository、command line、log、ELF、map fileへ含めないでください。production keyの生成、backup、配布については、利用者側で適切に管理する必要があります。
 
 ## `apps/sentinel-lab`
 

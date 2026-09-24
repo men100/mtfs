@@ -244,7 +244,7 @@ timeout値を単に延ばす前に、IRQ自体が発生していないのか、I
 
 consoleへのpaste、hex/Base64 text、removable SD経由でraw keyを登録しないでください。
 
-詳しい手順と現在のkey rotation制約については[`apps/key-provision`](applications.md#appskey-provision)を参照してください。
+詳しい初回登録、replacement、手動rollbackの手順については[`apps/key-provision`](applications.md#appskey-provision)を参照してください。
 
 ### Authentication failure
 
@@ -253,7 +253,8 @@ authentication failureは、wrong key、package破損、metadata/AADの不一致
 1. original packageを変更せず保存し、Hostで`mtfs-verify`を使ってformat、AEAD、期待するtarget/accelerator/format policyを検証します。
 2. provisionerのread-only verifyで、device側のkey ID/versionとcrypto validationを確認します。
 3. package作成時に使用したfleet keyと、deviceへprovisionしたkeyの管理記録を照合します。
-4. 現行Host toolがpackageへ記録するkey ID/versionは`1/1`固定です。`update-xmodem`後のversion 2以降とは一致しないことを確認してください。
+4. Host packageとdevice recordのkey ID/versionはreplacement前後とも`1/1`です。管理記録を使ってraw key materialとpackage世代の組み合わせを確認してください。ID/version一致だけではkey material一致を保証しません。
+5. replacement直後であれば、new packageがSDへ配置済みか確認します。old packageとnew key、またはnew packageとold keyの組み合わせはauthentication failureになるのが正常です。
 
 認証前のplaintextを利用したり、tag検証を無効にしたり、authentication failureを別のerrorとして扱って処理を続行したりしないでください。
 
@@ -277,7 +278,7 @@ RAでは、公開test key用の[`SENTINEL.MTF`](../artifacts/storage_sentinel/mo
 
 STではlicense上の公開範囲により、Neural-ART generated runtimeを含む`SENTINEL.MTF`をrepositoryで配布していません。
 
-公開recipe、canonical TFLite、audit記録に加え、利用者が正規に取得したST toolchainとtarget memory layout向けprofileを使用して、利用者環境で生成してください。
+公開recipe、canonical TFLite、audit記録に加え、利用者が正規に導入したST Edge AI Core 4.0.1-20581と、同製品に同梱された`test-int2` profileを使用して、利用者環境で生成してください。任意のprofileへ公開acceptance contractを流用することはできません。
 
 単なる配布漏れではありません。
 

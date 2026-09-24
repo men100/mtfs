@@ -70,7 +70,7 @@ sealed modelは、最大64 KiBのauthenticated plaintext scratchを扱います�
 
 RA Sentinel Labのbundle arenaは32,768 bytes/32-byte alignmentです。公開RA package manifestの`required_ram`は23,728 bytesです。
 
-STのaccepted runtimeでは、required RAMは29,040 bytes、runtime stackは12,288 bytesです。Release実測のstack high-waterは4,072 bytesで、8,216 bytesのmarginが記録されています。
+STの公開recipeが生成するpath-neutralな現行CPU＋NPU bundleでは、required RAMは32,592 bytesで、32,768-byte arenaに対するmarginは176 bytesです。runtime stackは12,288 bytes、Release実測のstack high-waterは4,072 bytesで、8,216 bytesのstack marginが記録されています。
 
 inference commandでは、heap deltaが0であることを要求します。
 
