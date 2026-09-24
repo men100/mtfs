@@ -451,6 +451,47 @@ void test_format_rejections(Test &t,
             true);
 }
 
+void test_single_fleet_key_replacement_matrix(Test &t,
+                                               const fs::path &vec,
+                                               const fs::path &dir,
+                                               mtfs::sealed::OpenSslAead &a)
+{
+    const fs::path payload = vec / "golden_payload.bin";
+    const fs::path old_key = dir / "replacement-old.key";
+    const fs::path new_key = dir / "replacement-new.key";
+    const fs::path old_package = dir / "replacement-old.mtfs";
+    const fs::path new_package = dir / "replacement-new.mtfs";
+    auto old_key_bytes = read_file(vec / "fleet_test.key");
+    auto new_key_bytes = old_key_bytes;
+    new_key_bytes[0] ^= 0x80U;
+    write_file(old_key, old_key_bytes);
+    write_file(new_key, new_key_bytes);
+    auto options = make_golden_options({});
+    options.metadata.clear();
+    mtfs::sealed::DeterministicRandom old_rng(make_deterministic_material(90));
+    mtfs::sealed::DeterministicRandom new_rng(make_deterministic_material(91));
+    const Status old_seal = mtfs::sealed::seal_file(
+        old_key.string(), payload.string(), old_package.string(), options,
+        old_rng, a);
+    const Status new_seal = mtfs::sealed::seal_file(
+        new_key.string(), payload.string(), new_package.string(), options,
+        new_rng, a);
+    t.check(old_seal == Status::ok && new_seal == Status::ok,
+            "create old/new packages with the same logical key ID/version");
+    t.check(mtfs::sealed::verify_file(old_key.string(), old_package.string(),
+                {}, nullptr, a) == Status::ok,
+            "old package + old key PASS");
+    t.check(mtfs::sealed::verify_file(new_key.string(), old_package.string(),
+                {}, nullptr, a) == Status::authentication,
+            "old package + new key authentication failure", true);
+    t.check(mtfs::sealed::verify_file(old_key.string(), new_package.string(),
+                {}, nullptr, a) == Status::authentication,
+            "new package + old key authentication failure", true);
+    t.check(mtfs::sealed::verify_file(new_key.string(), new_package.string(),
+                {}, nullptr, a) == Status::ok,
+            "new package + new key PASS and old-key rollback restores old package");
+}
+
 void test_authentication_rejections(Test &t,
                                     const fs::path &vec,
                                     const fs::path &dir,
@@ -735,6 +776,8 @@ int main()
     test_basic_contracts(test_suite, aead);
     test_golden_vector(test_suite, vector_directory, temporary_directory, aead);
     test_round_trips(test_suite, vector_directory, temporary_directory, aead);
+    test_single_fleet_key_replacement_matrix(
+        test_suite, vector_directory, temporary_directory, aead);
     test_format_rejections(test_suite, vector_directory, temporary_directory, aead);
     test_authentication_rejections(test_suite, vector_directory, temporary_directory, aead);
     test_seal_failure_cleanup(test_suite, vector_directory, temporary_directory, aead);

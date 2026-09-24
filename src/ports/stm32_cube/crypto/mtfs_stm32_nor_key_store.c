@@ -223,6 +223,11 @@ mtfs_stm32_nor_key_store_status_t mtfs_stm32_nor_key_store_commit(
         goto cleanup;
     }
     if (current >= 0) {
+        if ((key_id != found[current].key_id) ||
+            (key_version != found[current].key_version)) {
+            status = MTFS_STM32_NOR_KEY_STORE_INVALID_ARGUMENT;
+            goto cleanup;
+        }
         if (found[current].generation == UINT32_MAX) {
             status = MTFS_STM32_NOR_KEY_STORE_GENERATION_EXHAUSTED;
             goto cleanup;

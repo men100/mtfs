@@ -333,10 +333,22 @@ mtfs_ra8p1_key_store_status_t mtfs_ra8p1_ospi_key_store_commit(
         return MTFS_RA8P1_KEY_STORE_ALREADY_PROVISIONED;
     }
     if (current >= 0) {
-        generation = found[current].generation + 1U;
-        if (generation == 0U) {
-            generation = 1U;
+        if ((key_id != found[current].key_id) ||
+            (key_version != found[current].key_version)) {
+            status = MTFS_RA8P1_KEY_STORE_INVALID_ARGUMENT;
+            if (diagnostics != NULL) {
+                diagnostics->last_status = status;
+            }
+            goto cleanup;
         }
+        if (found[current].generation == UINT32_MAX) {
+            status = MTFS_RA8P1_KEY_STORE_GENERATION_EXHAUSTED;
+            if (diagnostics != NULL) {
+                diagnostics->last_status = status;
+            }
+            goto cleanup;
+        }
+        generation = found[current].generation + 1U;
         target = current ^ 1;
     } else {
         target = 0;
@@ -432,6 +444,8 @@ const char *mtfs_ra8p1_key_store_status_string(
         return "invalid-record";
     case MTFS_RA8P1_KEY_STORE_IO_ERROR:
         return "io-error";
+    case MTFS_RA8P1_KEY_STORE_GENERATION_EXHAUSTED:
+        return "generation-exhausted";
     default:
         return "unknown";
     }

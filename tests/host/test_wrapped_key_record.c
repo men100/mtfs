@@ -7,12 +7,14 @@
 #include "mtfs_wrapped_key_fatfs.h"
 #include "mtfs_wrapped_key_record.h"
 #include "mtfs_stm32_nor_key_store.h"
+#include "app/mtfs_key_provision_command.h"
 
 #define TEST_RECORD_BYTES MTFS_WRAPPED_KEY_RECORD_RSIP_AES256_BYTES
 
 typedef struct mock_nor
 {
     uint8_t sectors[2][MTFS_STM32_NOR_ERASE_BYTES];
+    uint32_t erase_calls;
     uint32_t program_calls;
     uint32_t fail_program_call;
 } mock_nor_t;
@@ -53,8 +55,34 @@ static int mock_nor_erase(void *opaque, uint32_t offset)
     size_t within;
     int slot = mock_slot(offset, MTFS_STM32_NOR_ERASE_BYTES, &within);
     if ((slot < 0) || (within != 0U)) return -11;
+    ++nor->erase_calls;
     memset(nor->sectors[slot], 0xff, MTFS_STM32_NOR_ERASE_BYTES);
     return 0;
+}
+
+static void test_store_u32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
+}
+
+static uint32_t test_store_crc(const uint8_t *record)
+{
+    uint32_t crc = UINT32_MAX;
+    size_t index;
+    for (index = 0U; index < MTFS_STM32_NOR_KEY_RECORD_BYTES; ++index) {
+        uint8_t value = ((index >= 24U) && (index < 28U)) ? 0U : record[index];
+        uint32_t bit;
+        if ((index >= 28U) && (index < 32U)) continue;
+        crc ^= value;
+        for (bit = 0U; bit < 8U; ++bit) {
+            uint32_t mask = (uint32_t)-(int32_t)(crc & 1U);
+            crc = (crc >> 1) ^ (UINT32_C(0xedb88320) & mask);
+        }
+    }
+    return crc ^ UINT32_MAX;
 }
 
 static int mock_nor_program(void *opaque, uint32_t offset,
@@ -91,6 +119,7 @@ static int test_stm32_nor_store(mtfs_test_t *test)
                     MTFS_STM32_NOR_ERASE_BYTES == MTFS_STM32_NOR_BYTES,
             "reserve the final two 4 KiB STM32 NOR sectors for keys")) return 1;
     memset(&nor, 0xff, sizeof(nor));
+    nor.erase_calls = 0U;
     nor.program_calls = 0U;
     nor.fail_program_call = 0U;
     for (index = 0U; index < sizeof(key1.bytes); ++index) {
@@ -114,13 +143,13 @@ static int test_stm32_nor_store(mtfs_test_t *test)
                 memcmp(loaded.bytes, key1.bytes, sizeof(key1.bytes)) == 0,
             "load committed STM32 DHUK-wrapped key")) return 1;
     if (!MTFS_TEST_CHECK(test,
-            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 2U, 0,
+            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 1U, 0,
                 &metadata, &diagnostics) ==
                     MTFS_STM32_NOR_KEY_STORE_ALREADY_PROVISIONED,
             "reject STM32 fleet-key reprovision by default")) return 1;
     nor.fail_program_call = nor.program_calls + 2U;
     if (!MTFS_TEST_CHECK(test,
-            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 2U, 1,
+            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 1U, 1,
                 &metadata, &diagnostics) == MTFS_STM32_NOR_KEY_STORE_IO_ERROR,
             "a power-loss-like commit write failure is rejected")) return 1;
     nor.fail_program_call = 0U;
@@ -131,11 +160,32 @@ static int test_stm32_nor_store(mtfs_test_t *test)
                 memcmp(loaded.bytes, key1.bytes, sizeof(key1.bytes)) == 0,
             "an uncommitted inactive slot cannot replace the old key")) return 1;
     if (!MTFS_TEST_CHECK(test,
-            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 2U, 1,
+            mtfs_stm32_nor_key_store_commit(&io, &key2, 1U, 1U, 1,
                 &metadata, &diagnostics) == MTFS_STM32_NOR_KEY_STORE_OK &&
                 metadata.generation == 2U &&
+                metadata.key_id == 1U && metadata.key_version == 1U &&
                 metadata.slot_offset == MTFS_STM32_NOR_KEY_OFFSET_B,
-            "update the inactive slot with the next generation")) return 1;
+            "replace in the inactive slot while preserving key ID/version")) return 1;
+    {
+        uint32_t erase_calls = nor.erase_calls;
+        uint32_t program_calls = nor.program_calls;
+        test_store_u32(nor.sectors[1] + 8U, UINT32_MAX);
+        test_store_u32(nor.sectors[1] + 24U,
+            test_store_crc(nor.sectors[1]));
+        memset(&diagnostics, 0, sizeof(diagnostics));
+        if (!MTFS_TEST_CHECK(test,
+                mtfs_stm32_nor_key_store_commit(&io, &key1, 1U, 1U, 1,
+                    &metadata, &diagnostics) ==
+                        MTFS_STM32_NOR_KEY_STORE_GENERATION_EXHAUSTED &&
+                    nor.erase_calls == erase_calls &&
+                    nor.program_calls == program_calls &&
+                    diagnostics.erase_count == 0U &&
+                    diagnostics.write_count == 0U,
+                "generation exhaustion is rejected before erase/program")) return 1;
+        test_store_u32(nor.sectors[1] + 8U, 2U);
+        test_store_u32(nor.sectors[1] + 24U,
+            test_store_crc(nor.sectors[1]));
+    }
     nor.sectors[1][40] ^= 1U;
     if (!MTFS_TEST_CHECK(test,
             mtfs_stm32_nor_key_store_load(&io, &loaded, &metadata,
@@ -171,6 +221,19 @@ int test_wrapped_key_record(mtfs_test_t *test)
     const uint8_t *decoded_blob = NULL;
     size_t encoded_bytes = 0U;
     mtfs_wrapped_key_record_status_t status;
+
+    if (!MTFS_TEST_CHECK(test,
+            mtfs_key_provision_command_parse("provision-xmodem") ==
+                MTFS_KEY_PROVISION_COMMAND_INITIAL &&
+            mtfs_key_provision_command_parse("provision-xmodem replace") ==
+                MTFS_KEY_PROVISION_COMMAND_REPLACE &&
+            mtfs_key_provision_command_parse("update-xmodem") ==
+                MTFS_KEY_PROVISION_COMMAND_LEGACY_UPDATE &&
+            strstr(mtfs_key_provision_legacy_guidance(),
+                "versioned key rotation is unsupported") != NULL,
+            "parse initial/replacement commands and keep legacy update guidance-only")) {
+        return 1;
+    }
 
     fill_blob(blob);
     if (!MTFS_TEST_CHECK(test,

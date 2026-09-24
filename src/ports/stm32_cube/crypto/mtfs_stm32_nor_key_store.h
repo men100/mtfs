@@ -64,6 +64,7 @@ typedef enum mtfs_stm32_nor_key_store_status
 
 typedef struct mtfs_stm32_nor_key_metadata
 {
+    /** Device-local dual-slot ordering value; not a package key version. */
     uint32_t generation;
     uint32_t key_id;
     uint32_t key_version;

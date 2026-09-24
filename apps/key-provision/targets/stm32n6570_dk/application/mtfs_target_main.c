@@ -12,6 +12,7 @@
 #include "mtfs_stm32_saes.h"
 #include "mtfs_stm32_nor_key_store.h"
 #include "mtfs_stm32n6570_nor.h"
+#include "app/mtfs_key_provision_command.h"
 
 #define RAW_KEY_BYTES          (32U)
 #define XMODEM_128_BYTES       (128U)
@@ -276,7 +277,7 @@ static int load_and_verify(void)
     return valid;
 }
 
-static void provision(int allow_update)
+static void provision(int replace)
 {
     mtfs_stm32_nor_io_t io;
     uint8_t raw_key[RAW_KEY_BYTES] __attribute__((aligned(16)));
@@ -286,7 +287,7 @@ static void provision(int allow_update)
     mtfs_stm32_nor_key_store_diagnostics_t diagnostics = {0};
     mtfs_stm32_nor_key_store_status_t store_status;
     mtfs_stm32_saes_status_t crypto_status;
-    uint32_t key_version = MTFS_STM32_NOR_FLEET_KEY_VERSION;
+    const uint32_t key_version = MTFS_STM32_NOR_FLEET_KEY_VERSION;
     memset(raw_key, 0, sizeof(raw_key));
     memset(&wrapped, 0, sizeof(wrapped));
     memset(&stored, 0, sizeof(stored));
@@ -295,16 +296,23 @@ static void provision(int allow_update)
     store_status = mtfs_stm32_nor_key_store_load(&io, &current_key,
         &current, &diagnostics);
     mtfs_stm32_saes_zeroize(&current_key, sizeof(current_key));
-    if ((store_status == MTFS_STM32_NOR_KEY_STORE_OK) && !allow_update) {
-        tm_printf((UB *)"[provision] BLOCKED already provisioned; use update-xmodem\n");
+    if ((store_status == MTFS_STM32_NOR_KEY_STORE_OK) && !replace) {
+        tm_printf((UB *)"[provision] BLOCKED already provisioned; use \"provision-xmodem replace\"\n");
+        return;
+    }
+    if ((store_status == MTFS_STM32_NOR_KEY_STORE_NOT_FOUND) && replace) {
+        tm_printf((UB *)"[provision] BLOCKED no key exists; use \"provision-xmodem\" for initial provisioning\n");
         return;
     }
     if (store_status == MTFS_STM32_NOR_KEY_STORE_OK) {
-        if (current.key_version == UINT32_MAX) {
-            tm_printf((UB *)"[provision] BLOCKED key-version exhausted\n");
+        tm_printf((UB *)"[provision] replacing generation=%u key-id=%u key-version=%u slot=0x%08x\n",
+            current.generation, current.key_id, current.key_version,
+            current.slot_offset);
+        if ((current.key_id != MTFS_STM32_NOR_FLEET_KEY_ID) ||
+            (current.key_version != key_version)) {
+            tm_printf((UB *)"[provision] BLOCKED active record is not fleet key 1/1\n");
             return;
         }
-        key_version = current.key_version + 1U;
     } else if (store_status != MTFS_STM32_NOR_KEY_STORE_NOT_FOUND) {
         tm_printf((UB *)"[provision] BLOCKED NOR scan store=%s io=%d\n",
             (UB *)mtfs_stm32_nor_key_store_status_string(store_status),
@@ -333,7 +341,7 @@ static void provision(int allow_update)
     memcpy(stored.bytes, wrapped.bytes, sizeof(stored.bytes));
     memset(&diagnostics, 0, sizeof(diagnostics));
     store_status = mtfs_stm32_nor_key_store_commit(&io, &stored,
-        MTFS_STM32_NOR_FLEET_KEY_ID, key_version, allow_update,
+        MTFS_STM32_NOR_FLEET_KEY_ID, key_version, replace,
         &committed, &diagnostics);
     if (store_status != MTFS_STM32_NOR_KEY_STORE_OK) {
         tm_printf((UB *)"[provision] FAIL NOR commit store=%s io=%d erase=%u write=%u verify=%u\n",
@@ -389,7 +397,8 @@ static void help_group(const char *group)
         tm_printf((UB *)"Provisioning:\n");
         tm_printf((UB *)"  verify-nor        load and crypto-validate; no write\n");
         tm_printf((UB *)"  provision-xmodem  create first key from exact 32-byte file\n");
-        tm_printf((UB *)"  update-xmodem     intentional inactive-slot key update\n");
+        tm_printf((UB *)"  provision-xmodem replace\n");
+        tm_printf((UB *)"                       replace the single fleet key; keep ID/version 1/1\n");
     }
     if (!known) {
         tm_printf((UB *)"ERROR: unknown help group\n");
@@ -409,6 +418,8 @@ static void help(void)
 
 static void dispatch(const char *line)
 {
+    mtfs_key_provision_command_t provision_command =
+        mtfs_key_provision_command_parse(line);
     mtfs_app_log_level_t requested_level = provision_log_level;
     int is_query = 0;
     int log_command = mtfs_app_log_parse_command(
@@ -422,8 +433,11 @@ static void dispatch(const char *line)
     }
     else if (strcmp(line, "info") == 0) info();
     else if (strcmp(line, "verify-nor") == 0) (void)load_and_verify();
-    else if (strcmp(line, "provision-xmodem") == 0) provision(0);
-    else if (strcmp(line, "update-xmodem") == 0) provision(1);
+    else if (provision_command == MTFS_KEY_PROVISION_COMMAND_INITIAL) provision(0);
+    else if (provision_command == MTFS_KEY_PROVISION_COMMAND_REPLACE) provision(1);
+    else if (provision_command == MTFS_KEY_PROVISION_COMMAND_LEGACY_UPDATE)
+        tm_printf((UB *)"[provision] %s",
+            (UB *)mtfs_key_provision_legacy_guidance());
     else if (strcmp(line, "help") == 0) help();
     else if (strncmp(line, "help ", 5U) == 0) help_group(line + 5U);
     else if (line[0] != '\0') tm_printf((UB *)"unknown command; type help\n");

@@ -37,11 +37,14 @@ typedef enum mtfs_ra8p1_key_store_status
     MTFS_RA8P1_KEY_STORE_ALREADY_PROVISIONED,
     MTFS_RA8P1_KEY_STORE_INVALID_ARGUMENT,
     MTFS_RA8P1_KEY_STORE_INVALID_RECORD,
-    MTFS_RA8P1_KEY_STORE_IO_ERROR
+    MTFS_RA8P1_KEY_STORE_IO_ERROR,
+    /** No later generation can be represented; flash remains unchanged. */
+    MTFS_RA8P1_KEY_STORE_GENERATION_EXHAUSTED
 } mtfs_ra8p1_key_store_status_t;
 
 typedef struct mtfs_ra8p1_key_metadata
 {
+    /** Device-local dual-slot ordering value; not a package key version. */
     uint32_t generation;
     uint32_t key_id;
     uint32_t key_version;

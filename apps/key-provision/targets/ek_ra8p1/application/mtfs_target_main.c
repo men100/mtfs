@@ -14,6 +14,7 @@
 #include "mbedtls/platform.h"
 #include "psa/crypto.h"
 #include "r_rsip_key_injection.h"
+#include "app/mtfs_key_provision_command.h"
 #include "mtfs_ra8p1_ospi_key_store.h"
 
 EXPORT INT usermain(void);
@@ -356,7 +357,7 @@ static int load_and_verify(mtfs_ra8p1_key_metadata_t *metadata)
     return valid;
 }
 
-static void provision_xmodem(int allow_update)
+static void provision_xmodem(int replace)
 {
     uint8_t raw_key[RAW_KEY_BYTES] ALIGN;
     rsip_aes_wrapped_key_t wrapped_key;
@@ -367,21 +368,28 @@ static void provision_xmodem(int allow_update)
     psa_status_t psa_status = PSA_SUCCESS;
     const char *psa_stage = "not-run";
     fsp_err_t fsp_status;
-    uint32_t key_version = 1U;
+    const uint32_t key_version = 1U;
 
     memset(raw_key, 0, sizeof(raw_key));
     memset(&wrapped_key, 0, sizeof(wrapped_key));
     store_status = mtfs_ra8p1_ospi_key_store_load(&wrapped_key,
         &current, &diagnostics);
     mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
-    if ((store_status == MTFS_RA8P1_KEY_STORE_OK) && !allow_update) {
-        tm_printf((UB *)"[provision] BLOCKED: key already exists; use update-xmodem for intentional replacement\n");
+    if ((store_status == MTFS_RA8P1_KEY_STORE_OK) && !replace) {
+        tm_printf((UB *)"[provision] BLOCKED: key already exists; use \"provision-xmodem replace\" for intentional replacement\n");
+        return;
+    }
+    if ((store_status == MTFS_RA8P1_KEY_STORE_NOT_FOUND) && replace) {
+        tm_printf((UB *)"[provision] BLOCKED: no key exists; use \"provision-xmodem\" for initial provisioning\n");
         return;
     }
     if (store_status == MTFS_RA8P1_KEY_STORE_OK) {
-        key_version = current.key_version + 1U;
-        if (key_version == 0U) {
-            tm_printf((UB *)"[provision] BLOCKED: key-version exhausted\n");
+        tm_printf((UB *)"[provision] replacing generation=%u key-id=%u key-version=%u slot=0x%08x\n",
+            (UW)current.generation, (UW)current.key_id,
+            (UW)current.key_version, (UW)current.slot_offset);
+        if ((current.key_id != MTFS_RA8P1_FLEET_KEY_ID) ||
+            (current.key_version != key_version)) {
+            tm_printf((UB *)"[provision] BLOCKED: active record is not fleet key 1/1\n");
             return;
         }
     } else if (store_status != MTFS_RA8P1_KEY_STORE_NOT_FOUND) {
@@ -415,7 +423,7 @@ static void provision_xmodem(int allow_update)
     }
     memset(&diagnostics, 0, sizeof(diagnostics));
     store_status = mtfs_ra8p1_ospi_key_store_commit(&wrapped_key,
-        MTFS_RA8P1_FLEET_KEY_ID, key_version, allow_update,
+        MTFS_RA8P1_FLEET_KEY_ID, key_version, replace,
         &committed, &diagnostics);
     mtfs_ra8p1_ospi_key_store_zero(&wrapped_key, sizeof(wrapped_key));
     if (store_status != MTFS_RA8P1_KEY_STORE_OK) {
@@ -462,7 +470,8 @@ static void print_help_group(const char *group)
         tm_printf((UB *)"Provisioning:\n");
         tm_printf((UB *)"  verify-ospi       validate the active wrapped key; no write\n");
         tm_printf((UB *)"  provision-xmodem  create the first key from a 32-byte file\n");
-        tm_printf((UB *)"  update-xmodem     intentionally replace the key; version increments\n");
+        tm_printf((UB *)"  provision-xmodem replace\n");
+        tm_printf((UB *)"                       replace the single fleet key; keep ID/version 1/1\n");
     }
     if (!known) {
         tm_printf((UB *)"ERROR: unknown help group\n");
@@ -483,6 +492,8 @@ static void print_help(void)
 static void dispatch(const char *line)
 {
     mtfs_ra8p1_key_metadata_t metadata = {0U};
+    mtfs_key_provision_command_t provision_command =
+        mtfs_key_provision_command_parse(line);
     mtfs_app_log_level_t requested_level = provision_log_level;
     int is_query = 0;
     int log_command = mtfs_app_log_parse_command(
@@ -497,10 +508,13 @@ static void dispatch(const char *line)
         print_info();
     } else if (strcmp(line, "verify-ospi") == 0) {
         (void)load_and_verify(&metadata);
-    } else if (strcmp(line, "provision-xmodem") == 0) {
+    } else if (provision_command == MTFS_KEY_PROVISION_COMMAND_INITIAL) {
         provision_xmodem(0);
-    } else if (strcmp(line, "update-xmodem") == 0) {
+    } else if (provision_command == MTFS_KEY_PROVISION_COMMAND_REPLACE) {
         provision_xmodem(1);
+    } else if (provision_command == MTFS_KEY_PROVISION_COMMAND_LEGACY_UPDATE) {
+        tm_printf((UB *)"[provision] %s",
+            (UB *)mtfs_key_provision_legacy_guidance());
     } else if (strcmp(line, "help") == 0) {
         print_help();
     } else if (strncmp(line, "help ", 5U) == 0) {
