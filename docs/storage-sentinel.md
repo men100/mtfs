@@ -449,6 +449,200 @@ python tools/storage_sentinel/audit_public_release.py --repo-root .
 
 内容の確認だけを目的とする場合でもclean worktree上で実行し、生成された差分をreviewしてください。
 
+## STM32N6570-DK用`SENTINEL.MTF`の生成
+
+ST用の`SENTINEL.MTF`は、canonical TFLite、利用者環境で生成したNeural-ART runtime、CPU／NPUの数値acceptance contractを1つのSentinel bundleへまとめ、そのbundleをdeviceへprovisionしたfleet keyでsealして作成します。
+
+この手順で生成される`network_rel.bin`、`sentinel.bundle`、`SENTINEL.MTF`には、利用者が取得したST softwareから生成されたruntimeが含まれます。
+
+適用されるlicenseの利用条件・再配布条件を確認し、public repositoryへcommitしないでください。
+
+### 前提条件
+
+次を用意します。
+
+* [公開再現セット](#公開artifactの構成)のPython環境
+* ST Edge AI Core 4.0.1-20581／atonn 1.1.3-275
+* STM32N6570-DKの実際のmemory layoutに対応したrelocation profile
+* `mtfs-seal`／`mtfs-verify`をbuild済みのHost環境
+* targetの`apps/key-provision`で登録したものと同一の32-byte fleet key file
+* 生成するruntimeのhashに対応する、事前に固定・評価済みのNPU acceptance contract
+
+公開されている[`npu-acceptance-v3-compact.json`](../artifacts/storage_sentinel/reference/stm32n6570_dk/freeze/npu-acceptance-v3-compact.json)は、accepted `test-int2` relocation profileから生成し、target上で評価したruntimeだけに対応しています。
+
+別のprofileから生成したruntimeへ流用しないでください。
+
+public repositoryには、accepted `test-int2` profile自体は収録していません。
+
+そのため、public checkoutと任意のrelocation profileがあれば、公開acceptance contractに適合する`SENTINEL.MTF`を作成できる、という意味ではありません。
+
+異なるruntimeを使用する場合は、そのruntimeに対して数値corpusを実行し、CPU／NPUの許容差、score interval、decision、repeatabilityを確認したうえで、新しいacceptance contractを固定してからbundle化してください。
+
+### 1. Canonical modelとNeural-ART runtimeを生成する
+
+repository rootで、空のdirectoryを`--output-root`に指定して実行します。
+
+```console
+python tools/storage_sentinel/reproduce_release.py \
+  --output-root <new-empty-output-directory> \
+  --stedgeai <path-to-stedgeai> \
+  --st-reloc-profile <path-to-user-relocation-profile> \
+  --st-reloc-profile-name test-int2 \
+  --st-tool-path <path-to-required-gnu-tools>
+```
+
+必要なGNU toolがすでに`PATH`に含まれている場合、`--st-tool-path`は省略できます。
+
+以降、`<st-root>`は次のdirectoryを表します。
+
+```text
+<new-empty-output-directory>/workspace-1/stm32n6570_dk
+```
+
+生成後、少なくとも次のfileが存在することを確認します。
+
+| file                                                                     | 内容                                                                     |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `<st-root>/training/`                                                    | bundleへ格納するmodel、normalization、preprocessing、thresholdのsource artifact |
+| `<st-root>/sentinel_baseline_v2.tflite`                                  | canonical full-int8 TFLite                                             |
+| `<st-root>/stedgeai-private-output/generated/network_rel.bin`            | Neural-ART relocatable runtime                                         |
+| `<st-root>/stedgeai-private-output/sentinel_st_neural_art_manifest.json` | runtime ABI、memory region、quantization、hashを記録したmanifest               |
+
+### 2. Runtimeとacceptance contractのidentityを確認する
+
+公開acceptance contractを使用する場合は、生成したruntimeとconversion manifestが、固定済みのidentityと一致している必要があります。
+
+runtimeのSHA-256は次のcommandで確認できます。
+
+```console
+python -c "import hashlib,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(hashlib.sha256(p.read_bytes()).hexdigest())" \
+  <st-root>/stedgeai-private-output/generated/network_rel.bin
+```
+
+accepted `test-int2` runtimeの期待値は次のとおりです。
+
+```text
+dfbe8918b53f6570b81d73b468a1ba6d78d9a250e4fb0c005e705d8f80140c6e
+```
+
+conversion manifestのidentityは次のcommandで確認します。
+
+```console
+python -c "import json,pathlib,sys; print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))['conversion_manifest_sha256'])" \
+  <st-root>/stedgeai-private-output/sentinel_st_neural_art_manifest.json
+```
+
+公開acceptance contractに対応する期待値は次のとおりです。
+
+```text
+a037c2365228fd7bca2d9d2d2deb37788c26bcde283aa944a6b98569446ac09b
+```
+
+どちらか一方でも一致しない場合は、公開acceptance contractを指定したまま次の手順へ進まないでください。
+
+tool versionが一致していても、relocation profileやmemory layoutが異なればruntime identityは変わります。
+
+### 3. Sentinel bundleを作成する
+
+identityが一致していることを確認したら、runtime、manifest、および対応するacceptance contractを`pack.py`へ渡します。
+
+```console
+python tools/storage_sentinel/pack.py \
+  --artifact <st-root>/training \
+  --canonical-tflite <st-root>/sentinel_baseline_v2.tflite \
+  --npu-binary <st-root>/stedgeai-private-output/generated/network_rel.bin \
+  --npu-manifest <st-root>/stedgeai-private-output/sentinel_st_neural_art_manifest.json \
+  --npu-acceptance artifacts/storage_sentinel/reference/stm32n6570_dk/freeze/npu-acceptance-v3-compact.json \
+  --accelerator-id 0x4e415254 \
+  --provenance-root . \
+  --output <st-root>/sentinel.bundle \
+  > <st-root>/sentinel.bundle.summary.json
+```
+
+`pack.py`は、canonical model、runtime、conversion manifest、acceptance contractのidentityに加え、target／transport／accelerator policyも検証します。
+
+不一致が検出された場合は、acceptance checkを無効化したりmanifestを書き換えたりせず、runtime生成またはacceptanceの手順へ戻ってください。
+
+生成されたsummaryを確認します。
+
+```console
+python -c "import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')); print('target_id=0x%08x accelerator_id=0x%08x model_format=0x%08x runtime_count=%d required_ram=%d alignment=%d' % (d['target_id'],d['accelerator_id'],d['model_format'],d['runtime_count'],d['minimum_required_ram_32bit'],d['required_alignment']))" \
+  <st-root>/sentinel.bundle.summary.json
+```
+
+STのCPU／NPU hybrid bundleでは、少なくとも次の値が表示されます。
+
+| field            | 期待値                   |
+| ---------------- | --------------------- |
+| `target_id`      | `0x53544e36` (`STN6`) |
+| `accelerator_id` | `0x4e415254` (`NART`) |
+| `model_format`   | `0x534e5431` (`SNT1`) |
+| `runtime_count`  | `2`（CPUとNeural-ART）   |
+
+`required_ram`と`alignment`には、生成されたbundleのmemory planから求められた値を使用します。
+
+accepted runtimeでは`required_ram`として29,040 bytesが記録されていますが、異なるruntimeへこの値をそのまま流用しないでください。
+
+### 4. Fleet keyでsealする
+
+Host toolをまだbuildしていない場合は、次を実行します。
+
+```console
+cmake -S tools/sealed_model -B build/sealed-model -DCMAKE_BUILD_TYPE=Release
+cmake --build build/sealed-model --parallel
+ctest --test-dir build/sealed-model --output-on-failure
+```
+
+`sentinel.bundle.summary.json`の`minimum_required_ram_32bit`を`--required-ram`へ指定し、targetへprovisionしたfleet keyでbundleをsealします。
+
+```console
+build/sealed-model/mtfs-seal \
+  --key <fleet-key-file> \
+  --input <st-root>/sentinel.bundle \
+  --output <st-root>/SENTINEL.MTF \
+  --target-id 0x53544e36 \
+  --accelerator-id 0x4e415254 \
+  --model-format 0x534e5431 \
+  --required-ram <minimum_required_ram_32bit-from-summary>
+```
+
+`mtfs-seal`はpackageごとにmodel key、nonce、model IDをCSPRNGで生成します。
+
+そのため、同じbundleとfleet keyを使用しても、生成される`SENTINEL.MTF`はbyte-identicalにはなりません。
+
+続けて、同じpolicyを指定してpackage全体を検証します。
+
+```console
+build/sealed-model/mtfs-verify \
+  --key <fleet-key-file> \
+  --input <st-root>/SENTINEL.MTF \
+  --target-id 0x53544e36 \
+  --accelerator-id 0x4e415254 \
+  --model-format 0x534e5431
+```
+
+Windows native buildでは、実行file名に`.exe`が付きます。
+
+現行Host toolがpackageへ記録するfleet key ID／versionは`1/1`固定です。
+
+target側のactive key recordも、同じID／versionである必要があります。
+
+`apps/key-provision`の`update-xmodem`によってversion 2以降へ更新したtargetでは、現行Host toolで作成したpackageをopenできません。
+
+詳細については[key-provisionの制約](applications.md#明示更新)を参照してください。
+
+### 5. SD cardへ配置する
+
+検証済みの`<st-root>/SENTINEL.MTF`を、file名を変更せずSD cardのroot directoryへ配置します。
+
+```text
+0:/SENTINEL.MTF
+```
+
+targetでは最初に`sentinel-monitor`を実行し、package authentication、runtime policy、32 windowのwarmup、common／media／target diagnosticsを確認してください。
+
+操作方法については[Sentinel Lab manual](applications.md#appssentinel-lab)を参照してください。
+
 ## RAとSTで公開artifactが異なる理由
 
 公開範囲は次のとおりです。
@@ -495,7 +689,7 @@ package内では`Package_license`が個別directoryのlicenseより優先され�
 ## 最初の確認手順
 
 1. targetのoptimized Release profileをbuildします。
-2. targetに対応する`SENTINEL.MTF`をSD rootへ配置します。STでは前節の公開範囲に従い、利用者環境で生成します。
+2. targetに対応する`SENTINEL.MTF`をSD rootへ配置します。STでは[STM32N6570-DK用`SENTINEL.MTF`の生成](#stm32n6570-dk用sentinelmtfの生成)に従い、利用者環境で生成します。
 3. `sentinel-monitor`を開始し、32 windowの`WARMUP`が完了するまで待ちます。
 4. `NORMAL`/`ANOMALY`だけでなく、`source`、score区間、threshold、media generationも確認します。
 5. `diag`を実行し、common/media/target error counterが0であることを確認します。

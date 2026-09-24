@@ -114,7 +114,7 @@ Debug buildとSTM32のpolling fallbackも、機能確認やdiagnosticsには利�
 * production fleet keyをsource、command line、shell history、console log、removable SDへ保存しないでください。deviceへの登録には専用の[`apps/key-provision`](docs/applications.md#appskey-provision)を使用します。
 * STM32 Neural-ART generated runtimeを含むartifactには、ST softwareのlicense条件が適用されます。公開repositoryにはruntimeを含む`SENTINEL.MTF`を収録していません。利用者が正規に取得したtoolchainを使用し、自身の環境で生成してください。
 
-security boundary、keyの管理責任、公開artifactの範囲については[Sealed Model / Security guide](docs/security.md)および[Storage Sentinel guide](docs/storage-sentinel.md#raとstで公開artifactが異なる理由)を参照してください。
+security boundary、keyの管理責任、公開artifactの範囲については[Sealed Model / Security guide](docs/security.md)および[Storage Sentinel guide](docs/storage-sentinel.md#raとstで公開artifactが異なる理由)を参照してください。ST用packageの作成手順は[STM32N6570-DK用SENTINEL.MTFの生成](docs/storage-sentinel.md#stm32n6570-dk用sentinelmtfの生成)に記載しています。
 
 ## License
 

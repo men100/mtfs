@@ -281,7 +281,7 @@ STではlicense上の公開範囲により、Neural-ART generated runtimeを含�
 
 単なる配布漏れではありません。
 
-詳細については[RAとSTで公開artifactが異なる理由](storage-sentinel.md#raとstで公開artifactが異なる理由)を参照してください。
+作成方法は[STM32N6570-DK用`SENTINEL.MTF`の生成](storage-sentinel.md#stm32n6570-dk用sentinelmtfの生成)、公開範囲の理由は[RAとSTで公開artifactが異なる理由](storage-sentinel.md#raとstで公開artifactが異なる理由)を参照してください。
 
 ## Storage Sentinel
 

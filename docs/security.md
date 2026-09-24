@@ -16,7 +16,7 @@ target側では、`K_fleet`をhardware-backed wrapped keyとしてRA OSPIまた�
 
 ## Host tools
 
-[Getting Started](getting-started.md#hostで試す)の手順でbuildすると、次のtoolを利用できます。
+[Getting Started](getting-started.md#hostで試してみる)の手順でbuildすると、次のtoolを利用できます。
 
 ```console
 mtfs-keygen --output fleet.key
