@@ -99,6 +99,9 @@ def main() -> None:
     parser.add_argument("--reloc-profile", required=True, type=Path)
     parser.add_argument("--reloc-profile-name", default="test-int2",
         help="named ST relocation profile in the profile JSON")
+    parser.add_argument("--accepted-artifact-index-sha256",
+        help="frozen pre-publication artifact-index identity after a path-only "
+             "public provenance rebind")
     parser.add_argument("--tool-path", action="append", default=[], type=Path,
         help="directory prepended to PATH (for GNU make/compiler/Git)")
     args = parser.parse_args()
@@ -147,8 +150,14 @@ def main() -> None:
             raise SystemExit("input TFLite provenance mismatch")
         shutil.copyfile(source_tflite, model_path)
         tensor = {"calibration_rows": int(source_manifest["calibration_rows"])}
+        accepted_artifact_identity = args.accepted_artifact_index_sha256
+        if accepted_artifact_identity is not None and re.fullmatch(
+                r"[0-9a-f]{64}", accepted_artifact_identity) is None:
+            raise SystemExit(
+                "accepted artifact-index identity must be a lowercase SHA-256")
         calibration_identity = {
-            "artifact_index_sha256": sha256(artifact_index),
+            "artifact_index_sha256": accepted_artifact_identity or
+                sha256(artifact_index),
             "split": "training-artifact",
             "sessions": [item.get("session_id") for item in
                          training_manifest.get("train_sessions", [])],
@@ -165,8 +174,8 @@ def main() -> None:
             for path in args.tool_path) + os.pathsep + environment.get("PATH", "")
     version = subprocess.run([str(args.stedgeai), "--version"], check=True,
         capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
-    if re.search(r"ST Edge AI Core v4\.0\.1-", version) is None:
-        raise RuntimeError("ST Edge AI Core 4.0.1 is required")
+    if re.search(r"^ST Edge AI Core v4\.0\.1-20581(?:\s|$)", version) is None:
+        raise RuntimeError("ST Edge AI Core 4.0.1-20581 is required")
     subprocess.run(command, check=True, env=environment)
     binary = generated / "network_rel.bin"
     reloc_json = generated / "network_generate_rel.json"
@@ -191,8 +200,10 @@ def main() -> None:
     generated_info = json.loads(reloc_json.read_text(encoding="utf-8"))
     compiler_version = generated_info.get("compiler", {}).get("version")
     if not isinstance(compiler_version, dict) or tuple(compiler_version.get(key)
-            for key in ("major", "minor", "patch")) != (1, 1, 3):
-        raise RuntimeError("atonn 1.1.3 is required")
+            for key in ("major", "minor", "patch", "build")) != (1, 1, 3, 275) or \
+            not str(generated_info["compiler"].get("description", "")).startswith(
+                "atonn-v1.1.3-275-"):
+        raise RuntimeError("atonn 1.1.3-275 is required")
     descriptors = generated_info["reloc_binary_image"]["mempool_c_descriptors"]
     parameter_pools = [pool for pool in descriptors
         if pool["flags_desc"].startswith("COPY.PARAM.")]
