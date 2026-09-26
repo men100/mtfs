@@ -86,12 +86,34 @@ microT-FSはSD cardを自動的にformatしません。mountに失敗した場�
 * FAT12/16/32でformat済みのmicroSD card
 * STM32CubeIDE 2.1.1、STM32CubeMX 6.17.0、STM32Cube FW_N6 V1.3.0
 * CubeIDE同梱のGNU Tools for STM32 14.3.rel1
+* `apps/sentinel-lab`をbuildする場合のみ、ST Edge AI Core 4.0.1-20581（atonn 1.1.3）
 
 UART consoleはST-LINK virtual COM portを使用し、115200 baud、8-N-1、flow controlなしに設定します。
 
+### sentinel-lab向けNeural-ART middlewareの配置
+
+ST Edge AI Coreをinstallしただけでは、`apps/sentinel-lab`のCubeIDE projectからmiddlewareは参照されません。新しいPCでbuildする前に、repository root（`mtfs`）から次の配置scriptを1回実行してください。`apps/simple`と`apps/key-provision`、`tests/targets/stm32n6570_dk`のbuildには不要です。
+
+```powershell
+.\tools\storage_sentinel\provision_st_neural_art_runtime.ps1 `
+  -STEdgeAIRoot 'C:\ST\STEdgeAI\4.0'
+```
+
+`-STEdgeAIRoot`は**version directory**を指定します。例えば`C:\ST\STEdgeAI`は上位directoryなのでNG、`C:\ST\STEdgeAI\4.0`がOKです。指定先の直下に`Utilities\windows\stedgeai.exe`、`Utilities\windows\atonn.exe`、`Middlewares\ST\AI\Npu`があることを確認してください。install先が異なる場合は、同じ構成を持つdirectoryへ読み替えます。
+
+scriptはtool versionを検査し、必要なNeural-ART source/headerに加えて`stm32n6xx_hal_rif.h`などのboard用driverを`external/stm32_cube/stm32n6570_dk/Middlewares/ST/AI/Npu`へ配置します。個々のheaderだけを手作業でcopyする必要はありません。この配置先はGit管理対象外なので、別PCのcheckoutでは再実行が必要です。
+
+配置後は次が`True`になることを確認できます。
+
+```powershell
+Test-Path .\external\stm32_cube\stm32n6570_dk\Middlewares\ST\AI\Npu\Devices\STM32N6xx\stm32n6xx_hal_rif.h
+```
+
+CubeIDEでprojectをRefreshしてからClean Buildしてください。fileが存在してもinclude errorが残る場合は、`Appli` projectのlinked folder `STEdgeAINpu`が解決されているか確認します。projectをworkspace内へcopyしてimportすると、repositoryを起点にした相対linkが崩れます。
+
 ### Import、build、debug
 
-1. `apps/simple/targets/stm32n6570_dk`または`tests/targets/stm32n6570_dk`にあるroot、`FSBL`、`Appli`の各projectを同じworkspaceへimportします。
+1. `apps/simple/targets/stm32n6570_dk`、`apps/sentinel-lab/targets/stm32n6570_dk`、または`tests/targets/stm32n6570_dk`にあるroot、`FSBL`、`Appli`の各projectを同じworkspaceへimportします。`sentinel-lab`では先に上記のmiddleware配置を完了してください。
 2. FSBLとAppliでDebug configurationを選択し、FSBL、Appliの順にclean buildします。
 3. FSBL projectのdebug launchを開始します。launch configurationのload listに、FSBLとAppliの両方がbuild/download対象として含まれていることを確認してください。
 4. `apps/simple`では`[simple] overall=PASS`が表示されることを確認します。test applicationでは`help`の後に`test-roundtrip 1`を実行し、FatFs、LFN、concurrency、diagnosticsがPASSし、SDMMC error/timeoutが0であることを確認してください。

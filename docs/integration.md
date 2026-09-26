@@ -107,6 +107,8 @@ NPU inferenceを使用する場合のみ、次のtarget固有sourceとvendor run
 | EK-RA8P1 TFLM / Ethos-U55 | `src/ports/ra_fsp/boards/ek_ra8p1/mtfs_ra8p1_sentinel_npu.c`、`src/ports/ra_fsp/npu/mtfs_ra8p1_tflm_ethosu.cpp`、`mtfs_ra8p1_ethosu_hooks.c`                                             | FSP Ethos-U、TensorFlow Lite Micro、providerへのアクセスの直列化、cache/arena lifecycle                             |
 | STM32N6570 Neural-ART     | `src/ports/stm32_cube/boards/stm32n6570_dk/mtfs_stm32n6570_sentinel_npu.c`、`src/ports/stm32_cube/npu/mtfs_stm32n6_neural_art.c`、`mtfs_stm32n6_async_wait.c`、`mtfs_stm32n6_aton_osal.c` | ST Neural-ART middleware、generated relocatable runtime、`LL_ATON_*` build設定、NPU IRQ/cache/linker region |
 
+STM32N6570-DKの`apps/sentinel-lab`をclean checkoutからbuildする場合、ST Edge AI Coreのinstallだけではmiddlewareがprojectの参照先へ配置されません。[Getting Startedの配置手順](getting-started.md#sentinel-lab向けneural-art-middlewareの配置)に従い、`provision_st_neural_art_runtime.ps1`を先に実行してください。
+
 target providerを追加するだけでは、application側のlifecycleは完結しません。
 
 application側で、認証済みbundleのload、runtime policy、arena、lock、timeout、およびproviderのopen/infer/close処理を組み合わせる必要があります。
